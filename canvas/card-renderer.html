@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识卡片制作 - aistartups.cn</title>
+<script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --navy: #1B2A4A;
+    --cyan: #29B8D4;
+    --bg: #F0F1F5;
+    --white: #FFFFFF;
+    --border: #D0D3DA;
+    --text: #2C3E50;
+    --text-light: #7F8C8D;
+    --shadow: 0 2px 8px rgba(0,0,0,.06);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* 顶栏 */
+  #top-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 24px; background: var(--navy); color: var(--white); flex-shrink: 0; height: 52px;
+  }
+  #top-bar h1 { font-size: 18px; font-weight: 700; }
+  #top-bar .subtitle { font-size: 12px; opacity: .7; margin-left: 10px; }
+
+  /* 主体 */
+  #main-area {
+    display: flex; flex: 1; overflow: hidden;
+  }
+
+  /* 左侧面板 */
+  #side-panel {
+    width: 360px; min-width: 320px; background: var(--white); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .panel-section { padding: 16px; border-bottom: 1px solid var(--border); }
+  .panel-section:last-child { border-bottom: none; }
+
+  .section-title { font-size: 14px; font-weight: 700; color: var(--navy); margin-bottom: 8px; }
+
+  textarea {
+    width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 12px; line-height: 1.5; font-family: "SF Mono", "Fira Code", monospace;
+    resize: vertical;
+  }
+  textarea:focus { outline: none; border-color: var(--cyan); }
+
+  .input-row { display: flex; gap: 8px; align-items: center; }
+  .input-row input {
+    flex: 1; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+  }
+
+  .btn {
+    padding: 8px 16px; border: 1px solid var(--border); background: var(--white);
+    border-radius: 6px; font-size: 13px; cursor: pointer; transition: .15s; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--cyan); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-primary { background: var(--navy); color: var(--white); border-color: var(--navy); }
+  .btn-primary:hover { background: var(--cyan); border-color: var(--cyan); }
+  .btn-cyan { background: var(--cyan); color: var(--white); border-color: var(--cyan); }
+  .btn-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+
+  /* 卡片导航 */
+  #card-nav { display: flex; flex-wrap: wrap; gap: 4px; }
+  .card-nav-btn {
+    flex: 1; min-width: 40px; padding: 6px 4px; border: 1px solid var(--border);
+    background: var(--bg); font-size: 11px; cursor: pointer; border-radius: 4px; text-align: center;
+    transition: .15s;
+  }
+  .card-nav-btn:hover { border-color: var(--cyan); }
+  .card-nav-btn.active { background: var(--navy); color: var(--white); border-color: var(--navy); }
+
+  .card-meta { font-size: 12px; color: var(--text-light); margin-top: 6px; }
+
+  /* 画布区域 */
+  #canvas-wrapper {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    overflow: auto; padding: 20px; background: #E8EAEF;
+  }
+  #canvas-container {
+    border-radius: 8px; overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,.12);
+  }
+
+  /* 状态栏 */
+  #status-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 6px 16px; background: var(--white); border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--text-light); flex-shrink: 0;
+  }
+  .status-msg { flex: 1; }
+  .status-success { color: #27AE60; }
+  .status-error { color: #E74C3C; }
+  .status-info { color: var(--cyan); }
+</style>
+</head>
+<body>
+
+<div id="top-bar">
+  <div style="display:flex;align-items:center">
+    <h1>aistartups.cn</h1>
+    <span class="subtitle">知识卡片制作</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span style="font-size:12px">画布尺寸：1080 × 1920 px</span>
+    <button class="btn btn-cyan" onclick="exportCurrentCard()" style="background:var(--cyan);color:white;border:none">导出当前卡片</button>
+    <button class="btn btn-primary" onclick="exportAllCardsFromPage()">导出全部7张</button>
+  </div>
+</div>
+
+<div id="main-area">
+  <!-- 左侧面板 -->
+  <div id="side-panel">
+    <!-- Markdown 输入 -->
+    <div class="panel-section">
+      <div class="section-title">粘贴 Markdown（来自模块二导出）</div>
+      <textarea id="md-input" rows="6" placeholder="在此粘贴模块二导出的 Markdown 内容..."></textarea>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="parseAndRender()">解析并渲染</button>
+        <button class="btn" onclick="document.getElementById('md-input').value=''">清空</button>
+      </div>
+    </div>
+
+    <!-- 卡片导航 -->
+    <div class="panel-section">
+      <div class="section-title">卡片导航</div>
+      <div id="card-nav">
+        <button class="card-nav-btn active" data-card="1">卡片1</button>
+        <button class="card-nav-btn" data-card="2">卡片2</button>
+        <button class="card-nav-btn" data-card="3">卡片3</button>
+        <button class="card-nav-btn" data-card="4">卡片4</button>
+        <button class="card-nav-btn" data-card="5">卡片5</button>
+        <button class="card-nav-btn" data-card="6">卡片6</button>
+        <button class="card-nav-btn" data-card="7">卡片7</button>
+      </div>
+      <div class="card-meta" id="card-meta">未加载</div>
+    </div>
+
+    <!-- 快速操作 -->
+    <div class="panel-section">
+      <div class="section-title">公司名称（用于导出文件名）</div>
+      <div class="input-row">
+        <input type="text" id="company-name-input" placeholder="输入公司名...">
+      </div>
+    </div>
+  </div>
+
+  <!-- 画布区域 -->
+  <div id="canvas-wrapper">
+    <div id="canvas-container">
+      <canvas id="fabric-canvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<div id="status-bar">
+  <span id="status-msg" class="status-msg">就绪 — 请粘贴 Markdown 并点击「解析并渲染」</span>
+</div>
+
+<script src="js/markdown-parser.js"></script>
+<script src="js/card-layout.js"></script>
+<script src="js/fabric-renderer.js"></script>
+<script src="js/export.js"></script>
+
+<script>
+// ── 页面主逻辑 ──────────────────────────────────
+
+let currentCardIndex = 1;
+let allCardData = null;
+
+// 初始化画布
+document.addEventListener('DOMContentLoaded', () => {
+  initCanvas('fabric-canvas');
+
+  // 卡片导航按钮
+  document.querySelectorAll('.card-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.card);
+      switchToCard(idx);
+    });
+  });
+});
+
+function switchToCard(cardIndex) {
+  currentCardIndex = cardIndex;
+  document.querySelectorAll('.card-nav-btn').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.card) === cardIndex);
+  });
+
+  if (allCardData && allCardData[cardIndex]) {
+    displayCard(cardIndex, allCardData[cardIndex]);
+    showStatus(`显示卡片 ${cardIndex}：${allCardData[cardIndex]._title || ''}`, 'info');
+  } else {
+    clearCanvas();
+    showStatus(`卡片 ${cardIndex}：无数据`, 'info');
+  }
+
+  document.getElementById('card-meta').textContent =
+    allCardData && allCardData[cardIndex] ?
+    `卡片${cardIndex} · 已解析 · 共 ${Object.keys(allCardData[cardIndex]).filter(k => !k.startsWith('_')).length} 个字段` :
+    '无数据';
+}
+
+function parseAndRender() {
+  const mdText = document.getElementById('md-input').value.trim();
+  if (!mdText) {
+    showStatus('请先粘贴 Markdown 内容', 'error');
+    return;
+  }
+
+  try {
+    allCardData = parseFullMarkdown(mdText);
+    window._currentCardData = allCardData;
+
+    const dataCount = Object.keys(allCardData).length;
+    showStatus(`解析成功！识别到 ${dataCount} 张卡片`, 'success');
+
+    // 显示卡片1
+    if (allCardData[1]) {
+      switchToCard(1);
+    }
+
+    // 更新卡片按钮状态
+    updateCardNavButtons();
+
+  } catch (e) {
+    showStatus('解析失败：' + e.message, 'error');
+    console.error(e);
+  }
+}
+
+function updateCardNavButtons() {
+  document.querySelectorAll('.card-nav-btn').forEach(btn => {
+    const idx = parseInt(btn.dataset.card);
+    if (allCardData && allCardData[idx]) {
+      btn.style.opacity = '1';
+      btn.title = allCardData[idx]._title || `卡片${idx}`;
+    } else {
+      btn.style.opacity = '0.4';
+      btn.title = '无数据';
+    }
+  });
+}
+
+function exportCurrentCard() {
+  if (!allCardData || !allCardData[currentCardIndex]) {
+    showStatus('当前卡片无数据，请先解析 Markdown', 'error');
+    return;
+  }
+  const companyName = document.getElementById('company-name-input').value.trim() || 'company';
+  const cardLabel = `卡片${currentCardIndex}`;
+
+  // 重新渲染以确保画布状态正确
+  displayCard(currentCardIndex, allCardData[currentCardIndex]);
+
+  // 延迟以确保图片加载完成
+  setTimeout(() => {
+    const dataURL = canvas.toDataURL({ format: 'png', multiplier: 1, quality: 1 });
+    const safeName = companyName.replace(/[/\\?%*:|"<>]/g, '_');
+    downloadDataURL(dataURL, `${safeName}_${cardLabel}.png`);
+    showStatus(`卡片 ${currentCardIndex} 导出完成`, 'success');
+  }, 500);
+}
+
+function exportAllCardsFromPage() {
+  if (!allCardData || Object.keys(allCardData).length === 0) {
+    showStatus('无卡片数据，请先解析 Markdown', 'error');
+    return;
+  }
+  const companyName = document.getElementById('company-name-input').value.trim() || 'company';
+  exportAllCards(allCardData, companyName);
+}
+</script>
+
+</body>
+</html>

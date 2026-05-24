@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI初创公司知识卡片 - 内容定稿</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="/static/css/editor.css">
+</head>
+<body>
+
+<!-- 顶栏 -->
+<header id="top-bar">
+  <div class="bar-left">
+    <h1 class="logo">aistartups.cn</h1>
+  </div>
+  <div class="bar-center">
+    <select id="company-select">
+      <option value="">-- 选择公司 --</option>
+    </select>
+    <div class="version-tabs" id="version-tabs">
+      <button class="v-tab active" data-version="standard">标准版</button>
+      <button class="v-tab" data-version="business">商业版</button>
+      <button class="v-tab" data-version="spread">传播版</button>
+    </div>
+  </div>
+  <div class="bar-right">
+    <span class="status-text" id="global-status">请选择公司</span>
+  </div>
+</header>
+
+<!-- 研究任务启动栏 -->
+<section id="research-bar">
+  <label for="research-company-name">公司名</label>
+  <input id="research-company-name" type="text" placeholder="例如 Anthropic">
+  <label for="research-company-url">官网</label>
+  <input id="research-company-url" type="url" placeholder="https://www.anthropic.com">
+  <button id="btn-start-research" class="btn btn-primary">开始研究</button>
+  <span id="research-job-status">待命</span>
+</section>
+
+<!-- 主体：双栏 -->
+<main id="main-pane">
+  <!-- 左栏：三版本对比 -->
+  <aside id="left-pane">
+    <!-- 卡片标签 -->
+    <nav class="card-tabs" id="card-tabs">
+      <button class="card-tab active" data-card="1">卡片1<span class="tab-label">首页</span></button>
+      <button class="card-tab" data-card="2">卡片2<span class="tab-label">公司介绍</span></button>
+      <button class="card-tab" data-card="3">卡片3<span class="tab-label">发展沿袭</span></button>
+      <button class="card-tab" data-card="4">卡片4<span class="tab-label">主产品</span></button>
+      <button class="card-tab" data-card="5">卡片5<span class="tab-label">其他产品</span></button>
+      <button class="card-tab" data-card="6">卡片6<span class="tab-label">商业模式</span></button>
+      <button class="card-tab" data-card="7">卡片7<span class="tab-label">总结</span></button>
+    </nav>
+
+    <!-- 三列对比 -->
+    <div class="compare-container" id="compare-container">
+      <div class="compare-headers" id="compare-headers">
+        <div class="row-label-spacer"></div>
+        <div class="compare-hdr" data-version="standard">标准版<span class="compare-badge">客观·事实核查</span></div>
+        <div class="compare-hdr" data-version="business">商业版<span class="compare-badge">投资人视角</span></div>
+        <div class="compare-hdr" data-version="spread">传播版<span class="compare-badge">自媒体·钩子</span></div>
+      </div>
+      <div class="compare-rows" id="compare-rows">
+        <div class="fields-empty">请选择公司，加载数据</div>
+      </div>
+    </div>
+
+    <!-- 底部操作 -->
+    <div class="card-actions">
+      <div class="split-row" id="split-row" style="display:none">
+        <label>分段数</label>
+        <input type="number" id="segment-count" value="2" min="1" max="10" style="width:60px">
+        <button id="btn-split" class="btn btn-sm">AI分段</button>
+      </div>
+      <div class="action-buttons">
+        <button id="btn-prev" class="btn" disabled>上一张</button>
+        <button id="btn-confirm" class="btn btn-primary">确认本张卡片</button>
+        <button id="btn-next" class="btn" disabled>下一张</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 右栏：编辑 + 预览 -->
+  <section id="right-pane">
+    <div class="preview-toolbar">
+      <span class="preview-label">字段编辑 & 预览</span>
+      <button id="btn-edit-toggle" class="btn btn-sm">编辑模式</button>
+    </div>
+    <div class="preview-content" id="preview-render"></div>
+    <textarea class="preview-editor hidden" id="preview-editor"></textarea>
+    <div class="field-edit-mini" id="field-edit-mini">
+      <div class="mini-label">快速编辑（当前版本：<span id="mini-version-label">标准版</span>）</div>
+      <div id="mini-fields"></div>
+    </div>
+    <div class="preview-actions">
+      <button id="btn-export" class="btn btn-primary">导出完整 Markdown</button>
+    </div>
+  </section>
+</main>
+
+<!-- 钩子段落弹窗（卡片8提示在卡片7确认后显示） -->
+<div class="modal-overlay hidden" id="hook-modal">
+  <div class="modal-content">
+    <h3>传播钩子段落（位于卡片8位置，不生成卡片）</h3>
+    <div id="hook-paragraphs"></div>
+    <button class="btn btn-primary" id="btn-hook-close">关闭</button>
+  </div>
+</div>
+
+<script src="/static/js/api.js"></script>
+<script src="/static/js/preview.js"></script>
+<script src="/static/js/confirm.js"></script>
+<script src="/static/js/editor.js"></script>
+</body>
+</html>

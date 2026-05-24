@@ -1,0 +1,65 @@
+# AI自媒体知识卡片生产系统
+
+## 项目概述
+三模块流水线系统：Python研究流水线 → 内容定稿（Flask）→ 知识卡片制作（fabric.js画布）
+
+## 目录约定
+
+```
+prompts/      — 4层LLM Prompt文件（layer0-3）和分段Prompt
+webapp/       — Flask编辑后台 + 研究流水线（app.py入口）
+canvas/       — fabric.js画布静态页面
+db/           — SQLite建表SQL和数据库文件
+tests/        — unittest 回归测试
+```
+
+## 日常操作
+
+### 启动服务
+```bash
+pip install -r requirements.txt
+cd webapp && python3 app.py
+# 访问 http://127.0.0.1:5050/editor/
+```
+
+### 研究一家公司
+```bash
+curl -X POST http://127.0.0.1:5050/api/research/start \
+  -H "Content-Type: application/json" \
+  -d '{"company_name":"Anthropic","company_url":"https://www.anthropic.com"}'
+# 返回 {"job_id":"abc123","status":"running"}
+```
+
+### 查询研究进度
+```bash
+curl http://127.0.0.1:5050/api/research/status/<job_id>
+```
+
+### 验证
+```bash
+python3 -m unittest discover -s tests -v
+python3 -m py_compile webapp/*.py
+```
+
+### 初始化数据库
+```bash
+sqlite3 db/research_db.sqlite < db/init_research_db.sql
+sqlite3 db/final_db.sqlite < db/init_final_db.sql
+```
+
+## 技术约束
+- 所有LLM调用使用DeepSeek V4 Pro
+- 前端不用React/Vue，Vanilla JS + CDN
+- 数据库用sqlite3标准库，不用ORM
+- 网页抓取用本地 trafilatura（`webapp/firecrawl_local.py`），不依赖外部 API
+- 成本目标 < $0.20/次研究
+- 不生成卡片8
+- 研究主流程不依赖 n8n；不要新增 n8n 工作流作为主路径
+- `final_content` 以 `company_name + card_index + field_name` 作为唯一字段键，重复确认应更新而非插入
+- L3 任一版本字段提取失败时，任务应失败且不写入假成功记录
+
+## 参考
+- 新人入口：`README.md`
+- 架构说明：`docs/architecture.md`
+- 运行手册：`docs/runbook.md`
+- 技术文档：aistartups_tech_doc.docx
