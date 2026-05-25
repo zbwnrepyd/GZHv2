@@ -47,3 +47,17 @@ CREATE TABLE IF NOT EXISTS research (
 
 CREATE INDEX IF NOT EXISTS idx_research_company ON research(company_name);
 CREATE INDEX IF NOT EXISTS idx_research_version ON research(company_name, version);
+
+-- research_jobs: 研究任务状态追踪（持久化，服务重启不丢失）
+CREATE TABLE IF NOT EXISTS research_jobs (
+  job_id       TEXT PRIMARY KEY,
+  company_name TEXT NOT NULL,
+  company_url  TEXT NOT NULL,
+  status       TEXT DEFAULT 'pending',
+  stage        TEXT,
+  detail       TEXT,
+  error        TEXT,
+  record_ids   TEXT,
+  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+);

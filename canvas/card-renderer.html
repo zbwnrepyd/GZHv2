@@ -76,14 +76,16 @@
   .btn-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 
   /* 卡片导航 */
-  #card-nav { display: flex; flex-wrap: wrap; gap: 4px; }
+  #card-nav { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
   .card-nav-btn {
-    flex: 1; min-width: 40px; padding: 6px 4px; border: 1px solid var(--border);
-    background: var(--bg); font-size: 11px; cursor: pointer; border-radius: 4px; text-align: center;
-    transition: .15s;
+    aspect-ratio: 9/16; min-width: 40px; padding: 0; border: 2px solid var(--border);
+    background: var(--bg); font-size: 10px; cursor: pointer; border-radius: 4px;
+    text-align: center; transition: .15s; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
   }
   .card-nav-btn:hover { border-color: var(--cyan); }
-  .card-nav-btn.active { background: var(--navy); color: var(--white); border-color: var(--navy); }
+  .card-nav-btn.active { border-color: var(--navy); box-shadow: 0 0 0 2px var(--cyan); }
+  .card-nav-btn img { display: block; }
 
   .card-meta { font-size: 12px; color: var(--text-light); margin-top: 6px; }
 
@@ -176,6 +178,8 @@
 <script src="js/card-layout.js"></script>
 <script src="js/fabric-renderer.js"></script>
 <script src="js/export.js"></script>
+<script src="js/api-loader.js"></script>
+<script src="js/thumbnail-nav.js"></script>
 
 <script>
 // ── 页面主逻辑 ──────────────────────────────────
@@ -184,7 +188,7 @@ let currentCardIndex = 1;
 let allCardData = null;
 
 // 初始化画布
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   initCanvas('fabric-canvas');
 
   // 卡片导航按钮
@@ -194,6 +198,27 @@ document.addEventListener('DOMContentLoaded', () => {
       switchToCard(idx);
     });
   });
+
+  // URL 参数自动加载
+  const params = new URLSearchParams(window.location.search);
+  const companyFromURL = params.get('company');
+  if (companyFromURL) {
+    try {
+      showStatus(`正在加载 ${companyFromURL} 的数据...`, 'info');
+      const result = await loadFromAPI(companyFromURL);
+      allCardData = result.allCardData;
+      window._currentCardData = allCardData;
+
+      document.getElementById('company-name-input').value = result.company_name;
+      updateCardNavButtons();
+      refreshThumbnailNav(allCardData);
+      switchToCard(1);
+      showStatus(`已加载：${result.company_name}，${Object.keys(allCardData).length} 张卡片就绪`, 'success');
+    } catch (e) {
+      showStatus(`自动加载失败：${e.message}。请手动粘贴 Markdown。`, 'error');
+      console.error('API load error:', e);
+    }
+  }
 });
 
 function switchToCard(cardIndex) {
@@ -204,7 +229,7 @@ function switchToCard(cardIndex) {
 
   if (allCardData && allCardData[cardIndex]) {
     displayCard(cardIndex, allCardData[cardIndex]);
-    showStatus(`显示卡片 ${cardIndex}：${allCardData[cardIndex]._title || ''}`, 'info');
+    showStatus(`显示卡片 ${cardIndex}`, 'info');
   } else {
     clearCanvas();
     showStatus(`卡片 ${cardIndex}：无数据`, 'info');
@@ -212,7 +237,7 @@ function switchToCard(cardIndex) {
 
   document.getElementById('card-meta').textContent =
     allCardData && allCardData[cardIndex] ?
-    `卡片${cardIndex} · 已解析 · 共 ${Object.keys(allCardData[cardIndex]).filter(k => !k.startsWith('_')).length} 个字段` :
+    `卡片${cardIndex} · 共 ${Object.keys(allCardData[cardIndex]).filter(k => !k.startsWith('_')).length} 个字段` :
     '无数据';
 }
 
@@ -230,13 +255,12 @@ function parseAndRender() {
     const dataCount = Object.keys(allCardData).length;
     showStatus(`解析成功！识别到 ${dataCount} 张卡片`, 'success');
 
-    // 显示卡片1
     if (allCardData[1]) {
       switchToCard(1);
     }
 
-    // 更新卡片按钮状态
     updateCardNavButtons();
+    refreshThumbnailNav(allCardData);
 
   } catch (e) {
     showStatus('解析失败：' + e.message, 'error');

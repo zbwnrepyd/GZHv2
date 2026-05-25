@@ -82,6 +82,8 @@ def save_research():
 
 
 def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
+    database.create_job(config.DB_PATH_RESEARCH, job_id, company_name, company_url)
+
     def on_progress(stage: str, detail: str):
         with _jobs_lock:
             if job_id in _jobs:
@@ -89,16 +91,22 @@ def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
                 _jobs[job_id]["detail"] = detail
 
     try:
-        ids = run_pipeline(company_name, company_url, progress_callback=on_progress)
+        ids = run_pipeline(company_name, company_url, progress_callback=on_progress, job_id=job_id)
         with _jobs_lock:
             if job_id in _jobs:
                 _jobs[job_id]["status"] = "done"
                 _jobs[job_id]["record_ids"] = ids
+        database.update_job(config.DB_PATH_RESEARCH, job_id,
+                            status="done", record_ids=json.dumps(ids),
+                            stage="完成", detail=f"共 {len(ids)} 条记录")
     except Exception as e:
         with _jobs_lock:
             if job_id in _jobs:
                 _jobs[job_id]["status"] = "failed"
                 _jobs[job_id]["error"] = str(e)
+        database.update_job(config.DB_PATH_RESEARCH, job_id,
+                            status="failed", error=str(e),
+                            stage="失败", detail=str(e)[:200])
 
 
 @app.route("/api/research/start", methods=["POST"])
@@ -135,6 +143,9 @@ def get_research_status(job_id: str):
     with _jobs_lock:
         job = _jobs.get(job_id)
     if not job:
+        db_job = database.get_job(config.DB_PATH_RESEARCH, job_id)
+        if db_job:
+            return jsonify(db_job)
         return jsonify({"error": "任务不存在"}), 404
     return jsonify(job)
 
@@ -171,6 +182,13 @@ def save_final_card():
 @app.route("/api/final/export/<company>")
 def export_company(company: str):
     try:
+        fmt = request.args.get("format", "markdown")
+        if fmt == "json":
+            data = database.export_json(config.DB_PATH_FINAL, company)
+            if not data:
+                return jsonify({"error": "该公司没有已确认的卡片"}), 404
+            return jsonify(data)
+
         markdown = database.export_markdown(config.DB_PATH_FINAL, company)
         if not markdown:
             return jsonify({"error": "该公司没有已确认的卡片"}), 404

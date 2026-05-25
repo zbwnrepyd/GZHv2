@@ -13,9 +13,16 @@ import db as database
 _REQUIRED_FIELDS = database.REQUIRED_RESEARCH_FIELDS
 
 
-def _report(progress_callback, stage: str, detail: str = ""):
+def _report(progress_callback, stage: str, detail: str = "", job_id: str = None):
     if progress_callback:
         progress_callback(stage, detail)
+    if job_id:
+        try:
+            import db as _db
+            from config import config as _cfg
+            _db.update_job(_cfg.DB_PATH_RESEARCH, job_id, stage=stage, detail=detail)
+        except Exception:
+            pass
 
 
 # ── Step 1: 4路并行采集 ──────────────────────────
@@ -87,9 +94,9 @@ def _scrape_website(company_url: str):
     return result
 
 
-def _collect_all(company_name: str, company_url: str, progress_callback=None) -> dict:
+def _collect_all(company_name: str, company_url: str, progress_callback=None, job_id: str = None) -> dict:
     """4路并行采集"""
-    _report(progress_callback, "采集", "4路并行采集中...")
+    _report(progress_callback, "采集", "4路并行采集中...", job_id=job_id)
     tasks = {
         "tavily": lambda: _search_tavily(company_name),
         "github": lambda: _search_github(company_name),
@@ -106,7 +113,7 @@ def _collect_all(company_name: str, company_url: str, progress_callback=None) ->
                 raw[name] = future.result()
             except Exception as e:
                 raw[name] = {"error": str(e)}
-            _report(progress_callback, "采集", f"  {name} 完成")
+            _report(progress_callback, "采集", f"  {name} 完成", job_id=job_id)
     return raw
 
 
@@ -117,12 +124,12 @@ def _load_prompt_text(name: str) -> str:
 
 
 def llm_analysis(company_name: str, company_url: str, raw_data: dict,
-                 progress_callback=None) -> list[dict]:
+                 progress_callback=None, job_id: str = None) -> list[dict]:
     """4层 Prompt 分析，返回 3 版本记录列表"""
     api_key = config.DEEPSEEK_API_KEY
 
     # Layer 0
-    _report(progress_callback, "L0清洗", "信息清洗中...")
+    _report(progress_callback, "L0清洗", "信息清洗中...", job_id=job_id)
     l0_prompt = _load_prompt_text("layer0-cleaner")
     l0_result = call_deepseek(
         api_key, l0_prompt,
@@ -131,7 +138,7 @@ def llm_analysis(company_name: str, company_url: str, raw_data: dict,
     )
 
     # Layer 1
-    _report(progress_callback, "L1横纵分析", "横纵分析中...")
+    _report(progress_callback, "L1横纵分析", "横纵分析中...", job_id=job_id)
     l1_prompt = _load_prompt_text("layer1-hv-analysis")
     l1_result = call_deepseek(
         api_key, l1_prompt, l0_result,
@@ -139,7 +146,7 @@ def llm_analysis(company_name: str, company_url: str, raw_data: dict,
     )
 
     # Layer 2
-    _report(progress_callback, "L2商业结构", "商业结构分析中...")
+    _report(progress_callback, "L2商业结构", "商业结构分析中...", job_id=job_id)
     l2_prompt = _load_prompt_text("layer2-business")
     l2_context = json.dumps({"layer0": l0_result, "layer1": l1_result}, ensure_ascii=False, indent=2)
     l2_result = call_deepseek(
@@ -162,36 +169,98 @@ def llm_analysis(company_name: str, company_url: str, raw_data: dict,
 
     all_records = []
     for ver_name, ver_inst in versions:
-        _report(progress_callback, f"L3-{ver_name}", f"提取 {ver_name} 版...")
+        _report(progress_callback, f"L3-{ver_name}", f"提取 {ver_name} 版...", job_id=job_id)
         prompt = l3_prompt_template
         for placeholder, value in [("{{VERSION}}", ver_name),
                                     ("{{VERSION_INSTRUCTIONS}}", ver_inst),
                                     ("{{VERSION_SPECIFIC}}", ver_inst)]:
             prompt = prompt.replace(placeholder, value)
 
-        try:
-            l3_result = call_deepseek(
-                api_key, prompt, all_context,
-                temperature=0.15, max_tokens=8192, timeout=120,
-            )
-            parsed = _extract_json(l3_result)
+        parsed = None
+        for attempt in range(2):
+            try:
+                l3_result = call_deepseek(
+                    api_key, prompt, all_context,
+                    temperature=0.15, max_tokens=16384, timeout=120,
+                )
+                parsed = _extract_json(l3_result)
+                break
+            except ValueError as e:
+                if attempt == 0:
+                    _report(progress_callback, f"L3-{ver_name}", f"JSON修复失败，重试...", job_id=job_id)
+                    retry_msg = f"上一次输出 JSON 无法解析：{e}\n请确保输出合法 JSON（检查逗号、引号、转义）。"
+                    prompt = prompt + "\n\n" + retry_msg
+                else:
+                    all_records.append({"company_name": company_name, "version": ver_name, "_error": str(e)})
+                    break
+
+        if parsed is not None:
             parsed["company_name"] = company_name
             parsed["version"] = ver_name
             all_records.append(parsed)
-        except Exception as e:
-            all_records.append({"company_name": company_name, "version": ver_name, "_error": str(e)})
 
     return all_records
 
 
 def _extract_json(text: str) -> dict:
-    match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
+    match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text, flags=re.IGNORECASE)
     if match:
-        return json.loads(match.group(1))
+        text = match.group(1)
     clean = text.strip()
-    if clean.startswith('{'):
-        return json.loads(clean)
+
+    # 尝试直接解析
+    try:
+        if clean.startswith('{'):
+            return json.loads(clean)
+    except json.JSONDecodeError:
+        pass
+
+    # LLM 偶尔会在 JSON 前后加解释文字；截取第一个完整对象再解析。
+    json_obj = _find_json_object(clean)
+    if json_obj:
+        try:
+            return json.loads(json_obj)
+        except json.JSONDecodeError:
+            text = json_obj
+
+    # 用 json_repair 自动修复常见语法错误
+    try:
+        from json_repair import repair_json
+        return json.loads(repair_json(text))
+    except ImportError:
+        pass
+
     raise ValueError(f"Cannot parse JSON from: {text[:200]}...")
+
+
+def _find_json_object(text: str) -> str | None:
+    start = text.find('{')
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == '\\':
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
 
 
 def _validate_records(records: list[dict]) -> list[dict]:
@@ -207,29 +276,29 @@ def _validate_records(records: list[dict]) -> list[dict]:
 # ── 主入口 ─────────────────────────────────────
 
 def run_pipeline(company_name: str, company_url: str,
-                 progress_callback=None) -> list[int]:
+                 progress_callback=None, job_id: str = None) -> list[int]:
     """执行完整研究流水线，返回插入的记录 ID 列表"""
     t0 = time.time()
 
     # Step 1: 采集
-    raw = _collect_all(company_name, company_url, progress_callback)
+    raw = _collect_all(company_name, company_url, progress_callback, job_id=job_id)
     t1 = time.time()
-    _report(progress_callback, "采集完成", f"({t1 - t0:.1f}s)")
+    _report(progress_callback, "采集完成", f"({t1 - t0:.1f}s)", job_id=job_id)
 
     # Step 2: AI 分析
-    _report(progress_callback, "分析", "开始 4 层 LLM 分析...")
-    records = llm_analysis(company_name, company_url, raw, progress_callback)
+    _report(progress_callback, "分析", "开始 4 层 LLM 分析...", job_id=job_id)
+    records = llm_analysis(company_name, company_url, raw, progress_callback, job_id=job_id)
     errors = [r for r in records if r.get("_error")]
     if errors:
         details = ", ".join(f"{r.get('version', '?')}: {r.get('_error')}" for r in errors)
         raise RuntimeError(f"L3 字段提取失败: {details}")
     records = _validate_records(records)
     t2 = time.time()
-    _report(progress_callback, "分析完成", f"({t2 - t1:.1f}s)")
+    _report(progress_callback, "分析完成", f"({t2 - t1:.1f}s)", job_id=job_id)
 
     # Step 3: 写库
-    _report(progress_callback, "写库", "写入数据库...")
+    _report(progress_callback, "写库", "写入数据库...", job_id=job_id)
     ids = database.save_research_records(config.DB_PATH_RESEARCH, records)
     t3 = time.time()
-    _report(progress_callback, "完成", f"总耗时 {t3 - t0:.1f}s, IDs: {ids}")
+    _report(progress_callback, "完成", f"总耗时 {t3 - t0:.1f}s, IDs: {ids}", job_id=job_id)
     return ids

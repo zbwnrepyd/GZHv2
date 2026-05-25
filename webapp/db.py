@@ -86,6 +86,40 @@ def save_research_records(db_path: str, records: list[dict]) -> list[int]:
     return ids
 
 
+# ── research_jobs 追踪 ──────────────────────────────────────────
+
+
+def create_job(db_path: str, job_id: str, company_name: str, company_url: str):
+    with get_db(db_path) as conn:
+        conn.execute(
+            """INSERT INTO research_jobs (job_id, company_name, company_url, status, stage, detail)
+               VALUES (?, ?, ?, 'running', '启动', '准备开始...')""",
+            (job_id, company_name, company_url),
+        )
+        conn.commit()
+
+
+def update_job(db_path: str, job_id: str, **kwargs):
+    if not kwargs:
+        return
+    sets = [f"{k}=?" for k in kwargs]
+    values = list(kwargs.values()) + [job_id]
+    with get_db(db_path) as conn:
+        conn.execute(
+            f"UPDATE research_jobs SET {','.join(sets)}, updated_at=CURRENT_TIMESTAMP WHERE job_id=?",
+            values,
+        )
+        conn.commit()
+
+
+def get_job(db_path: str, job_id: str) -> dict | None:
+    with get_db(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM research_jobs WHERE job_id=?", (job_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
 # ── final_db 读写 ─────────────────────────────────────────────
 
 
@@ -145,6 +179,24 @@ def get_final_cards(db_path: str, company_name: str) -> list[dict]:
             (company_name,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+
+def export_json(db_path: str, company_name: str) -> dict | None:
+    """导出结构化 JSON，供 canvas 直接消费"""
+    cards = get_final_cards(db_path, company_name)
+    if not cards:
+        return None
+
+    result: dict[str, dict] = {}
+    for c in cards:
+        ci = str(c["card_index"])
+        if ci not in result:
+            result[ci] = {"fields": {}, "img_paths": {}}
+        result[ci]["fields"][c["field_name"]] = c["field_value"] or ""
+        if c["img_local_path"]:
+            result[ci]["img_paths"][c["field_name"]] = c["img_local_path"]
+
+    return {"company_name": company_name, "cards": result}
 
 
 def export_markdown(db_path: str, company_name: str) -> str:

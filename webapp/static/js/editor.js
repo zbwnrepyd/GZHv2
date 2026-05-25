@@ -26,11 +26,7 @@ const App = {
       btn.addEventListener('click', () => this.switchVersion(btn.dataset.version));
     });
 
-    document.querySelectorAll('.card-tab').forEach(tab => {
-      tab.addEventListener('click', () => this.switchCard(parseInt(tab.dataset.card)));
-    });
-
-    // 比较 header 点击切换版本
+    // 比较 header 点击切换版本（快速填充）
     document.querySelectorAll('.compare-hdr').forEach(hdr => {
       hdr.addEventListener('click', () => {
         const version = hdr.dataset.version;
@@ -49,6 +45,7 @@ const App = {
     document.getElementById('btn-start-research').addEventListener('click', () => this.startResearchJob());
     document.getElementById('btn-split').addEventListener('click', () => this.splitText());
     document.getElementById('btn-export').addEventListener('click', () => this.exportMarkdown());
+    document.getElementById('btn-export-draft').addEventListener('click', () => this.exportDraftMarkdown());
     document.getElementById('btn-edit-toggle').addEventListener('click', () => this._togglePreviewEdit());
     document.getElementById('btn-hook-close').addEventListener('click', () => {
       document.getElementById('hook-modal').classList.add('hidden');
@@ -92,8 +89,21 @@ const App = {
     try {
       this.allVersions = await API.getAllVersions(name);
       this.localImages = {};
-      this.switchVersion(this.currentVersion);
+      this.fieldPicks = {};
+      this.editedFields = { _hooks: {} };
+      // 取第一个可用版本的数据作为初始值
+      const firstVer = this.allVersions.standard || this.allVersions.business || this.allVersions.spread;
+      if (firstVer) {
+        for (const key of Object.keys(firstVer)) {
+          if (!key.startsWith('_')) {
+            this.editedFields[key] = firstVer[key];
+          }
+        }
+      }
+      this._renderAllAccordions();
       ConfirmManager.init(name);
+      // 展开卡片1
+      this.switchCard(1);
       document.getElementById('global-status').textContent =
         `已加载：${name}（${Object.keys(this.allVersions).length}版本）`;
     } catch (e) {
@@ -135,18 +145,21 @@ const App = {
     const poll = async () => {
       try {
         const job = await API.getResearchStatus(jobId);
-        this._setResearchStatus(`${job.status} · ${job.stage || '处理中'} · ${job.detail || ''}`, job.status === 'failed' ? 'error' : 'info');
 
         if (job.status === 'done') {
+          this._setResearchStatus(`${job.status} · ${job.stage || '完成'} · ${job.detail || ''}`, 'success');
           clearInterval(this.researchPollTimer);
           btn.disabled = false;
           this._setResearchStatus('研究完成，已刷新公司列表', 'success');
           await this._loadCompanies(companyName);
           this._toast('研究完成', 'success');
         } else if (job.status === 'failed') {
+          this._setResearchStatus(`研究失败 · ${job.error || job.detail || '未知错误'}`, 'error');
           clearInterval(this.researchPollTimer);
           btn.disabled = false;
           this._toast('研究失败: ' + (job.error || '未知错误'), 'error');
+        } else {
+          this._setResearchStatus(`${job.status} · ${job.stage || '处理中'} · ${job.detail || ''}`, 'info');
         }
       } catch (e) {
         clearInterval(this.researchPollTimer);
@@ -157,82 +170,118 @@ const App = {
     };
 
     poll();
-    this.researchPollTimer = setInterval(poll, 3000);
+    this.researchPollTimer = setInterval(poll, 2000);
   },
 
   _setResearchStatus(message, type) {
     const el = document.getElementById('research-job-status');
     el.textContent = message;
     el.className = type || '';
+
+    const details = document.getElementById('research-section');
+    const summaryStatus = document.getElementById('research-summary-status');
+    if (type === 'info') {
+      details.open = true;
+      summaryStatus.textContent = '（研究中...）';
+      summaryStatus.style.color = 'var(--cyan)';
+    } else if (type === 'success') {
+      setTimeout(() => { details.open = false; }, 3000);
+      summaryStatus.textContent = '（上次完成）';
+      summaryStatus.style.color = 'var(--green)';
+    } else if (type === 'error') {
+      summaryStatus.textContent = '（失败）';
+      summaryStatus.style.color = 'var(--red)';
+    }
   },
 
-  // ── 版本切换 ──────────────────────────────────
+  // ── 版本切换（快速填充） ──────────────────────
   switchVersion(version) {
-    this.currentVersion = version;
-    document.querySelectorAll('.v-tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.version === version);
-    });
-    // 高亮对应版本 header
-    document.querySelectorAll('.compare-hdr').forEach(hdr => {
-      hdr.classList.toggle('active-hdr', hdr.dataset.version === version);
-    });
+    const labels = { standard: '标准版', business: '商业版', spread: '传播版' };
+    if (!confirm(`将所有字段设为「${labels[version]}」？`)) return;
 
-    // 将所有字段选为该版本
     const data = this.allVersions[version];
-    if (data) {
-      this.fieldPicks = {};
-      for (const key of Object.keys(data)) {
-        if (key.startsWith('_')) continue;
-        this.fieldPicks[key] = version;
-        this.editedFields[key] = data[key];
-      }
-      this.editedFields._hooks = {
-        hook_paragraph_1: data.hook_paragraph_1 || '',
-        hook_paragraph_2: data.hook_paragraph_2 || '',
-        hook_paragraph_3: data.hook_paragraph_3 || '',
-      };
-    } else {
-      this.editedFields = { _hooks: {} };
-      this.fieldPicks = {};
+    if (!data) return;
+    this.fieldPicks = {};
+    for (const key of Object.keys(data)) {
+      if (key.startsWith('_')) continue;
+      this.fieldPicks[key] = version;
+      this.editedFields[key] = data[key];
     }
+    this.editedFields._hooks = {
+      hook_paragraph_1: data.hook_paragraph_1 || '',
+      hook_paragraph_2: data.hook_paragraph_2 || '',
+      hook_paragraph_3: data.hook_paragraph_3 || '',
+    };
 
-    this._renderComparison(this.currentCard);
+    this._renderComparisonRows(this.currentCard);
     this._renderMiniFields(this.currentCard);
     this._updatePreview();
-    document.getElementById('mini-version-label').textContent =
-      { standard: '标准版', business: '商业版', spread: '传播版' }[version] || version;
   },
 
   // ── 卡片切换 ──────────────────────────────────
   switchCard(cardIndex) {
     this.currentCard = cardIndex;
-    document.querySelectorAll('.card-tab').forEach(t => {
-      t.classList.toggle('active', parseInt(t.dataset.card) === cardIndex);
-    });
-
-    document.getElementById('btn-prev').disabled = cardIndex <= 1;
-    document.getElementById('btn-next').disabled = cardIndex >= 7;
-
-    this._renderComparison(cardIndex);
-    this._renderMiniFields(cardIndex);
-    this._updatePreview();
-
-    const splitRow = document.getElementById('split-row');
-    splitRow.style.display = (cardIndex >= 4) ? 'flex' : 'none';
+    const details = document.querySelector(`.accordion-card[data-card="${cardIndex}"]`);
+    if (details) {
+      details.open = true;
+      details.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   },
 
-  // ── 三列对比渲染（每条可选） ──────────────────
-  _renderComparison(cardIndex) {
+  // ── 手风琴结构 ──────────────────────────────
+  _renderAllAccordions() {
     if (!this.currentCompany) return;
+    const list = document.getElementById('accordion-list');
+    let html = '';
+    for (let i = 1; i <= 7; i++) {
+      const title = CARD_TITLES[i] || `卡片${i}`;
+      const confirmed = ConfirmManager.isConfirmed(i);
+      html += `<details class="accordion-card" data-card="${i}">`;
+      html += `<summary>卡片${i}：${title}${confirmed ? ' <span class="accordion-confirmed">已确认</span>' : ''}</summary>`;
+      html += `<div class="compare-rows" id="compare-rows-${i}"></div>`;
+      html += `</details>`;
+    }
+    list.innerHTML = html;
 
-    const container = document.getElementById('compare-rows');
+    // 事件：展开时渲染字段
+    list.querySelectorAll('.accordion-card').forEach(details => {
+      details.addEventListener('toggle', () => {
+        if (details.open) {
+          const cardIndex = parseInt(details.dataset.card);
+          this.currentCard = cardIndex;
+          this._renderComparisonRows(cardIndex);
+          this._renderMiniFields(cardIndex);
+          this._updatePreview();
+          this._updateNavButtons();
+          // 手风琴模式：关闭其他
+          list.querySelectorAll('.accordion-card').forEach(d => {
+            if (d !== details) d.open = false;
+          });
+        }
+      });
+    });
+
+    // 事件委托：字段选取
+    if (!list._boundPick) {
+      list.addEventListener('click', (e) => {
+        const cell = e.target.closest('.compare-cell');
+        if (!cell) return;
+        this._pickField(cell.dataset.field, cell.dataset.version);
+      });
+      list._boundPick = true;
+    }
+  },
+
+  _renderComparisonRows(cardIndex) {
+    const container = document.getElementById(`compare-rows-${cardIndex}`);
+    if (!container) return;
+
     const defs = CARD_FIELD_MAP[cardIndex] || [];
     const versions = ['standard', 'business', 'spread'];
 
     let rowsHtml = '';
     for (const def of defs) {
       const key = def.key;
-      const pickedVer = this.fieldPicks[key] || '';
       let hasValue = false;
       for (const ver of versions) {
         const v = this.allVersions[ver] && this.allVersions[ver][key];
@@ -263,17 +312,25 @@ const App = {
       rowsHtml += `</div></div>`;
     }
 
-    container.innerHTML = rowsHtml || '<div class="fields-empty">请选择公司，加载数据</div>';
+    container.innerHTML = rowsHtml || '<div class="fields-empty">暂无字段数据</div>';
+  },
 
-    // 事件委托（只绑一次）
-    if (!container._boundPick) {
-      container.addEventListener('click', (e) => {
-        const cell = e.target.closest('.compare-cell');
-        if (!cell) return;
-        this._pickField(cell.dataset.field, cell.dataset.version);
-      });
-      container._boundPick = true;
+  _renderComparison(cardIndex) {
+    // 兼容旧调用：展开对应手风琴
+    const details = document.querySelector(`.accordion-card[data-card="${cardIndex}"]`);
+    if (details && !details.open) {
+      details.open = true;
+      // toggle 事件会自动调用 _renderComparisonRows
+    } else if (details && details.open) {
+      this._renderComparisonRows(cardIndex);
     }
+  },
+
+  _updateNavButtons() {
+    document.getElementById('btn-prev').disabled = this.currentCard <= 1;
+    document.getElementById('btn-next').disabled = this.currentCard >= 7;
+    const splitRow = document.getElementById('split-row');
+    splitRow.style.display = (this.currentCard >= 4) ? 'flex' : 'none';
   },
 
   _pickField(fieldKey, version) {
@@ -315,23 +372,29 @@ const App = {
       const val = this.editedFields[key] || '';
       const isJson = typeof val === 'object';
 
-      html += `<div class="field-group">`;
-      html += `<div class="field-label"><span>${def.label}</span></div>`;
+      const pickedVer = this.fieldPicks[key] || '';
+      const verBadge = pickedVer
+        ? `<span class="ver-badge ver-${pickedVer}">${pickedVer === 'standard' ? 'S' : pickedVer === 'business' ? 'B' : 'P'}</span>`
+        : '';
 
-      if (key === 'main_product_img_src' || key === 'website_url') {
+      html += `<div class="field-group">`;
+      html += `<div class="field-label"><span>${def.label}</span>${verBadge}</div>`;
+
+      if (key === 'main_product_img_src') {
         const imgPath = this.localImages[key] || '';
         html += `<div class="field-img-row">
-          <textarea class="field-input" data-field="${key}" rows="1">${this._esc(isJson ? JSON.stringify(val) : String(val))}</textarea>
+          <input class="field-input field-input-text" data-field="${key}" value="${this._esc(String(val))}">
           <button class="btn-img-gen" data-field="${key}">生成</button>
         </div>`;
         if (imgPath) {
           html += `<div style="font-size:10px;color:var(--green);margin-top:1px">已生成：${imgPath}</div>`;
         }
       } else if (isJson) {
-        html += `<textarea class="field-input" data-field="${key}" rows="3">${this._esc(JSON.stringify(val, null, 2))}</textarea>`;
+        html += `<textarea class="field-input field-input-area" data-field="${key}" rows="3">${this._esc(JSON.stringify(val, null, 2))}</textarea>`;
+      } else if (def.inputType === 'text') {
+        html += `<input class="field-input field-input-text" data-field="${key}" value="${this._esc(String(val))}">`;
       } else {
-        const rows = val.length > 200 ? 4 : (val.length > 100 ? 2 : 1);
-        html += `<textarea class="field-input" data-field="${key}" rows="${rows}">${this._esc(String(val))}</textarea>`;
+        html += `<textarea class="field-input field-input-area" data-field="${key}" rows="3">${this._esc(String(val))}</textarea>`;
       }
 
       html += `</div>`;
@@ -370,21 +433,17 @@ const App = {
   _previewTimer: null,
   _schedulePreviewUpdate() {
     clearTimeout(this._previewTimer);
-    this._previewTimer = setTimeout(() => this._updatePreview(), 300);
+    this._previewTimer = setTimeout(() => this._updatePreview(), 150);
   },
 
   _updatePreview() {
     if (this.isPreviewEditMode) return;
-    const markdown = buildCardMarkdown(this.currentCard, this.editedFields, this.localImages);
+    const confirmed = ConfirmManager.isConfirmed(this.currentCard);
     const renderEl = document.getElementById('preview-render');
+
+    const markdown = buildCardMarkdown(this.currentCard, this.editedFields, this.localImages);
     renderEl.innerHTML = marked.parse(markdown);
-    if (ConfirmManager.isConfirmed(this.currentCard)) {
-      const badge = document.createElement('span');
-      badge.style.cssText = 'display:inline-block;background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:10px;font-size:12px;margin-left:8px';
-      badge.textContent = '已确认';
-      const h2 = renderEl.querySelector('h2');
-      if (h2) h2.appendChild(badge);
-    }
+    renderEl.style.borderLeft = confirmed ? '3px solid var(--green)' : '3px solid transparent';
   },
 
   // ── AI 图片生成 ───────────────────────────────
@@ -428,7 +487,7 @@ const App = {
       ConfirmManager.confirm(cardIndex);
       this._toast(`卡片${cardIndex} 已确认`, 'success');
       this._updatePreview();
-      this._renderComparison(this.currentCard);
+      this._renderComparisonRows(this.currentCard);
 
       const next = ConfirmManager.getNextUnconfirmed(cardIndex);
       if (next) {
@@ -450,6 +509,9 @@ const App = {
     if (hooks.hook_paragraph_2) html += `<div class="hook-p"><strong>段落2</strong><br>${hooks.hook_paragraph_2}</div>`;
     if (hooks.hook_paragraph_3) html += `<div class="hook-p"><strong>段落3</strong><br>${hooks.hook_paragraph_3}</div>`;
     if (!html) html = '<p>暂无钩子段落</p>';
+    html += `<div style="margin-top:16px;text-align:center">
+      <a href="/canvas/?company=${encodeURIComponent(this.currentCompany)}" class="btn btn-cyan" style="display:inline-block;text-decoration:none;padding:10px 24px;background:var(--cyan);color:white;border-radius:6px;font-size:14px">去制作卡片</a>
+    </div>`;
     container.innerHTML = html;
     document.getElementById('hook-modal').classList.remove('hidden');
   },
@@ -459,22 +521,37 @@ const App = {
     const cardIndex = this.currentCard;
     const defs = CARD_FIELD_MAP[cardIndex] || [];
     const count = parseInt(document.getElementById('segment-count').value) || 2;
+    let splitCount = 0;
+    let skippedCount = 0;
+    const splitErrors = [];
 
     for (const def of defs) {
       const val = this.editedFields[def.key];
-      if (!val || val === '暂缺' || typeof val !== 'string' || val.length < 100) continue;
+      if (!val || val === '暂缺' || typeof val !== 'string') {
+        skippedCount++;
+        continue;
+      }
       try {
         const result = await API.splitText(val, count);
         if (result.segments && result.segments.length > 0) {
           this.editedFields[def.key] = result.segments.join('\n\n');
+          splitCount++;
+        } else {
+          skippedCount++;
         }
       } catch (e) {
-        // 分段失败静默跳过
+        splitErrors.push(`${def.label}: ${e.message}`);
       }
     }
     this._renderMiniFields(cardIndex);
     this._updatePreview();
-    this._toast('文本分段完成', 'success');
+    if (splitErrors.length > 0) {
+      this._toast(`分段失败 ${splitErrors.length} 项，请检查 API Key 或网络`, 'error');
+    } else if (splitCount > 0) {
+      this._toast(`文本分段完成：${splitCount} 项`, 'success');
+    } else {
+      this._toast(`没有可分段字段（跳过 ${skippedCount} 项）`, 'error');
+    }
   },
 
   // ── 预览模式切换 ──────────────────────────────
@@ -507,18 +584,45 @@ const App = {
     try {
       const result = await API.exportCompany(this.currentCompany);
       if (result.markdown) {
-        const blob = new Blob([result.markdown], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${this.currentCompany}_knowledge_card.md`;
-        a.click();
-        URL.revokeObjectURL(url);
-        this._toast('Markdown 导出成功', 'success');
+        this._downloadMarkdown(result.markdown, `${this.currentCompany}_confirmed.md`);
+        this._toast('已确认 Markdown 导出成功', 'success');
       }
     } catch (e) {
-      this._toast('导出失败: ' + e.message, 'error');
+      this._toast('导出失败：请先确认至少一张卡片', 'error');
     }
+  },
+
+  exportDraftMarkdown() {
+    if (!this.currentCompany) return;
+    const parts = [];
+    for (let i = 1; i <= 7; i++) {
+      parts.push(buildCardMarkdown(i, this.editedFields, this.localImages));
+    }
+    const hooks = this.editedFields._hooks || {};
+    if (hooks.hook_paragraph_1 || hooks.hook_paragraph_2 || hooks.hook_paragraph_3) {
+      parts.push('---');
+      parts.push('');
+      parts.push('## 传播钩子段落');
+      parts.push('');
+      if (hooks.hook_paragraph_1) parts.push(hooks.hook_paragraph_1);
+      if (hooks.hook_paragraph_2) parts.push(hooks.hook_paragraph_2);
+      if (hooks.hook_paragraph_3) parts.push(hooks.hook_paragraph_3);
+      parts.push('');
+    }
+    this._downloadMarkdown(parts.join('\n'), `${this.currentCompany}_draft.md`);
+    this._toast('草稿 Markdown 导出成功', 'success');
+  },
+
+  _downloadMarkdown(markdown, filename) {
+    const blob = new Blob([markdown], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   },
 
   // ── 工具方法 ──────────────────────────────────

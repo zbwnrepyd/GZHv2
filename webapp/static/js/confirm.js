@@ -2,16 +2,39 @@
 
 const ConfirmManager = {
   _confirmed: new Set(),
+  _company: null,
+
+  _storageKey() {
+    return `confirmed_${this._company}`;
+  },
 
   init(company) {
+    this._company = company;
     this._confirmed = new Set();
-    // 从服务器加载已确认的卡片
+
+    // 先从 localStorage 恢复
+    try {
+      const raw = localStorage.getItem(this._storageKey());
+      if (raw) {
+        JSON.parse(raw).forEach(c => this._confirmed.add(c));
+        this._updateAccordions();
+      }
+    } catch {}
+
+    // 再从服务端同步（服务端数据优先）
     API.checkStatus(company).then(data => {
       if (data.confirmed_cards) {
-        data.confirmed_cards.forEach(c => this._confirmed.add(c));
+        this._confirmed = new Set(data.confirmed_cards);
+        this._persist();
+        this._updateAccordions();
       }
-      this._updateTabs();
     }).catch(() => {});
+  },
+
+  _persist() {
+    try {
+      localStorage.setItem(this._storageKey(), JSON.stringify([...this._confirmed]));
+    } catch {}
   },
 
   isConfirmed(cardIndex) {
@@ -20,16 +43,20 @@ const ConfirmManager = {
 
   confirm(cardIndex) {
     this._confirmed.add(cardIndex);
-    this._updateTabs();
+    this._persist();
+    this._updateAccordions();
   },
 
-  _updateTabs() {
-    document.querySelectorAll('.card-tab').forEach(tab => {
-      const ci = parseInt(tab.dataset.card);
+  _updateAccordions() {
+    document.querySelectorAll('.accordion-card').forEach(details => {
+      const ci = parseInt(details.dataset.card);
+      const summary = details.querySelector('summary');
+      if (!summary) return;
+      const title = CARD_TITLES[ci] || `卡片${ci}`;
       if (this._confirmed.has(ci)) {
-        tab.classList.add('confirmed');
+        summary.innerHTML = `卡片${ci}：${title} <span class="accordion-confirmed">已确认</span>`;
       } else {
-        tab.classList.remove('confirmed');
+        summary.textContent = `卡片${ci}：${title}`;
       }
     });
   },

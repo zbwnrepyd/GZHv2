@@ -30,30 +30,22 @@
 </header>
 
 <!-- 研究任务启动栏 -->
-<section id="research-bar">
-  <label for="research-company-name">公司名</label>
-  <input id="research-company-name" type="text" placeholder="例如 Anthropic">
-  <label for="research-company-url">官网</label>
-  <input id="research-company-url" type="url" placeholder="https://www.anthropic.com">
-  <button id="btn-start-research" class="btn btn-primary">开始研究</button>
-  <span id="research-job-status">待命</span>
-</section>
+<details id="research-section">
+  <summary id="research-summary">新增研究 <span id="research-summary-status"></span></summary>
+  <section id="research-bar">
+    <label for="research-company-name">公司名</label>
+    <input id="research-company-name" type="text" placeholder="例如 Anthropic">
+    <label for="research-company-url">官网</label>
+    <input id="research-company-url" type="url" placeholder="https://www.anthropic.com">
+    <button id="btn-start-research" class="btn btn-primary">开始研究</button>
+    <span id="research-job-status">待命</span>
+  </section>
+</details>
 
 <!-- 主体：双栏 -->
 <main id="main-pane">
   <!-- 左栏：三版本对比 -->
   <aside id="left-pane">
-    <!-- 卡片标签 -->
-    <nav class="card-tabs" id="card-tabs">
-      <button class="card-tab active" data-card="1">卡片1<span class="tab-label">首页</span></button>
-      <button class="card-tab" data-card="2">卡片2<span class="tab-label">公司介绍</span></button>
-      <button class="card-tab" data-card="3">卡片3<span class="tab-label">发展沿袭</span></button>
-      <button class="card-tab" data-card="4">卡片4<span class="tab-label">主产品</span></button>
-      <button class="card-tab" data-card="5">卡片5<span class="tab-label">其他产品</span></button>
-      <button class="card-tab" data-card="6">卡片6<span class="tab-label">商业模式</span></button>
-      <button class="card-tab" data-card="7">卡片7<span class="tab-label">总结</span></button>
-    </nav>
-
     <!-- 三列对比 -->
     <div class="compare-container" id="compare-container">
       <div class="compare-headers" id="compare-headers">
@@ -62,7 +54,7 @@
         <div class="compare-hdr" data-version="business">商业版<span class="compare-badge">投资人视角</span></div>
         <div class="compare-hdr" data-version="spread">传播版<span class="compare-badge">自媒体·钩子</span></div>
       </div>
-      <div class="compare-rows" id="compare-rows">
+      <div class="accordion-list" id="accordion-list">
         <div class="fields-empty">请选择公司，加载数据</div>
       </div>
     </div>
@@ -95,7 +87,8 @@
       <div id="mini-fields"></div>
     </div>
     <div class="preview-actions">
-      <button id="btn-export" class="btn btn-primary">导出完整 Markdown</button>
+      <button id="btn-export-draft" class="btn">导出草稿 Markdown</button>
+      <button id="btn-export" class="btn btn-primary">导出已确认 Markdown</button>
     </div>
   </section>
 </main>

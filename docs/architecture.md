@@ -12,10 +12,12 @@ The app no longer depends on n8n for the main path. Research is started from Fla
 
 - `webapp/app.py`: Flask routes, background job status, static asset routes.
 - `webapp/pipeline.py`: four-source collection, DeepSeek L0-L3 analysis, validation, database write.
-- `webapp/db.py`: SQLite access helpers for research records and final card content.
+- `webapp/db.py`: SQLite access helpers for research records, job tracking, and final card content.
 - `prompts/`: prompt templates loaded by `webapp/deepseek_client.py`.
 - `webapp/static/js/editor.js`: editor orchestration, field picking, research job polling.
 - `canvas/`: standalone Markdown-to-card renderer using fabric.js.
+- `canvas/js/api-loader.js`: loads card data from `/api/final/export?format=json` when opened with `?company=`.
+- `canvas/js/thumbnail-nav.js`: generates small card previews for the left-side navigation.
 
 ## Research Pipeline
 
@@ -26,11 +28,13 @@ The app no longer depends on n8n for the main path. Research is started from Fla
 5. Successful records are inserted into `research_db.sqlite`.
 6. The editor reads the newest record per company/version.
 
-Job status is stored in process memory. Restarting Flask clears job status, but already-written database records remain.
+Job status is persisted in the `research_jobs` table. The `/api/research/status/<job_id>` endpoint checks in-memory state first and falls back to the database, so job status survives Flask restarts.
 
 ## Data Model
 
-`research_db.sqlite` contains generated research records in `research`. Each run normally writes three rows: one per version.
+`research_db.sqlite` contains:
+- `research`: generated research records, 3 rows per run (one per version).
+- `research_jobs`: task lifecycle tracking (status, stage, error). Survives restarts; the status endpoint falls back to this table when the in-memory job dict is cold.
 
 `final_db.sqlite` contains human-confirmed card fields in `final_content`. The unique key is:
 
@@ -54,7 +58,7 @@ Research:
 Editing and export:
 
 - `POST /api/final/save`
-- `GET /api/final/export/<company>`
+- `GET /api/final/export/<company>` — returns Markdown by default. Add `?format=json` for structured data consumed by the canvas renderer.
 - `GET /api/check/<company>`
 - `POST /api/split-text`
 - `POST /api/generate-image`

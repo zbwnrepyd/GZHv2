@@ -55,10 +55,26 @@ input, button, select, textarea { font: inherit; }
 .status-text { font-size: 12px; opacity: .8; }
 
 /* ── 研究启动栏 ───────────────────────────────────────────── */
+#research-section {
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#research-section > summary {
+  padding: 6px 20px; font-size: 13px; font-weight: 600; color: var(--text-light);
+  cursor: pointer; user-select: none; background: #EEF2F6;
+  list-style: none;
+}
+#research-section > summary::-webkit-details-marker { display: none; }
+#research-section > summary::before {
+  content: '▸'; display: inline-block; width: 14px; font-size: 10px;
+  transition: transform .15s;
+}
+#research-section[open] > summary::before { transform: rotate(90deg); }
+#research-section > summary:hover { color: var(--text); }
+
 #research-bar {
   display: flex; align-items: center; gap: 8px;
-  padding: 8px 20px; background: #EEF2F6; border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
+  padding: 8px 20px; background: #EEF2F6;
 }
 #research-bar label {
   font-size: 12px; color: var(--text-light); white-space: nowrap;
@@ -104,6 +120,36 @@ input, button, select, textarea { font: inherit; }
 .card-tab.confirmed { border-color: var(--green); }
 .card-tab.confirmed::after { content: "✓"; color: var(--green); font-size: 10px; }
 .tab-label { font-size: 10px; opacity: .7; margin-top: 2px; }
+
+/* ── 手风琴列表 ──────────────────────────────────────────────── */
+.accordion-list {
+  flex: 1; overflow-y: auto;
+}
+
+.accordion-card {
+  border-bottom: 1px solid var(--border);
+}
+.accordion-card > summary {
+  padding: 8px 12px; font-size: 13px; font-weight: 600; color: var(--navy);
+  cursor: pointer; user-select: none; background: #FAFBFC;
+  list-style: none; position: sticky; top: 0; z-index: 1;
+  border-bottom: 1px solid #EEF0F4;
+}
+.accordion-card > summary::-webkit-details-marker { display: none; }
+.accordion-card > summary::before {
+  content: '▸'; display: inline-block; width: 16px; font-size: 10px;
+  transition: transform .15s; color: var(--text-light);
+}
+.accordion-card[open] > summary::before { transform: rotate(90deg); }
+.accordion-card[open] > summary { background: #EEF2F6; border-bottom-color: var(--border); }
+.accordion-confirmed {
+  font-size: 11px; font-weight: 400; color: var(--green);
+  margin-left: 8px; background: #E8F5E9; padding: 1px 6px; border-radius: 10px;
+}
+
+.accordion-card .compare-rows {
+  max-height: none; overflow: visible;
+}
 
 /* ── 三列对比容器 ──────────────────────────────────────────── */
 .compare-container {
@@ -185,6 +231,13 @@ input, button, select, textarea { font: inherit; }
   color: var(--text); margin-bottom: 3px;
 }
 .field-label .conf-badge { font-size: 10px; padding: 1px 6px; border-radius: 10px; }
+.ver-badge {
+  font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 8px;
+  margin-left: 4px; line-height: 1;
+}
+.ver-badge.ver-standard { background: #E3F2FD; color: #1565C0; }
+.ver-badge.ver-business { background: #FFF3E0; color: #E65100; }
+.ver-badge.ver-spread   { background: #FCE4EC; color: #C62828; }
 .conf-badge.high { background: #E8F5E9; color: #2E7D32; }
 .conf-badge.mid  { background: #FFF3E0; color: #E65100; }
 .conf-badge.low  { background: #FFEBEE; color: #C62828; }
@@ -192,10 +245,12 @@ input, button, select, textarea { font: inherit; }
 
 .field-input {
   width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius);
-  font-size: 12px; line-height: 1.4; resize: vertical; font-family: inherit;
+  font-size: 12px; line-height: 1.4; font-family: inherit;
   transition: border-color .15s;
 }
 .field-input:focus { outline: none; border-color: var(--cyan); }
+.field-input-text { height: 32px; }
+.field-input-area { height: 60px; min-height: 60px; max-height: 120px; resize: vertical; }
 
 .field-img-row { display: flex; gap: 6px; align-items: center; }
 .field-img-row .field-input { flex: 1; }
@@ -236,6 +291,7 @@ input, button, select, textarea { font: inherit; }
 .preview-content {
   flex: 1; overflow-y: auto; padding: 16px 20px; background: var(--white);
   line-height: 1.7; font-size: 13px;
+  border-left: 3px solid transparent; transition: border-color .3s;
 }
 .preview-content h2 { color: var(--navy); border-bottom: 2px solid var(--cyan); padding-bottom: 6px; margin: 16px 0 8px; }
 .preview-content h3 { color: var(--navy); margin: 12px 0 6px; }

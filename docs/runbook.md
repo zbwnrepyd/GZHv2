@@ -103,6 +103,22 @@ Read result:
 curl http://127.0.0.1:5050/api/research/Anthropic
 ```
 
+Export for canvas:
+
+```bash
+# Structured JSON for the card renderer
+curl "http://127.0.0.1:5050/api/final/export/Anthropic?format=json" | python3 -m json.tool
+
+# Open canvas directly with company data
+open "http://127.0.0.1:5050/canvas/?company=Anthropic"
+```
+
+Check job persistence across restarts:
+
+```bash
+sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs ORDER BY created_at DESC LIMIT 5;"
+```
+
 ## Troubleshooting
 
 - Empty or non-JSON request to `/api/research/start` should return 400 with `缺少 company_name 或 company_url`.
