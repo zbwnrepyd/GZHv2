@@ -1,14 +1,14 @@
 # AI自媒体知识卡片生产系统
 
 ## 项目概述
-三模块流水线系统：Python研究流水线 → 内容定稿（Flask）→ 知识卡片制作（fabric.js画布）
+三模块流水线系统：Python研究流水线 → 内容定稿（Flask）→ 知识卡片制作（HTML/CSS画布）
 
 ## 目录约定
 
 ```
 prompts/      — 4层LLM Prompt文件（layer0-3）和分段Prompt
 webapp/       — Flask编辑后台 + 研究流水线（app.py入口）
-canvas/       — fabric.js画布静态页面
+canvas/       — HTML/CSS卡片制作台、单卡页面、Puppeteer截图脚本
 db/           — SQLite建表SQL和数据库文件
 tests/        — unittest 回归测试
 ```
@@ -21,6 +21,7 @@ pip install -r requirements.txt
 cd webapp && python3 app.py
 # 访问研究台 http://127.0.0.1:5050/
 # 定稿台 http://127.0.0.1:5050/editor?company=<公司名>
+# 卡片制作台 http://127.0.0.1:5050/canvas/?company=<公司名>
 ```
 
 ### 研究一家公司
@@ -40,6 +41,7 @@ curl http://127.0.0.1:5050/api/research/status/<job_id>
 ```bash
 python3 -m unittest discover -s tests -v
 python3 -m py_compile webapp/*.py
+node canvas/screenshot.js --help
 ```
 
 ### 初始化数据库
@@ -51,6 +53,7 @@ sqlite3 db/final_db.sqlite < db/init_final_db.sql
 ## 技术约束
 - 所有LLM调用使用DeepSeek V4 Pro
 - 前端不用React/Vue，Vanilla JS + CDN
+- `canvas/` 主路径不用 fabric.js；使用 HTML/CSS 源码编辑器 + iframe 预览，右侧展示当前页完整 HTML+CSS 并实时渲染
 - 数据库用sqlite3标准库，不用ORM
 - 网页抓取用本地 trafilatura（`webapp/firecrawl_local.py`），不依赖外部 API
 - 成本目标 < $0.20/次研究
@@ -61,6 +64,7 @@ sqlite3 db/final_db.sqlite < db/init_final_db.sql
 - `final_content` 以 `company_name + card_index + field_name` 作为唯一字段键，重复确认应更新而非插入
 - 定稿保存优先使用 `field_name='markdown_full'` 的整张 Markdown
 - L3 任一版本字段提取失败时，任务应失败且不写入假成功记录
+- 图片 API Key 可通过环境变量配置，也可在卡片制作台临时输入；临时 Key 只随 `/api/generate-image` 请求发送，不写入 localStorage 或响应
 
 ## 参考
 - 新人入口：`README.md`

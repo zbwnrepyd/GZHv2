@@ -5,7 +5,13 @@ from pathlib import Path
 from config import config
 
 
-def generate_image(prompt: str, save_dir: str = None, filename: str = None) -> str:
+def generate_image(
+    prompt: str,
+    save_dir: str = None,
+    filename: str = None,
+    api_url: str = None,
+    api_key: str = None,
+) -> str:
     """调用 AI 图片生成 API，保存到本地，返回文件路径"""
     if save_dir is None:
         save_dir = config.IMAGES_DIR
@@ -17,7 +23,7 @@ def generate_image(prompt: str, save_dir: str = None, filename: str = None) -> s
     save_path = str(Path(save_dir) / filename)
 
     headers = {
-        "Authorization": f"Bearer {config.IMAGE_API_KEY}",
+        "Authorization": f"Bearer {api_key or config.IMAGE_API_KEY}",
         "Content-Type": "application/json",
     }
     body = {
@@ -28,7 +34,7 @@ def generate_image(prompt: str, save_dir: str = None, filename: str = None) -> s
         "response_format": "b64_json",
     }
 
-    resp = requests.post(config.IMAGE_API_URL, headers=headers, json=body, timeout=120)
+    resp = requests.post(api_url or config.IMAGE_API_URL, headers=headers, json=body, timeout=120)
     resp.raise_for_status()
     data = resp.json()
 

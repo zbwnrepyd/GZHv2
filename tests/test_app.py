@@ -53,6 +53,20 @@ class PageRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="editor-workbench"', response.get_data(as_text=True))
 
+    def test_canvas_single_card_route_renders_html_card_page(self):
+        response = self.client.get("/canvas/card/DemoCo/1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('id="card-page"', html)
+        self.assertIn("knowledge-card", html)
+
+    def test_canvas_single_card_route_rejects_card_8(self):
+        response = self.client.get("/canvas/card/DemoCo/8")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("card_index", response.get_json()["error"])
+
 
 class ResearchCardMarkdownTests(unittest.TestCase):
     def setUp(self):
@@ -105,6 +119,27 @@ class ImageRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["img_path"], "/images/DemoCo_logo.png")
+
+    def test_generate_image_accepts_runtime_api_config_without_echoing_key(self):
+        image_path = os.path.join(ROOT, "images", "DemoCo_card.png")
+        with patch.object(app_module, "generate_image", return_value=image_path) as generate:
+            response = self.client.post(
+                "/api/generate-image",
+                json={
+                    "company_name": "DemoCo",
+                    "field_name": "card_1_image",
+                    "prompt": "clean card image",
+                    "image_api_url": "https://image.example.test/generate",
+                    "image_api_key": "secret-test-key",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["img_path"], "/images/DemoCo_card.png")
+        self.assertNotIn("secret-test-key", str(payload))
+        self.assertEqual(generate.call_args.kwargs["api_url"], "https://image.example.test/generate")
+        self.assertEqual(generate.call_args.kwargs["api_key"], "secret-test-key")
 
 
 class FinalMarkdownFlowTests(unittest.TestCase):

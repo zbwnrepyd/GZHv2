@@ -1,6 +1,6 @@
 # AI自媒体知识卡片生产系统
 
-一个本地运行的三段式生产工具：研究一家 AI 公司，人工定稿内容，再导出 7 张知识卡片。
+一个本地运行的三段式生产工具：研究一家 AI 公司，人工定稿内容，再制作并导出 7 张知识卡片。
 
 ## 快速开始
 
@@ -18,7 +18,7 @@ python3 app.py
 http://127.0.0.1:5050/
 ```
 
-在研究台输入公司名和官网，点击“开始研究”。研究完成后进入定稿台，按行从标准版、商业版、传播版或手写输入中选择最终文案，逐张确认 1-7 号卡片，再进入画布制作卡片。左侧“传播钩子文案”入口会展示三版钩子；它只供正文开头使用，不生成卡片8。
+在研究台输入公司名和官网，点击“开始研究”。研究完成后进入定稿台，按行从标准版、商业版、传播版或手写输入中选择最终文案，逐张确认 1-7 号卡片，再进入卡片制作台。左侧“传播钩子文案”入口会展示三版钩子；它只供正文开头使用，不生成卡片8。
 
 ## 环境变量
 
@@ -33,14 +33,14 @@ IMAGE_API_URL=https://api.openai.com/v1/images/generations
 FLASK_PORT=5050
 ```
 
-`YOUTUBE_API_KEY` 和图片生成相关变量可以暂时为空；对应能力会降级或在调用时失败。
+`YOUTUBE_API_KEY` 和图片生成相关变量可以暂时为空；对应能力会降级或在调用时失败。卡片制作台底部也可以临时输入图片 API URL 和 API Key，API Key 只随当次请求发送，不写入浏览器本地存储，也不在响应中回显。
 
 ## 目录
 
 ```text
 prompts/      L0-L3 研究 Prompt 和文本分段 Prompt
 webapp/       Flask 后台、编辑器 API、Python 研究流水线
-canvas/       fabric.js 静态卡片渲染器
+canvas/       HTML/CSS 卡片制作台、单卡页面和 Puppeteer 截图脚本
 db/           SQLite schema 和本地数据库
 tests/        unittest 回归测试
 ```
@@ -70,6 +70,21 @@ curl http://127.0.0.1:5050/api/research/status/<job_id>
 
 ```text
 http://127.0.0.1:5050/editor?company=Anthropic
+```
+
+进入卡片制作台：
+
+```text
+http://127.0.0.1:5050/canvas/?company=Anthropic
+```
+
+卡片制作台会从 `final_db` 读取已确认的 `markdown_full`，中间显示 3:4 HTML 画布，右侧显示当前页完整 HTML+CSS 源码并带语法高亮；编辑源码会实时渲染到中间画布。底部可以编辑图片提示词，并可临时配置图片 API URL / API Key 生成当前页插图。
+
+批量导出 PNG 需要 Node 依赖：
+
+```bash
+npm install
+node canvas/screenshot.js --company Anthropic --base-url http://127.0.0.1:5050
 ```
 
 更多架构和运维细节见 [docs/architecture.md](docs/architecture.md) 和 [docs/runbook.md](docs/runbook.md)。

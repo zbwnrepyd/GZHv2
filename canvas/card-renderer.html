@@ -3,313 +3,486 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>知识卡片制作 - aistartups.cn</title>
-<script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+<title>知识卡片制作</title>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+  *, *::before, *::after { box-sizing: border-box; }
   :root {
-    --navy: #1B2A4A;
+    --bg: #F2F3F5;
+    --panel: #FFFFFF;
+    --border: #E1E5EC;
+    --text: #111827;
+    --muted: #667085;
     --cyan: #29B8D4;
-    --bg: #F0F1F5;
-    --white: #FFFFFF;
-    --border: #D0D3DA;
-    --text: #2C3E50;
-    --text-light: #7F8C8D;
-    --shadow: 0 2px 8px rgba(0,0,0,.06);
+    --danger: #D92D20;
   }
-
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    margin: 0;
+    height: 100vh;
+    overflow: hidden;
     background: var(--bg);
     color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  #card-workbench {
+    display: grid;
+    grid-template-columns: 210px minmax(480px, 1fr) 520px;
     height: 100vh;
+    min-width: 1220px;
+  }
+  #left-pane, #right-pane {
+    background: var(--panel);
+    border-color: var(--border);
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    min-width: 0;
   }
-
-  /* 顶栏 */
-  #top-bar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 24px; background: var(--navy); color: var(--white); flex-shrink: 0; height: 52px;
+  #left-pane { border-right: 1px solid var(--border); }
+  #right-pane { border-left: 1px solid var(--border); }
+  .pane-head {
+    height: 44px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 800;
   }
-  #top-bar h1 { font-size: 18px; font-weight: 700; }
-  #top-bar .subtitle { font-size: 12px; opacity: .7; margin-left: 10px; }
-
-  /* 主体 */
-  #main-area {
-    display: flex; flex: 1; overflow: hidden;
+  .pane-body {
+    padding: 10px;
+    overflow: auto;
   }
-
-  /* 左侧面板 */
-  #side-panel {
-    width: 360px; min-width: 320px; background: var(--white); border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; overflow: hidden;
+  #card-nav {
+    display: grid;
+    gap: 7px;
   }
-  .panel-section { padding: 16px; border-bottom: 1px solid var(--border); }
-  .panel-section:last-child { border-bottom: none; }
-
-  .section-title { font-size: 14px; font-weight: 700; color: var(--navy); margin-bottom: 8px; }
-
-  textarea {
-    width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px;
-    font-size: 12px; line-height: 1.5; font-family: "SF Mono", "Fira Code", monospace;
-    resize: vertical;
+  .card-tab {
+    width: 100%;
+    height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: #475467;
+    padding: 0 9px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    font-size: 12px;
   }
-  textarea:focus { outline: none; border-color: var(--cyan); }
-
-  .input-row { display: flex; gap: 8px; align-items: center; }
-  .input-row input {
-    flex: 1; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+  .card-tab.active {
+    border-color: var(--text);
+    color: var(--text);
+    background: #F8FAFC;
+    font-weight: 800;
   }
-
+  .card-tab.empty { opacity: .42; }
+  .compact-input {
+    width: 100%;
+    height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
   .btn {
-    padding: 8px 16px; border: 1px solid var(--border); background: var(--white);
-    border-radius: 6px; font-size: 13px; cursor: pointer; transition: .15s; white-space: nowrap;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: #344054;
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
   }
   .btn:hover { border-color: var(--cyan); }
-  .btn:disabled { opacity: .4; cursor: not-allowed; }
-  .btn-primary { background: var(--navy); color: var(--white); border-color: var(--navy); }
-  .btn-primary:hover { background: var(--cyan); border-color: var(--cyan); }
-  .btn-cyan { background: var(--cyan); color: var(--white); border-color: var(--cyan); }
-  .btn-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-
-  /* 卡片导航 */
-  #card-nav { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-  .card-nav-btn {
-    aspect-ratio: 9/16; min-width: 40px; padding: 0; border: 2px solid var(--border);
-    background: var(--bg); font-size: 10px; cursor: pointer; border-radius: 4px;
-    text-align: center; transition: .15s; overflow: hidden;
-    display: flex; align-items: center; justify-content: center;
+  .btn.primary {
+    background: #111827;
+    border-color: #111827;
+    color: #fff;
   }
-  .card-nav-btn:hover { border-color: var(--cyan); }
-  .card-nav-btn.active { border-color: var(--navy); box-shadow: 0 0 0 2px var(--cyan); }
-  .card-nav-btn img { display: block; }
-
-  .card-meta { font-size: 12px; color: var(--text-light); margin-top: 6px; }
-
-  /* 画布区域 */
-  #canvas-wrapper {
-    flex: 1; display: flex; align-items: center; justify-content: center;
-    overflow: auto; padding: 20px; background: #E8EAEF;
+  .btn.danger { color: var(--danger); }
+  #center-pane {
+    min-width: 0;
+    display: grid;
+    grid-template-rows: 44px minmax(0, 1fr) 126px 24px;
   }
-  #canvas-container {
-    border-radius: 8px; overflow: hidden;
-    box-shadow: 0 4px 24px rgba(0,0,0,.12);
+  #canvas-toolbar {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
   }
-
-  /* 状态栏 */
-  #status-bar {
-    display: flex; align-items: center; gap: 12px;
-    padding: 6px 16px; background: var(--white); border-top: 1px solid var(--border);
-    font-size: 12px; color: var(--text-light); flex-shrink: 0;
+  #canvas-title {
+    font-size: 13px;
+    font-weight: 800;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .status-msg { flex: 1; }
-  .status-success { color: #27AE60; }
-  .status-error { color: #E74C3C; }
-  .status-info { color: var(--cyan); }
+  .toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #canvas-stage {
+    position: relative;
+    min-height: 0;
+    padding: 14px;
+    overflow: hidden;
+  }
+  #card-frame {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 900px;
+    height: 1200px;
+    border: 0;
+    background: #fff;
+    box-shadow: 0 22px 54px rgba(15, 23, 42, .14);
+    transform-origin: center center;
+  }
+  #prompt-bar {
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 180px 84px;
+    grid-template-rows: 44px 44px;
+    gap: 8px;
+    align-items: center;
+  }
+  #prompt-input, #image-api-url, #image-api-key {
+    width: 100%;
+    height: 44px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.35;
+    font-family: inherit;
+  }
+  #prompt-input {
+    grid-row: 1 / span 2;
+    resize: none;
+    height: 96px;
+  }
+  #image-api-url { grid-column: 2; grid-row: 1; }
+  #image-api-key { grid-column: 2; grid-row: 2; }
+  #btn-reset-prompt { grid-column: 3; grid-row: 1; }
+  #btn-generate-image { grid-column: 3; grid-row: 2; }
+  #status-msg {
+    padding: 4px 12px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .source-code-wrap {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    background: #0F172A;
+    overflow: hidden;
+  }
+  #source-highlight, #source-editor {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    border: 0;
+    padding: 14px;
+    font: 12px/1.55 "SF Mono", Menlo, Consolas, monospace;
+    tab-size: 2;
+    white-space: pre;
+    overflow: auto;
+  }
+  #source-highlight {
+    pointer-events: none;
+    color: #D6DEFF;
+  }
+  #source-editor {
+    resize: none;
+    background: transparent;
+    color: transparent;
+    caret-color: #FFFFFF;
+    outline: none;
+    z-index: 2;
+    -webkit-text-fill-color: transparent;
+  }
+  #source-editor::selection {
+    background: rgba(41, 184, 212, .32);
+  }
+  .tok-tag { color: #7DD3FC; }
+  .tok-attr { color: #F9E2AF; }
+  .tok-string { color: #A7F3D0; }
+  .tok-comment { color: #6B7280; font-style: italic; }
+  .tok-punct { color: #94A3B8; }
+  .tok-var { color: #C4B5FD; }
+  .tok-prop { color: #93C5FD; }
+  .tok-number { color: #FDBA74; }
+  .tok-selector { color: #F0ABFC; }
+  }
+  .source-hint {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.55;
+    background: #FAFBFC;
+  }
+  .source-hint code {
+    color: var(--text);
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+  }
+  .source-actions {
+    border-top: 1px solid var(--border);
+    padding: 10px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .section {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+  }
+  .section:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+  .hint {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+  }
 </style>
 </head>
 <body>
-
-<div id="top-bar">
-  <div style="display:flex;align-items:center">
-    <h1>aistartups.cn</h1>
-    <span class="subtitle">知识卡片制作</span>
-  </div>
-  <div style="display:flex;align-items:center;gap:12px">
-    <span style="font-size:12px">画布尺寸：1080 × 1920 px</span>
-    <button class="btn btn-cyan" onclick="exportCurrentCard()" style="background:var(--cyan);color:white;border:none">导出当前卡片</button>
-    <button class="btn btn-primary" onclick="exportAllCardsFromPage()">导出全部7张</button>
-  </div>
-</div>
-
-<div id="main-area">
-  <!-- 左侧面板 -->
-  <div id="side-panel">
-    <!-- Markdown 输入 -->
-    <div class="panel-section">
-      <div class="section-title">粘贴 Markdown（来自模块二导出）</div>
-      <textarea id="md-input" rows="6" placeholder="在此粘贴模块二导出的 Markdown 内容..."></textarea>
-      <div class="btn-row">
-        <button class="btn btn-primary" onclick="parseAndRender()">解析并渲染</button>
-        <button class="btn" onclick="document.getElementById('md-input').value=''">清空</button>
+<main id="card-workbench">
+  <aside id="left-pane">
+    <div class="pane-head">
+      <span>卡片</span>
+      <button class="btn" id="btn-reload">刷新</button>
+    </div>
+    <div class="pane-body">
+      <div class="section">
+        <input id="company-name-input" class="compact-input" placeholder="公司名">
+        <p class="hint">默认读取 URL 中的 company 参数。</p>
+      </div>
+      <nav id="card-nav"></nav>
+      <div class="section" style="margin-top:10px">
+        <button class="btn primary" id="btn-export-all" style="width:100%">导出全部 PNG</button>
+        <p class="hint">命令行导出默认读取数据库；源码改动保存在本机浏览器。</p>
       </div>
     </div>
+  </aside>
 
-    <!-- 卡片导航 -->
-    <div class="panel-section">
-      <div class="section-title">卡片导航</div>
-      <div id="card-nav">
-        <button class="card-nav-btn active" data-card="1">卡片1</button>
-        <button class="card-nav-btn" data-card="2">卡片2</button>
-        <button class="card-nav-btn" data-card="3">卡片3</button>
-        <button class="card-nav-btn" data-card="4">卡片4</button>
-        <button class="card-nav-btn" data-card="5">卡片5</button>
-        <button class="card-nav-btn" data-card="6">卡片6</button>
-        <button class="card-nav-btn" data-card="7">卡片7</button>
-      </div>
-      <div class="card-meta" id="card-meta">未加载</div>
-    </div>
-
-    <!-- 快速操作 -->
-    <div class="panel-section">
-      <div class="section-title">公司名称（用于导出文件名）</div>
-      <div class="input-row">
-        <input type="text" id="company-name-input" placeholder="输入公司名...">
+  <section id="center-pane">
+    <div id="canvas-toolbar">
+      <div id="canvas-title">卡片制作台</div>
+      <div class="toolbar-actions">
+        <button class="btn" id="btn-fit">适配窗口</button>
+        <button class="btn" id="btn-open-card">打开单页</button>
+        <button class="btn primary" id="btn-export-current">导出当前</button>
       </div>
     </div>
-  </div>
-
-  <!-- 画布区域 -->
-  <div id="canvas-wrapper">
-    <div id="canvas-container">
-      <canvas id="fabric-canvas"></canvas>
+    <div id="canvas-stage">
+      <iframe id="card-frame" title="卡片预览"></iframe>
     </div>
-  </div>
-</div>
+    <div id="prompt-bar">
+      <textarea id="prompt-input" placeholder="当前卡片图片提示词"></textarea>
+      <input id="image-api-url" type="url" autocomplete="off" placeholder="图片 API URL（可选）">
+      <input id="image-api-key" type="password" autocomplete="off" placeholder="API Key（不保存）">
+      <button class="btn" id="btn-reset-prompt">恢复预设</button>
+      <button class="btn primary" id="btn-generate-image">生成图片</button>
+    </div>
+    <div id="status-msg">就绪</div>
+  </section>
 
-<div id="status-bar">
-  <span id="status-msg" class="status-msg">就绪 — 请粘贴 Markdown 并点击「解析并渲染」</span>
-</div>
+  <aside id="right-pane">
+    <div class="pane-head">
+      <span>HTML + CSS</span>
+      <button class="btn danger" id="btn-reset-source">重置</button>
+    </div>
+    <div class="source-hint">
+      风格提示：优先调 <code>--title-size</code>、<code>--body-size</code>、<code>--card-padding-x</code>、<code>--image-height</code>、<code>--accent</code>。
+      内容结构可直接改 <code>.card-nav</code>、<code>.card-title</code>、<code>.card-body</code>。
+    </div>
+    <div class="source-code-wrap">
+      <pre id="source-highlight" aria-hidden="true"></pre>
+      <textarea id="source-editor" spellcheck="false" wrap="off"></textarea>
+    </div>
+    <div class="source-actions">
+      <button class="btn primary" id="btn-save-source" style="grid-column:1 / -1">保存当前页源码</button>
+    </div>
+  </aside>
+</main>
 
-<script src="js/markdown-parser.js"></script>
-<script src="js/card-layout.js"></script>
-<script src="js/fabric-renderer.js"></script>
-<script src="js/export.js"></script>
-<script src="js/api-loader.js"></script>
-<script src="js/thumbnail-nav.js"></script>
-
+<script src="/canvas/js/markdown-parser.js"></script>
+<script src="/canvas/js/api-loader.js"></script>
+<script src="/canvas/js/html-card-renderer.js"></script>
+<script src="/canvas/js/source-editor.js"></script>
+<script src="/canvas/js/prompt-bar.js"></script>
+<script src="/canvas/js/export-client.js"></script>
 <script>
-// ── 页面主逻辑 ──────────────────────────────────
+const CARD_TABS = {
+  1: '首页',
+  2: '公司',
+  3: '沿袭',
+  4: '主产品',
+  5: '产品线',
+  6: '商业',
+  7: '总结',
+};
 
-let currentCardIndex = 1;
-let allCardData = null;
+const Workbench = {
+  companyName: '',
+  currentCard: 1,
+  allCardData: {},
 
-// 初始化画布
-document.addEventListener('DOMContentLoaded', async () => {
-  initCanvas('fabric-canvas');
-
-  // 卡片导航按钮
-  document.querySelectorAll('.card-nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.dataset.card);
-      switchToCard(idx);
+  async init() {
+    const params = new URLSearchParams(window.location.search);
+    this.companyName = params.get('company') || '';
+    document.getElementById('company-name-input').value = this.companyName;
+    this.bindEvents();
+    this.renderNav();
+    SourceEditor.init({
+      getCompanyName: () => this.companyName,
+      getCurrentCard: () => this.currentCard,
+      getCurrentSource: () => this.currentSource(),
+      refreshPreview: () => this.refreshPreview(),
+      setStatus: (msg, type) => this.setStatus(msg, type),
     });
-  });
+    PromptBar.init({
+      getCompanyName: () => this.companyName,
+      getCurrentCard: () => this.currentCard,
+      getCardData: () => this.allCardData[this.currentCard] || {},
+      refreshPreview: () => this.refreshPreview(),
+      setStatus: (msg, type) => this.setStatus(msg, type),
+    });
 
-  // URL 参数自动加载
-  const params = new URLSearchParams(window.location.search);
-  const companyFromURL = params.get('company');
-  if (companyFromURL) {
-    try {
-      showStatus(`正在加载 ${companyFromURL} 的数据...`, 'info');
-      const result = await loadFromAPI(companyFromURL);
-      allCardData = result.allCardData;
-      window._currentCardData = allCardData;
-
-      document.getElementById('company-name-input').value = result.company_name;
-      updateCardNavButtons();
-      refreshThumbnailNav(allCardData);
-      switchToCard(1);
-      showStatus(`已加载：${result.company_name}，${Object.keys(allCardData).length} 张卡片就绪`, 'success');
-    } catch (e) {
-      showStatus(`自动加载失败：${e.message}。请手动粘贴 Markdown。`, 'error');
-      console.error('API load error:', e);
-    }
-  }
-});
-
-function switchToCard(cardIndex) {
-  currentCardIndex = cardIndex;
-  document.querySelectorAll('.card-nav-btn').forEach(b => {
-    b.classList.toggle('active', parseInt(b.dataset.card) === cardIndex);
-  });
-
-  if (allCardData && allCardData[cardIndex]) {
-    displayCard(cardIndex, allCardData[cardIndex]);
-    showStatus(`显示卡片 ${cardIndex}`, 'info');
-  } else {
-    clearCanvas();
-    showStatus(`卡片 ${cardIndex}：无数据`, 'info');
-  }
-
-  document.getElementById('card-meta').textContent =
-    allCardData && allCardData[cardIndex] ?
-    `卡片${cardIndex} · 共 ${Object.keys(allCardData[cardIndex]).filter(k => !k.startsWith('_')).length} 个字段` :
-    '无数据';
-}
-
-function parseAndRender() {
-  const mdText = document.getElementById('md-input').value.trim();
-  if (!mdText) {
-    showStatus('请先粘贴 Markdown 内容', 'error');
-    return;
-  }
-
-  try {
-    allCardData = parseFullMarkdown(mdText);
-    window._currentCardData = allCardData;
-
-    const dataCount = Object.keys(allCardData).length;
-    showStatus(`解析成功！识别到 ${dataCount} 张卡片`, 'success');
-
-    if (allCardData[1]) {
-      switchToCard(1);
-    }
-
-    updateCardNavButtons();
-    refreshThumbnailNav(allCardData);
-
-  } catch (e) {
-    showStatus('解析失败：' + e.message, 'error');
-    console.error(e);
-  }
-}
-
-function updateCardNavButtons() {
-  document.querySelectorAll('.card-nav-btn').forEach(btn => {
-    const idx = parseInt(btn.dataset.card);
-    if (allCardData && allCardData[idx]) {
-      btn.style.opacity = '1';
-      btn.title = allCardData[idx]._title || `卡片${idx}`;
+    if (this.companyName) {
+      await this.loadCompany();
     } else {
-      btn.style.opacity = '0.4';
-      btn.title = '无数据';
+      this.setStatus('请在左侧输入公司名，或通过 ?company= 公司名打开。', 'info');
     }
-  });
-}
+  },
 
-function exportCurrentCard() {
-  if (!allCardData || !allCardData[currentCardIndex]) {
-    showStatus('当前卡片无数据，请先解析 Markdown', 'error');
-    return;
-  }
-  const companyName = document.getElementById('company-name-input').value.trim() || 'company';
-  const cardLabel = `卡片${currentCardIndex}`;
+  bindEvents() {
+    document.getElementById('company-name-input').addEventListener('change', async (event) => {
+      this.companyName = event.target.value.trim();
+      await this.loadCompany();
+    });
+    document.getElementById('btn-reload').addEventListener('click', () => this.loadCompany());
+    document.getElementById('btn-fit').addEventListener('click', () => this.fitFrame());
+    document.getElementById('btn-open-card').addEventListener('click', () => window.open(this.cardUrl(), '_blank'));
+    document.getElementById('btn-export-current').addEventListener('click', () => ExportClient.exportCurrent(this));
+    document.getElementById('btn-export-all').addEventListener('click', () => ExportClient.exportAll(this));
+    window.addEventListener('resize', () => this.updateFrameScale());
+  },
 
-  // 重新渲染以确保画布状态正确
-  displayCard(currentCardIndex, allCardData[currentCardIndex]);
+  async loadCompany() {
+    if (!this.companyName) {
+      this.setStatus('缺少公司名。', 'error');
+      return;
+    }
+    try {
+      this.setStatus(`正在加载 ${this.companyName}...`, 'info');
+      const result = await loadFromAPI(this.companyName);
+      this.allCardData = result.allCardData || {};
+      this.currentCard = Number(Object.keys(this.allCardData)[0] || 1);
+      this.renderNav();
+      await this.refreshPreview();
+      this.setStatus(`已加载 ${result.company_name || this.companyName}`, 'success');
+    } catch (error) {
+      this.allCardData = {};
+      this.renderNav();
+      this.setStatus(`加载失败：${error.message}`, 'error');
+    }
+  },
 
-  // 延迟以确保图片加载完成
-  setTimeout(() => {
-    const dataURL = canvas.toDataURL({ format: 'png', multiplier: 1, quality: 1 });
-    const safeName = companyName.replace(/[/\\?%*:|"<>]/g, '_');
-    downloadDataURL(dataURL, `${safeName}_${cardLabel}.png`);
-    showStatus(`卡片 ${currentCardIndex} 导出完成`, 'success');
-  }, 500);
-}
+  renderNav() {
+    const nav = document.getElementById('card-nav');
+    nav.innerHTML = '';
+    for (let i = 1; i <= 7; i += 1) {
+      const button = document.createElement('button');
+      button.className = 'card-tab';
+      button.dataset.card = String(i);
+      button.innerHTML = `<span>${i} ${CARD_TABS[i]}</span><span>${this.allCardData[i] ? '✓' : '·'}</span>`;
+      button.classList.toggle('active', i === this.currentCard);
+      button.classList.toggle('empty', !this.allCardData[i]);
+      button.addEventListener('click', async () => {
+        this.currentCard = i;
+        this.renderNav();
+        await this.refreshPreview();
+      });
+      nav.appendChild(button);
+    }
+  },
 
-function exportAllCardsFromPage() {
-  if (!allCardData || Object.keys(allCardData).length === 0) {
-    showStatus('无卡片数据，请先解析 Markdown', 'error');
-    return;
-  }
-  const companyName = document.getElementById('company-name-input').value.trim() || 'company';
-  exportAllCards(allCardData, companyName);
-}
+  cardUrl() {
+    return `/canvas/card/${encodeURIComponent(this.companyName)}/${this.currentCard}`;
+  },
+
+  async refreshPreview() {
+    const frame = document.getElementById('card-frame');
+    frame.src = this.cardUrl();
+    await new Promise((resolve) => {
+      frame.onload = resolve;
+    });
+    const imagePath = PromptBar.getImageForCard(this.currentCard);
+    const cardData = Object.assign({}, this.allCardData[this.currentCard] || {});
+    if (imagePath) cardData._image = imagePath;
+    const defaultSource = renderCardSource({
+      companyName: this.companyName,
+      cardIndex: this.currentCard,
+      cardData,
+    });
+    const source = SourceEditor.loadCurrentSource(defaultSource);
+    SourceEditor.setEditorValue(source);
+    SourceEditor.applyToFrame(frame, source);
+    PromptBar.syncPromptInput();
+    const title = cardData._title || CARD_TABS[this.currentCard] || `卡片${this.currentCard}`;
+    document.getElementById('canvas-title').textContent = `卡片${this.currentCard} · ${title}`;
+    this.updateFrameScale();
+  },
+
+  currentSource() {
+    return document.getElementById('source-editor')?.value || '';
+  },
+
+  fitFrame() {
+    this.updateFrameScale();
+    this.setStatus('已适配窗口。', 'success');
+  },
+
+  updateFrameScale() {
+    const stage = document.getElementById('canvas-stage');
+    const frame = document.getElementById('card-frame');
+    const scale = Math.min((stage.clientWidth - 28) / 900, (stage.clientHeight - 28) / 1200, 1);
+    frame.style.transform = `translate(-50%, -50%) scale(${scale})`;
+  },
+
+  setStatus(message, type = 'info') {
+    const el = document.getElementById('status-msg');
+    el.textContent = message;
+    el.dataset.type = type;
+  },
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  Workbench.init();
+});
 </script>
-
 </body>
 </html>

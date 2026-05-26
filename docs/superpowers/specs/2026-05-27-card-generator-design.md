@@ -26,9 +26,9 @@
 4. 去掉底部 `aistartups` 标识。
 5. 插图区使用克制的 iOS 毛玻璃边框。
 6. 画布下方增加图片 prompt bar，可编辑每页预设提示词并调用图片 API。
-7. 增加 CSS 代码编辑器，用户可直接写 CSS 实时调整字体、位置、色彩、间距。
+7. 增加 HTML+CSS 源码编辑器，用户可直接编辑当前页完整 `<style> + <article>` 并实时渲染。
 8. 中间画布必须完整展示，左右工具栏收窄。
-9. 导出 PNG 时使用与预览相同的 Markdown、图片和 CSS。
+9. 支持 Puppeteer CLI 批量导出数据库版本 PNG；浏览器内源码改动保存在本机 `localStorage`。
 
 ## 3. 非目标
 
@@ -49,7 +49,7 @@
   -> /canvas/?company=<公司名>
   -> HTML/CSS 单卡 iframe 预览
   -> 图片 prompt bar 调用 /api/generate-image
-  -> CSS 编辑器实时注入预览
+  -> HTML+CSS 源码编辑器实时渲染预览
   -> Puppeteer 截图导出 PNG
 ```
 
@@ -68,10 +68,10 @@
 
 ```text
 ┌──────────────┬──────────────────────────────────────┬────────────────┐
-│ 左栏 200-220 │ 中间画布优先完整展示                  │ 右栏 240-280   │
+│ 左栏 210     │ 中间画布优先完整展示                  │ 右栏 520       │
 │              │                                      │                │
-│ 卡片 1-7     │ 顶部：当前卡片名 + 适配窗口 + 导出    │ CSS 代码编辑器 │
-│ 确认状态     │ 中部：3:4 HTML 卡片 iframe            │ 重置/应用      │
+│ 卡片 1-7     │ 顶部：当前卡片名 + 适配窗口 + 导出    │ HTML+CSS源码   │
+│ 确认状态     │ 中部：3:4 HTML 卡片 iframe            │ 语法高亮/保存  │
 │ 导出入口     │ 底部：图片 prompt bar                 │ 当前页/全部    │
 └──────────────┴──────────────────────────────────────┴────────────────┘
 ```
@@ -80,7 +80,7 @@
 
 - 左栏只放必要导航，避免挤占画布。
 - 中间区域默认 `fit-to-window`，保证完整卡片可见。
-- 右栏不是滑块 UI，而是直接编辑 CSS 的 textarea 或轻量 code editor。
+- 右栏不是滑块 UI，而是当前页完整 HTML+CSS 源码编辑器，带本地语法高亮。
 - 右栏可折叠；折叠后中间画布自动扩展。
 
 ## 6. 单张卡片结构
@@ -142,36 +142,32 @@
 }
 ```
 
-## 7. CSS 实时编辑器
+## 7. HTML+CSS 源码编辑器
 
-右侧 CSS 面板提供一个代码输入区。
+右侧源码面板提供一个高亮代码编辑器，内容是当前卡片的完整 `<style>...</style>` 和 `<article class="knowledge-card">...</article>`。
 
 行为：
 
-1. 打开 `/canvas/?company=...` 时加载默认 CSS。
-2. 如果本地已有自定义 CSS，从 `localStorage` 恢复。
-3. 用户点击“应用”后，将 CSS 注入当前预览 iframe 的 `<style id="custom-card-css">`。
-4. “当前页”模式只给当前 `card_index` 生效。
-5. “全部卡片”模式给 1-7 张卡片生效。
-6. “重置”恢复系统默认 CSS。
-7. 导出时带上同一份 CSS，保证 PNG 与预览一致。
+1. 打开 `/canvas/?company=...` 时按定稿 Markdown 生成默认源码。
+2. 如果本地已有当前卡片自定义源码，从 `localStorage` 恢复。
+3. 用户输入时防抖渲染到中间 iframe。
+4. “保存当前页源码”把当前卡片源码保存到本机浏览器。
+5. “重置”删除当前卡片源码并重新从定稿 Markdown 生成。
+6. 高亮层只用于编辑体验；真实渲染以 textarea 中的源码为准。
 
 建议状态结构：
 
 ```json
 {
-  "globalCss": ":root { --title-size: 54px; }",
-  "perCardCss": {
-    "1": ".card-title { font-size: 68px; }",
-    "6": ".card-image-frame { height: 280px; }"
-  }
+  "1": "<style>...</style><article class=\"knowledge-card\">...</article>",
+  "6": "<style>...</style><article class=\"knowledge-card\">...</article>"
 }
 ```
 
 `localStorage` key：
 
 ```text
-aistartups.cardStyle.<company_name>
+aistartups.cardSource.<company_name>
 ```
 
 ## 8. 图片 Prompt Bar
@@ -216,11 +212,11 @@ Content-Type: application/json
 }
 ```
 
-第一版行为：
+当前行为：
 
 - 图片生成成功后立即更新当前卡片预览。
 - 图片路径保存在前端状态与 `localStorage`。
-- 导出时使用该图片路径。
+- 图片 API URL 可保存在本机浏览器；API Key 只保存在页面内存，不写入 `localStorage`，也不在响应中回显。
 
 第二版可扩展：
 
@@ -268,10 +264,10 @@ canvas/
   screenshot.js               # Puppeteer 批量截图
   js/
     markdown-parser.js        # 保留并收敛：Markdown -> card data
-    html-card-renderer.js     # card data -> HTML
+    html-card-renderer.js     # card data -> HTML+CSS source
     api-loader.js             # final export JSON loader
     prompt-bar.js             # prompt preset + generate image
-    style-editor.js           # CSS 编辑、注入、localStorage
+    source-editor.js          # HTML+CSS 源码编辑、高亮、localStorage
     export-client.js          # 导出按钮与参数组装
 ```
 
@@ -303,10 +299,9 @@ node canvas/screenshot.js \
 
 1. 请求 `/api/final/export/<company>?format=json` 确认数据存在。
 2. 逐张打开 `/canvas/card/<company>/<card_index>`。
-3. 注入图片状态和 CSS 状态。
-4. 等待字体、图片、布局完成。
-5. 按 `900 x 1200` 或 2x 输出 PNG。
-6. 文件名为：
+3. 等待字体、图片、布局完成。
+4. 按 `900 x 1200` 或 2x 输出 PNG。
+5. 文件名为：
 
 ```text
 <company>_card_01.png
@@ -339,11 +334,8 @@ await page.setViewport({
   "prompts": {
     "6": "极简 iOS 毛玻璃边框内的抽象收入飞轮图标..."
   },
-  "styles": {
-    "globalCss": "...",
-    "perCardCss": {
-      "6": "..."
-    }
+  "sources": {
+    "6": "<style>...</style><article class=\"knowledge-card\">...</article>"
   }
 }
 ```
@@ -353,7 +345,7 @@ await page.setViewport({
 ```text
 aistartups.cardImages.<company_name>
 aistartups.cardPrompts.<company_name>
-aistartups.cardStyle.<company_name>
+aistartups.cardSource.<company_name>
 ```
 
 服务端权威数据仍是 `final_db` 的 `markdown_full`。
@@ -371,10 +363,10 @@ Python 测试：
 静态契约测试：
 
 1. `card-renderer.html` 不再引用 `fabric.min.js`。
-2. `card-renderer.html` 包含 CSS 编辑器入口。
+2. `card-renderer.html` 包含 HTML+CSS 源码编辑器入口。
 3. `card-renderer.html` 包含 prompt bar。
 4. JS 中存在 `localStorage` 样式状态 key。
-5. JS 中存在 `custom-card-css` 注入点。
+5. JS 中存在源码高亮和实时渲染入口。
 
 Node 侧验证：
 
@@ -394,7 +386,7 @@ python3 -m py_compile webapp/*.py
 2. 新增单卡 HTML route，返回最小可渲染卡片。
 3. 重写 `canvas/card-renderer.html` 为三栏制作台。
 4. 实现 `html-card-renderer.js`，从 Markdown 数据生成卡片 DOM。
-5. 实现 `style-editor.js`，支持 CSS 编辑、注入、localStorage。
+5. 实现 `source-editor.js`，支持源码编辑、语法高亮、实时渲染、localStorage。
 6. 实现 `prompt-bar.js`，支持默认 prompt、编辑、调用图片 API。
 7. 实现 `screenshot.js` 和 `package.json`。
 8. 移除主路径对 fabric 相关 JS 的引用。
@@ -404,25 +396,25 @@ python3 -m py_compile webapp/*.py
 
 ## 15. 风险与处理
 
-### 15.1 CSS 注入破坏布局
+### 15.1 源码编辑破坏布局
 
-用户直接写 CSS，可能写出导致画面溢出的样式。
+用户直接写 HTML/CSS，可能写出导致画面溢出或结构破坏的源码。
 
 处理：
 
-- 保留“重置默认 CSS”。
+- 保留“重置”按钮，从定稿 Markdown 重新生成默认源码。
 - iframe 外层始终以 `fit-to-window` 显示完整卡片。
 - 导出前检测 `.knowledge-card` 尺寸是否仍为 3:4。
 
-### 15.2 导出与预览不一致
+### 15.2 CLI 导出与浏览器预览不一致
 
-如果 CSS、图片状态只在浏览器里，命令行导出可能拿不到。
+源码、图片状态保存在浏览器 `localStorage` 时，命令行 Puppeteer 默认拿不到这些状态。
 
 处理：
 
-- UI 导出时把当前 CSS 与图片状态传给导出流程。
-- CLI 导出默认使用系统 CSS；若需要复用浏览器编辑结果，可读取导出的 style JSON。
-- 第一版优先保证 UI 预览和 UI 导出一致。
+- CLI 导出默认使用数据库定稿内容。
+- 浏览器内源码编辑主要服务预览、单页打开和人工截图。
+- 后续如需批量导出浏览器编辑结果，应增加状态导出 JSON 或服务端持久化接口。
 
 ### 15.3 图片生成耗时或失败
 
@@ -448,9 +440,8 @@ python3 -m py_compile webapp/*.py
 5. 卡片无底部 `aistartups` 标识。
 6. prompt bar 能显示每页预设 prompt，并能编辑。
 7. 点击生成图片能调用 `/api/generate-image` 并更新当前预览。
-8. CSS 编辑器能实时改变字体、位置、色彩、间距。
-9. CSS 可应用当前页或全部卡片。
-10. 导出 PNG 使用当前图片和 CSS。
+8. HTML+CSS 源码编辑器能实时改变当前页内容、字体、位置、色彩、间距。
+9. 当前页源码可保存到本机浏览器并可重置。
+10. CLI 能按数据库定稿内容导出 PNG。
 11. 既有 Python 测试通过。
 12. `python3 -m py_compile webapp/*.py` 通过。
-

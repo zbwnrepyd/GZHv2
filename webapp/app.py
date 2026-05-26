@@ -239,13 +239,21 @@ def generate_image_route():
         prompt = data.get("prompt", "")
         company_name = data.get("company_name", "unknown")
         field_name = data.get("field_name", "image")
+        image_api_url = (data.get("image_api_url") or "").strip() or None
+        image_api_key = (data.get("image_api_key") or "").strip() or None
 
         if not prompt:
             return jsonify({"error": "缺少 prompt"}), 400
 
         safe_name = company_name.replace("/", "_").replace(" ", "_")
         filename = f"{safe_name}_{field_name}_{int(time.time())}.png"
-        path = generate_image(prompt, config.IMAGES_DIR, filename)
+        path = generate_image(
+            prompt,
+            config.IMAGES_DIR,
+            filename,
+            api_url=image_api_url,
+            api_key=image_api_key,
+        )
         return jsonify({"status": "ok", "img_path": f"/images/{Path(path).name}"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -350,6 +358,13 @@ def editor_page(company: str = None):
 @app.route("/canvas/")
 def canvas_page():
     return send_from_directory("../canvas", "card-renderer.html")
+
+
+@app.route("/canvas/card/<company>/<int:card_index>")
+def canvas_card_page(company: str, card_index: int):
+    if card_index < 1 or card_index > 7:
+        return jsonify({"error": "card_index 必须在 1-7 之间"}), 400
+    return send_from_directory("../canvas", "card.html")
 
 
 @app.route("/canvas/<path:filename>")
