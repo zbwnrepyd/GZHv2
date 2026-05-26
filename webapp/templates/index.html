@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI初创公司知识卡片 - 研究台</title>
+<link rel="stylesheet" href="/static/css/editor.css">
+</head>
+<body>
+<header id="top-bar">
+  <div class="bar-left">
+    <h1 class="logo">aistartups.cn</h1>
+  </div>
+  <div class="bar-center">
+    <span class="status-text">研究台 · 发起研究与管理公司库</span>
+  </div>
+  <div class="bar-right">
+    <a class="top-link" href="/editor">定稿台</a>
+  </div>
+</header>
+
+<main id="research-desk">
+  <section class="research-hero">
+    <div class="section-title">开始研究</div>
+    <div class="research-inputs">
+      <label for="research-company-name">公司名</label>
+      <input id="research-company-name" type="text" placeholder="例如 Anthropic">
+      <label for="research-company-url">官网 URL</label>
+      <input id="research-company-url" type="url" placeholder="https://www.anthropic.com">
+      <button id="btn-start-research" class="btn btn-primary">开始研究</button>
+    </div>
+    <div class="progress-shell hidden" id="research-progress">
+      <div class="progress-meta">
+        <span id="research-stage">待命</span>
+        <span id="research-percent">0%</span>
+      </div>
+      <div class="progress-bar"><div id="research-progress-fill"></div></div>
+      <div id="research-detail" class="research-detail"></div>
+    </div>
+    <div id="research-complete" class="research-complete hidden"></div>
+  </section>
+
+  <section class="company-library">
+    <div class="library-header">
+      <div>
+        <div class="section-title">公司库</div>
+        <p>按最近研究时间排序，点击「定稿」进入下一工序。</p>
+      </div>
+      <button id="btn-refresh-companies" class="btn">刷新</button>
+    </div>
+    <table class="company-table">
+      <thead>
+        <tr>
+          <th>公司名</th>
+          <th>研究时间</th>
+          <th>数据完整度</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="company-table-body">
+        <tr><td colspan="4">加载中...</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+
+<script src="/static/js/api.js"></script>
+<script src="/static/js/index.js"></script>
+</body>
+</html>

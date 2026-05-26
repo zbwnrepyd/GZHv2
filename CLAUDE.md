@@ -19,7 +19,8 @@ tests/        — unittest 回归测试
 ```bash
 pip install -r requirements.txt
 cd webapp && python3 app.py
-# 访问 http://127.0.0.1:5050/editor/
+# 访问研究台 http://127.0.0.1:5050/
+# 定稿台 http://127.0.0.1:5050/editor?company=<公司名>
 ```
 
 ### 研究一家公司
@@ -55,7 +56,10 @@ sqlite3 db/final_db.sqlite < db/init_final_db.sql
 - 成本目标 < $0.20/次研究
 - 不生成卡片8
 - 研究主流程不依赖 n8n；不要新增 n8n 工作流作为主路径
+- 定稿台是四列逐行选择：标准版、商业版、传播版、定稿输入；不要恢复旧字段级编辑器作为主路径
+- `hook_paragraph_1/2/3` 只在左侧“传播钩子文案”入口展示，不写入卡片8，也不参与卡片确认保存
 - `final_content` 以 `company_name + card_index + field_name` 作为唯一字段键，重复确认应更新而非插入
+- 定稿保存优先使用 `field_name='markdown_full'` 的整张 Markdown
 - L3 任一版本字段提取失败时，任务应失败且不写入假成功记录
 
 ## 参考

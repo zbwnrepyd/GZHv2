@@ -23,6 +23,35 @@ console.log(JSON.stringify(result));
     return json.loads(output)
 
 
+def run_api_loader(api_json: dict, company: str = "Cursor") -> dict:
+    parser_path = os.path.join(ROOT, "canvas", "js", "markdown-parser.js")
+    loader_path = os.path.join(ROOT, "canvas", "js", "api-loader.js")
+    script = f"""
+const fs = require('fs');
+const vm = require('vm');
+const parserCode = fs.readFileSync({json.dumps(parser_path)}, 'utf8');
+const loaderCode = fs.readFileSync({json.dumps(loader_path)}, 'utf8');
+const context = {{
+  fetch: async (url) => ({{
+    ok: true,
+    json: async () => ({json.dumps(api_json, ensure_ascii=False)}),
+  }}),
+  console,
+}};
+vm.createContext(context);
+vm.runInContext(parserCode, context);
+vm.runInContext(loaderCode, context);
+context.loadFromAPI({json.dumps(company)}).then((result) => {{
+  console.log(JSON.stringify(result));
+}}).catch((err) => {{
+  console.error(err && err.stack ? err.stack : err);
+  process.exit(1);
+}});
+"""
+    output = subprocess.check_output(["node", "-e", script], text=True)
+    return json.loads(output)
+
+
 class CanvasParserTests(unittest.TestCase):
     def test_parse_confirmed_markdown_english_keys_for_card7(self):
         markdown = textwrap.dedent(
@@ -82,3 +111,74 @@ class CanvasParserTests(unittest.TestCase):
         self.assertIn("2024-01", parsed["3"]["发展沿袭时间线"])
         self.assertIn("Calendar", parsed["5"]["其他产品"])
         self.assertIn("Airtable", parsed["7"]["竞争格局"])
+
+    def test_api_loader_parses_markdown_content_json_to_canvas_fields(self):
+        api_json = {
+            "company_name": "Cursor",
+            "confirmed_count": 1,
+            "cards": {
+                "1": {
+                    "markdown_content": textwrap.dedent(
+                        """
+                        ## 卡片1：公司基础信息
+
+                        - **company_name**：Cursor
+                        - **company_type**：AI 代码编辑器
+                        - **location**：旧金山
+                        """
+                    ).strip()
+                }
+            },
+        }
+
+        loaded = run_api_loader(api_json)
+
+        self.assertEqual(loaded["company_name"], "Cursor")
+        self.assertEqual(loaded["allCardData"]["1"]["公司名"], "Cursor")
+        self.assertEqual(loaded["allCardData"]["1"]["类型"], "AI 代码编辑器")
+        self.assertEqual(loaded["allCardData"]["1"]["地理位置"], "旧金山")
+
+    def test_api_loader_preserves_untitled_markdown_content_body(self):
+        api_json = {
+            "company_name": "Cursor",
+            "confirmed_count": 1,
+            "cards": {
+                "2": {
+                    "markdown_content": textwrap.dedent(
+                        """
+                        ## 公司介绍
+
+                        Cursor 是面向开发者的 AI 代码编辑器。
+                        """
+                    ).strip()
+                }
+            },
+        }
+
+        loaded = run_api_loader(api_json)
+
+        self.assertEqual(loaded["allCardData"]["2"]["_title"], "公司介绍")
+        self.assertIn("Cursor 是面向开发者", loaded["allCardData"]["2"]["_body"])
+
+    def test_api_loader_keeps_legacy_fields_and_image_paths(self):
+        api_json = {
+            "company_name": "Cursor",
+            "confirmed_count": 1,
+            "cards": {
+                "4": {
+                    "fields": {
+                        "main_product_name": "Cursor",
+                        "main_product_def": "AI 代码编辑器",
+                    },
+                    "img_paths": {
+                        "main_product_img_src": "/static/cursor.png",
+                    },
+                }
+            },
+        }
+
+        loaded = run_api_loader(api_json)
+
+        self.assertEqual(loaded["allCardData"]["4"]["主产品名"], "Cursor")
+        self.assertEqual(loaded["allCardData"]["4"]["产品定义"], "AI 代码编辑器")
+        self.assertEqual(loaded["allCardData"]["4"]["_image"], "/static/cursor.png")

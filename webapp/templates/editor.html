@@ -3,107 +3,75 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI初创公司知识卡片 - 内容定稿</title>
+<title>AI初创公司知识卡片 - 定稿台</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <link rel="stylesheet" href="/static/css/editor.css">
 </head>
 <body>
-
-<!-- 顶栏 -->
 <header id="top-bar">
   <div class="bar-left">
     <h1 class="logo">aistartups.cn</h1>
   </div>
   <div class="bar-center">
-    <select id="company-select">
-      <option value="">-- 选择公司 --</option>
-    </select>
-    <div class="version-tabs" id="version-tabs">
-      <button class="v-tab active" data-version="standard">标准版</button>
-      <button class="v-tab" data-version="business">商业版</button>
-      <button class="v-tab" data-version="spread">传播版</button>
-    </div>
+    <span class="status-text" id="editor-company-label">定稿台</span>
   </div>
   <div class="bar-right">
-    <span class="status-text" id="global-status">请选择公司</span>
+    <a class="top-link" href="/">研究台</a>
   </div>
 </header>
 
-<!-- 研究任务启动栏 -->
-<details id="research-section">
-  <summary id="research-summary">新增研究 <span id="research-summary-status"></span></summary>
-  <section id="research-bar">
-    <label for="research-company-name">公司名</label>
-    <input id="research-company-name" type="text" placeholder="例如 Anthropic">
-    <label for="research-company-url">官网</label>
-    <input id="research-company-url" type="url" placeholder="https://www.anthropic.com">
-    <button id="btn-start-research" class="btn btn-primary">开始研究</button>
-    <span id="research-job-status">待命</span>
-  </section>
-</details>
-
-<!-- 主体：双栏 -->
-<main id="main-pane">
-  <!-- 左栏：三版本对比 -->
-  <aside id="left-pane">
-    <!-- 三列对比 -->
-    <div class="compare-container" id="compare-container">
-      <div class="compare-headers" id="compare-headers">
-        <div class="row-label-spacer"></div>
-        <div class="compare-hdr" data-version="standard">标准版<span class="compare-badge">客观·事实核查</span></div>
-        <div class="compare-hdr" data-version="business">商业版<span class="compare-badge">投资人视角</span></div>
-        <div class="compare-hdr" data-version="spread">传播版<span class="compare-badge">自媒体·钩子</span></div>
+<main id="editor-workbench">
+  <aside id="editor-left-pane">
+    <section class="editor-panel card-nav-panel">
+      <div class="section-title">卡片导航</div>
+      <div id="editor-card-nav">
+        <button class="editor-card-btn active" data-card="1">卡片1·首页</button>
+        <button class="editor-card-btn" data-card="2">卡片2·公司介绍</button>
+        <button class="editor-card-btn" data-card="3">卡片3·发展沿袭</button>
+        <button class="editor-card-btn" data-card="4">卡片4·主产品</button>
+        <button class="editor-card-btn" data-card="5">卡片5·其他产品</button>
+        <button class="editor-card-btn" data-card="6">卡片6·商业模式</button>
+        <button class="editor-card-btn" data-card="7">卡片7·总结</button>
+        <button class="editor-card-btn editor-hook-btn" data-card="hook">传播钩子文案</button>
       </div>
-      <div class="accordion-list" id="accordion-list">
-        <div class="fields-empty">请选择公司，加载数据</div>
-      </div>
-    </div>
-
-    <!-- 底部操作 -->
-    <div class="card-actions">
-      <div class="split-row" id="split-row" style="display:none">
-        <label>分段数</label>
-        <input type="number" id="segment-count" value="2" min="1" max="10" style="width:60px">
-        <button id="btn-split" class="btn btn-sm">AI分段</button>
-      </div>
-      <div class="action-buttons">
-        <button id="btn-prev" class="btn" disabled>上一张</button>
-        <button id="btn-confirm" class="btn btn-primary">确认本张卡片</button>
-        <button id="btn-next" class="btn" disabled>下一张</button>
-      </div>
-    </div>
+    </section>
   </aside>
 
-  <!-- 右栏：编辑 + 预览 -->
-  <section id="right-pane">
+  <section id="editor-middle-pane">
+    <div class="markdown-toolbar">
+      <span id="markdown-meta">请选择公司</span>
+      <span id="dirty-indicator" class="dirty-indicator hidden">未定稿</span>
+    </div>
+    <div id="version-compare" class="version-compare">
+      <div class="line-grid-header">
+        <span data-version="standard">标准版</span>
+        <span data-version="business">商业版</span>
+        <span data-version="spread">传播版</span>
+        <span>定稿输入</span>
+      </div>
+      <div id="line-choice-grid" class="line-choice-grid"></div>
+    </div>
+    <div class="markdown-footer">
+      <button id="btn-prev" class="btn">← 上一张</button>
+      <button id="btn-next" class="btn">下一张 →</button>
+    </div>
+    <div class="preview-content hidden" id="hook-render"></div>
+  </section>
+
+  <section id="editor-right-pane">
     <div class="preview-toolbar">
-      <span class="preview-label">字段编辑 & 预览</span>
-      <button id="btn-edit-toggle" class="btn btn-sm">编辑模式</button>
+      <span class="preview-label" id="preview-toolbar-label">实时预览</span>
+      <span id="preview-status">只读预览</span>
     </div>
     <div class="preview-content" id="preview-render"></div>
-    <textarea class="preview-editor hidden" id="preview-editor"></textarea>
-    <div class="field-edit-mini" id="field-edit-mini">
-      <div class="mini-label">快速编辑（当前版本：<span id="mini-version-label">标准版</span>）</div>
-      <div id="mini-fields"></div>
-    </div>
     <div class="preview-actions">
-      <button id="btn-export-draft" class="btn">导出草稿 Markdown</button>
-      <button id="btn-export" class="btn btn-primary">导出已确认 Markdown</button>
+      <button id="btn-confirm" class="btn btn-primary">确认定稿</button>
+      <a id="btn-go-canvas" class="btn btn-cyan hidden" href="#">去制作卡片 →</a>
     </div>
   </section>
 </main>
 
-<!-- 钩子段落弹窗（卡片8提示在卡片7确认后显示） -->
-<div class="modal-overlay hidden" id="hook-modal">
-  <div class="modal-content">
-    <h3>传播钩子段落（位于卡片8位置，不生成卡片）</h3>
-    <div id="hook-paragraphs"></div>
-    <button class="btn btn-primary" id="btn-hook-close">关闭</button>
-  </div>
-</div>
-
 <script src="/static/js/api.js"></script>
-<script src="/static/js/preview.js"></script>
 <script src="/static/js/confirm.js"></script>
 <script src="/static/js/editor.js"></script>
 </body>

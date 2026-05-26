@@ -20,6 +20,36 @@ const FIELD_EN_TO_CN = {
   market_opportunity: '赛道契机',
 };
 
+function mapLegacyFields(card) {
+  const data = {};
+  for (const [enKey, value] of Object.entries(card.fields || {})) {
+    const cnKey = FIELD_EN_TO_CN[enKey] || enKey;
+    data[cnKey] = value;
+  }
+  return data;
+}
+
+function applyImagePaths(data, card) {
+  for (const [enKey, path] of Object.entries(card.img_paths || {})) {
+    const cnKey = FIELD_EN_TO_CN[enKey] || enKey;
+    if (cnKey === '产品图片' || cnKey === 'main_product_img_src') {
+      data._image = path;
+    }
+  }
+}
+
+function parseMarkdownCardData(markdownContent, cardIndex) {
+  if (typeof parseSingleCardMarkdown === 'function') {
+    return parseSingleCardMarkdown(markdownContent, cardIndex);
+  }
+  if (typeof parseFullMarkdown !== 'function') {
+    return {};
+  }
+
+  const parsed = parseFullMarkdown(markdownContent);
+  return parsed[cardIndex] || Object.values(parsed)[0] || {};
+}
+
 async function loadFromAPI(company) {
   const url = `/api/final/export/${encodeURIComponent(company)}?format=json`;
   const resp = await fetch(url);
@@ -29,19 +59,17 @@ async function loadFromAPI(company) {
   const allCardData = {};
   for (const [ci, card] of Object.entries(json.cards || {})) {
     const idx = parseInt(ci);
-    const data = {};
-    for (const [enKey, value] of Object.entries(card.fields || {})) {
-      const cnKey = FIELD_EN_TO_CN[enKey] || enKey;
-      data[cnKey] = value;
-    }
-    // 图片路径
-    for (const [enKey, path] of Object.entries(card.img_paths || {})) {
-      const cnKey = FIELD_EN_TO_CN[enKey] || enKey;
-      if (cnKey === '产品图片' || cnKey === 'main_product_img_src') {
-        data._image = path;
+    const hasMarkdown = typeof card.markdown_content === 'string' && card.markdown_content.trim();
+    const data = hasMarkdown ? parseMarkdownCardData(card.markdown_content, idx) : {};
+    const legacyData = mapLegacyFields(card);
+
+    for (const [key, value] of Object.entries(legacyData)) {
+      if (!data[key]) {
+        data[key] = value;
       }
     }
-    data._title = `卡片${idx}`;
+    applyImagePaths(data, card);
+    data._title = data._title || `卡片${idx}`;
     allCardData[idx] = data;
   }
 

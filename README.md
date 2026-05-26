@@ -15,10 +15,10 @@ python3 app.py
 打开：
 
 ```text
-http://127.0.0.1:5050/editor/
+http://127.0.0.1:5050/
 ```
 
-在页面顶部输入公司名和官网，点击“开始研究”。研究完成后选择三种版本中的字段，逐张确认 1-7 号卡片，再导出 Markdown。
+在研究台输入公司名和官网，点击“开始研究”。研究完成后进入定稿台，按行从标准版、商业版、传播版或手写输入中选择最终文案，逐张确认 1-7 号卡片，再进入画布制作卡片。左侧“传播钩子文案”入口会展示三版钩子；它只供正文开头使用，不生成卡片8。
 
 ## 环境变量
 
@@ -64,6 +64,12 @@ curl -X POST http://127.0.0.1:5050/api/research/start \
 
 ```bash
 curl http://127.0.0.1:5050/api/research/status/<job_id>
+```
+
+进入某公司的定稿台：
+
+```text
+http://127.0.0.1:5050/editor?company=Anthropic
 ```
 
 更多架构和运维细节见 [docs/architecture.md](docs/architecture.md) 和 [docs/runbook.md](docs/runbook.md)。

@@ -39,7 +39,7 @@ python3 app.py
 Open:
 
 ```text
-http://127.0.0.1:5050/editor/
+http://127.0.0.1:5050/
 ```
 
 If port 5050 is occupied:
@@ -103,6 +103,14 @@ Read result:
 curl http://127.0.0.1:5050/api/research/Anthropic
 ```
 
+Open finalization desk:
+
+```text
+http://127.0.0.1:5050/editor?company=Anthropic
+```
+
+In the finalization desk, each card is edited row by row across four columns: standard version, business version, spread version, and final input. Confirm cards 1-7. The spread hook paragraphs are available from the left-side `传播钩子文案` entry; they are copy options for the article opening and do not generate card 8.
+
 Export for canvas:
 
 ```bash
@@ -123,6 +131,7 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
 
 - Empty or non-JSON request to `/api/research/start` should return 400 with `缺少 company_name 或 company_url`.
 - If a research job fails at L3, no partial all-missing record should be written.
+- If hook copy is missing in the finalization desk, open the left-side `传播钩子文案` entry and confirm `hook_paragraph_1/2/3` exist in `GET /api/research/<company>/<version>`.
 - If generated images do not display, confirm `/images/<filename>` returns 200 and `IMAGES_DIR` points to the saved image directory.
 - If imports fail in a new environment, reinstall with `pip install -r requirements.txt`.
 - `urllib3` may warn about LibreSSL on the system Python. The warning is noisy but was not a blocker in local verification.

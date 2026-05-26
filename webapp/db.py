@@ -24,7 +24,28 @@ def get_companies(db_path: str) -> list[dict]:
             "SELECT DISTINCT company_name, MAX(created_at) as created_at "
             "FROM research GROUP BY company_name ORDER BY created_at DESC"
         ).fetchall()
-        return [dict(row) for row in rows]
+        companies = []
+        for row in rows:
+            latest = conn.execute(
+                "SELECT * FROM research WHERE company_name=? ORDER BY created_at DESC LIMIT 1",
+                (row["company_name"],),
+            ).fetchone()
+            filled = 0
+            if latest:
+                for field in REQUIRED_RESEARCH_FIELDS:
+                    value = latest[field]
+                    if value is not None and str(value).strip() not in ("", "暂缺"):
+                        filled += 1
+            completeness = round(filled / len(REQUIRED_RESEARCH_FIELDS) * 100) if latest else 0
+            companies.append(
+                {
+                    "company_name": row["company_name"],
+                    "created_at": row["created_at"],
+                    "researched_at": row["created_at"],
+                    "completeness": completeness,
+                }
+            )
+        return companies
 
 
 def get_research(db_path: str, company_name: str, version: str) -> dict | None:
@@ -169,6 +190,18 @@ def save_final_card(
         conn.commit()
 
 
+def save_final_markdown(db_path: str, company_name: str, card_index: int, markdown_content: str):
+    """保存单张卡片的整块 Markdown。"""
+    save_final_card(db_path, company_name, card_index, {"markdown_full": markdown_content})
+
+
+def get_final_status(db_path: str, company_name: str) -> dict:
+    cards = get_final_cards(db_path, company_name)
+    confirmed = sorted({c["card_index"] for c in cards if c["field_name"] == "markdown_full"} or
+                       {c["card_index"] for c in cards})
+    return {"company_name": company_name, "confirmed": confirmed, "total": 7}
+
+
 def get_final_cards(db_path: str, company_name: str) -> list[dict]:
     """读取某公司所有已确认卡片，按 card_index 排序"""
     with get_db(db_path) as conn:
@@ -192,11 +225,18 @@ def export_json(db_path: str, company_name: str) -> dict | None:
         ci = str(c["card_index"])
         if ci not in result:
             result[ci] = {"fields": {}, "img_paths": {}}
-        result[ci]["fields"][c["field_name"]] = c["field_value"] or ""
+        if c["field_name"] == "markdown_full":
+            result[ci]["markdown_content"] = c["field_value"] or ""
+        else:
+            result[ci]["fields"][c["field_name"]] = c["field_value"] or ""
         if c["img_local_path"]:
             result[ci]["img_paths"][c["field_name"]] = c["img_local_path"]
 
-    return {"company_name": company_name, "cards": result}
+    return {
+        "company_name": company_name,
+        "cards": result,
+        "confirmed_count": len(result),
+    }
 
 
 def export_markdown(db_path: str, company_name: str) -> str:
@@ -223,6 +263,9 @@ def export_markdown(db_path: str, company_name: str) -> str:
         lines.append(f"## 卡片{idx}：{card_titles[idx]}")
         lines.append("")
         for f in fields:
+            if f["field_name"] == "markdown_full":
+                lines.append(f["field_value"] or "")
+                continue
             label = f["field_name"]
             value = f["field_value"] or ""
             if f["img_local_path"]:

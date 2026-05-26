@@ -71,6 +71,23 @@ function normalizeValue(label, value) {
   return value;
 }
 
+function getMarkdownTitle(markdown, cardIndex) {
+  const headingMatch = String(markdown || '').match(/^#{1,6}\s*(?:卡片\d+[：:]?\s*)?(.+)$/m);
+  return headingMatch ? headingMatch[1].trim() : `卡片${cardIndex}`;
+}
+
+function stripMarkdownHeading(markdown) {
+  return String(markdown || '')
+    .split('\n')
+    .filter((line) => !/^#{1,6}\s+/.test(line.trim()))
+    .join('\n')
+    .trim();
+}
+
+function hasVisibleCardData(data) {
+  return Object.keys(data || {}).some((key) => !key.startsWith('_') && data[key]);
+}
+
 function parseJsonArray(value) {
   const trimmed = String(value || '').trim();
   if (!trimmed.startsWith('[')) return null;
@@ -183,5 +200,26 @@ function parseFullMarkdown(markdown) {
   for (const section of sections) {
     result[section.index] = extractCardData(section, section.index);
   }
+  if (sections.length === 0 && String(markdown || '').trim()) {
+    result[1] = parseSingleCardMarkdown(markdown, 1);
+  }
   return result;
+}
+
+function parseSingleCardMarkdown(markdown, cardIndex) {
+  const content = String(markdown || '').trim();
+  if (!content) return {};
+
+  const sections = parseCardMarkdown(content);
+  const section = sections.find((item) => item.index === cardIndex) || sections[0] || { index: cardIndex, content };
+  const data = extractCardData(section, cardIndex);
+
+  if (!data._title) {
+    data._title = getMarkdownTitle(section.content, cardIndex);
+  }
+  if (!hasVisibleCardData(data)) {
+    data._body = stripMarkdownHeading(section.content) || section.content;
+  }
+
+  return data;
 }

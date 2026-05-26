@@ -6,6 +6,7 @@ from deepseek_client import call_deepseek, load_prompt
 from image_client import generate_image
 from firecrawl_local import scrape_url
 from pipeline import run_pipeline
+import markdown_builder
 import json
 import time
 import uuid
@@ -59,6 +60,24 @@ def get_all_versions(company: str):
         for v in versions.values():
             v.pop("id", None)
         return jsonify(versions)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/research/<company>/card/<int:card_index>")
+def get_research_card_markdown(company: str, card_index: int):
+    if card_index < 1 or card_index > 7:
+        return jsonify({"error": "card_index 必须在 1-7 之间"}), 400
+    version = request.args.get("version", "standard")
+    if version not in ("standard", "business", "spread"):
+        return jsonify({"error": f"无效的版本: {version}"}), 400
+    try:
+        markdown = markdown_builder.build_card_markdown(
+            config.DB_PATH_RESEARCH, company, card_index, version
+        )
+        if not markdown:
+            return jsonify({"error": "公司或版本不存在"}), 404
+        return jsonify({"company_name": company, "card_index": card_index, "version": version, "markdown": markdown})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -161,6 +180,7 @@ def save_final_card():
 
         company_name = data.get("company_name")
         card_index = data.get("card_index")
+        markdown_content = data.get("markdown_content")
         fields = data.get("fields", {})
         img_paths = data.get("img_paths", {})
 
@@ -169,10 +189,23 @@ def save_final_card():
         if card_index < 1 or card_index > 7:
             return jsonify({"error": "card_index 必须在 1-7 之间"}), 400
 
-        database.save_final_card(
-            config.DB_PATH_FINAL, company_name, card_index, fields, img_paths
-        )
+        if markdown_content is not None:
+            database.save_final_markdown(
+                config.DB_PATH_FINAL, company_name, card_index, markdown_content
+            )
+        else:
+            database.save_final_card(
+                config.DB_PATH_FINAL, company_name, card_index, fields, img_paths
+            )
         return jsonify({"status": "ok", "card_index": card_index})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/final/status/<company>")
+def get_final_status(company: str):
+    try:
+        return jsonify(database.get_final_status(config.DB_PATH_FINAL, company))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -307,6 +340,7 @@ def check_company_status(company: str):
 
 # ── 编辑器页面 ─────────────────────────────────────────────────
 
+@app.route("/editor")
 @app.route("/editor/")
 @app.route("/editor/<company>")
 def editor_page(company: str = None):
@@ -325,7 +359,7 @@ def canvas_assets(filename):
 
 @app.route("/")
 def index():
-    return render_template("editor.html")
+    return render_template("index.html")
 
 
 # ── 启动 ──────────────────────────────────────────────────────

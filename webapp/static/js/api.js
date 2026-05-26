@@ -18,6 +18,13 @@ const API = {
     return res.json();
   },
 
+  async getResearchCard(company, cardIndex, version) {
+    const params = new URLSearchParams({ version: version || 'standard' });
+    const res = await fetch(`/api/research/${encodeURIComponent(company)}/card/${cardIndex}?${params}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
   async startResearch(companyName, companyUrl) {
     const res = await fetch('/api/research/start', {
       method: 'POST',
@@ -48,6 +55,26 @@ const API = {
         img_paths: imgPaths || {}
       })
     });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
+  async saveFinalMarkdown(companyName, cardIndex, markdownContent) {
+    const res = await fetch('/api/final/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company_name: companyName,
+        card_index: cardIndex,
+        markdown_content: markdownContent
+      })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
+  async getFinalStatus(company) {
+    const res = await fetch(`/api/final/status/${encodeURIComponent(company)}`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   },
