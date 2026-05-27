@@ -1,3 +1,5 @@
+const CARD_COUNT = 8;
+
 const ResearchDesk = {
   pollTimer: null,
 
@@ -9,16 +11,16 @@ const ResearchDesk = {
 
   async loadCompanies() {
     const body = document.getElementById('company-table-body');
-    body.innerHTML = '<tr><td colspan="4">加载中...</td></tr>';
+    body.innerHTML = '<tr><td colspan="5">加载中...</td></tr>';
     try {
       const companies = await API.getCompanies();
       if (!companies.length) {
-        body.innerHTML = '<tr><td colspan="4">暂无公司，先发起一次研究。</td></tr>';
+        body.innerHTML = '<tr><td colspan="5">暂无公司，先发起一次研究。</td></tr>';
         return;
       }
       body.innerHTML = companies.map(company => this.renderCompanyRow(company)).join('');
     } catch (e) {
-      body.innerHTML = `<tr><td colspan="4">公司库加载失败：${this.esc(e.message)}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="5">公司库加载失败：${this.esc(e.message)}</td></tr>`;
     }
   },
 
@@ -27,10 +29,13 @@ const ResearchDesk = {
     const level = completeness >= 80 ? 'high' : completeness >= 60 ? 'mid' : 'low';
     const researchedAt = this.formatDate(company.researched_at || company.created_at);
     const name = this.esc(company.company_name);
+    const confirmed = Number(company.confirmed || 0);
+    const total = Number(company.total || CARD_COUNT);
     return `<tr>
       <td>${name}</td>
       <td>${researchedAt}</td>
       <td><span class="completeness ${level}">${completeness}%</span></td>
+      <td>${confirmed}/${total}</td>
       <td>
         <a class="btn btn-sm" href="/editor?company=${encodeURIComponent(company.company_name)}">定稿</a>
         <button class="btn btn-sm" onclick="ResearchDesk.refillResearch('${encodeURIComponent(company.company_name)}')">重研</button>

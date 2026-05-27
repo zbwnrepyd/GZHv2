@@ -5,15 +5,24 @@ ROOT = os.path.dirname(os.path.dirname(__file__))
 
 
 class StaticContractTests(unittest.TestCase):
-    def test_canvas_page_handler_does_not_shadow_export_module(self):
+    def test_canvas_page_uses_html_card_workbench(self):
         with open(os.path.join(ROOT, "canvas", "card-renderer.html"), encoding="utf-8") as f:
             html = f.read()
-        with open(os.path.join(ROOT, "canvas", "js", "export.js"), encoding="utf-8") as f:
-            export_js = f.read()
 
-        self.assertIn("async function exportAllCards(", export_js)
-        self.assertIn("function exportAllCardsFromPage()", html)
-        self.assertIn("onclick=\"exportAllCardsFromPage()\"", html)
+        self.assertNotIn("fabric.min.js", html)
+        self.assertIn('id="card-frame"', html)
+        self.assertIn('id="prompt-bar"', html)
+        self.assertIn('id="source-editor"', html)
+        self.assertIn('id="image-api-url"', html)
+        self.assertIn('id="image-api-key"', html)
+        self.assertIn('id="btn-back-research"', html)
+        self.assertIn('href="/editor"', html)
+        self.assertIn('/editor?company=', html)
+        self.assertIn("js/html-card-renderer.js", html)
+        self.assertIn("js/source-editor.js", html)
+        self.assertIn("js/prompt-bar.js", html)
+        self.assertIn("js/export-client.js", html)
+        self.assertIn("8: '总结'", html)
 
     def test_editor_api_exposes_research_job_helpers(self):
         with open(os.path.join(ROOT, "webapp", "static", "js", "api.js"), encoding="utf-8") as f:
@@ -31,6 +40,8 @@ class StaticContractTests(unittest.TestCase):
             editor_html = f.read()
         with open(os.path.join(ROOT, "webapp", "static", "js", "editor.js"), encoding="utf-8") as f:
             editor_js = f.read()
+        with open(os.path.join(ROOT, "webapp", "static", "js", "index.js"), encoding="utf-8") as f:
+            index_js = f.read()
 
         self.assertIn('id="research-desk"', index_html)
         self.assertIn('id="company-table-body"', index_html)
@@ -46,6 +57,9 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("renderLineChoices", editor_js)
         self.assertIn("applyLineChoice", editor_js)
         self.assertIn("getFinalMarkdown", editor_js)
+        self.assertIn("CARD_COUNT = 8", index_js)
+        self.assertIn("${confirmed}/${total}", index_js)
+        self.assertNotIn("${confirmed}/7", index_js)
         self.assertNotIn('class="version-radio"', editor_html)
         self.assertNotIn('id="markdown-editor"', editor_html)
         self.assertNotIn('id="field-edit-mini"', editor_html)
@@ -64,6 +78,7 @@ class StaticContractTests(unittest.TestCase):
             editor_js = f.read()
 
         self.assertIn('data-card="hook"', editor_html)
+        self.assertIn('data-card="8"', editor_html)
         self.assertIn('id="hook-render"', editor_html)
         self.assertIn("loadHookChoices", editor_js)
         self.assertIn("showHooks", editor_js)

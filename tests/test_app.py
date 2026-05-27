@@ -53,6 +53,26 @@ class PageRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="editor-workbench"', response.get_data(as_text=True))
 
+    def test_canvas_single_card_route_renders_html_card_page(self):
+        response = self.client.get("/canvas/card/DemoCo/1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('id="card-page"', html)
+        self.assertIn("knowledge-card", html)
+
+    def test_canvas_single_card_route_accepts_card_8(self):
+        response = self.client.get("/canvas/card/DemoCo/8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="card-page"', response.get_data(as_text=True))
+
+    def test_canvas_single_card_route_rejects_card_9(self):
+        response = self.client.get("/canvas/card/DemoCo/9")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("card_index", response.get_json()["error"])
+
 
 class ResearchCardMarkdownTests(unittest.TestCase):
     def setUp(self):
@@ -70,6 +90,7 @@ class ResearchCardMarkdownTests(unittest.TestCase):
                     "timeline_events": [
                         {"date": "2024-01", "event": "上线 Beta", "impact": "获得首批用户"}
                     ],
+                    "market_opportunity": "AI 工作流进入重构期。",
                 }
             ],
         )
@@ -85,6 +106,14 @@ class ResearchCardMarkdownTests(unittest.TestCase):
         payload = response.get_json()
         self.assertIn("## 卡片3：发展沿袭", payload["markdown"])
         self.assertIn("2024-01", payload["markdown"])
+
+    def test_research_card_endpoint_returns_card_8_summary_markdown(self):
+        response = self.client.get("/api/research/DemoCo/card/8?version=standard")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertIn("## 卡片8：总结", payload["markdown"])
+        self.assertIn("**机遇**：AI 工作流进入重构期。", payload["markdown"])
 
 
 class ImageRouteTests(unittest.TestCase):
@@ -106,6 +135,27 @@ class ImageRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["img_path"], "/images/DemoCo_logo.png")
 
+    def test_generate_image_accepts_runtime_api_config_without_echoing_key(self):
+        image_path = os.path.join(ROOT, "images", "DemoCo_card.png")
+        with patch.object(app_module, "generate_image", return_value=image_path) as generate:
+            response = self.client.post(
+                "/api/generate-image",
+                json={
+                    "company_name": "DemoCo",
+                    "field_name": "card_1_image",
+                    "prompt": "clean card image",
+                    "image_api_url": "https://image.example.test/generate",
+                    "image_api_key": "secret-test-key",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["img_path"], "/images/DemoCo_card.png")
+        self.assertNotIn("secret-test-key", str(payload))
+        self.assertEqual(generate.call_args.kwargs["api_url"], "https://image.example.test/generate")
+        self.assertEqual(generate.call_args.kwargs["api_key"], "secret-test-key")
+
 
 class FinalMarkdownFlowTests(unittest.TestCase):
     def setUp(self):
@@ -123,7 +173,7 @@ class FinalMarkdownFlowTests(unittest.TestCase):
             "/api/final/save",
             json={
                 "company_name": "DemoCo",
-                "card_index": 1,
+                "card_index": 8,
                 "markdown_content": "# DemoCo\n\n**AI 工具**",
             },
         )
@@ -131,13 +181,13 @@ class FinalMarkdownFlowTests(unittest.TestCase):
 
         status = self.client.get("/api/final/status/DemoCo")
         self.assertEqual(status.status_code, 200)
-        self.assertEqual(status.get_json()["confirmed"], [1])
-        self.assertEqual(status.get_json()["total"], 7)
+        self.assertEqual(status.get_json()["confirmed"], [8])
+        self.assertEqual(status.get_json()["total"], 8)
 
         exported = self.client.get("/api/final/export/DemoCo?format=json")
         self.assertEqual(exported.status_code, 200)
         payload = exported.get_json()
-        self.assertEqual(payload["cards"]["1"]["markdown_content"], "# DemoCo\n\n**AI 工具**")
+        self.assertEqual(payload["cards"]["8"]["markdown_content"], "# DemoCo\n\n**AI 工具**")
         self.assertEqual(payload["confirmed_count"], 1)
 
 

@@ -41,13 +41,15 @@ const CARD_FIELD_MAP = {
   7: [
     { key: 'moat', label: '竞争壁垒', format: v => `**竞争壁垒**：${v}`, inputType: 'textarea' },
     { key: 'competitors', label: '竞争格局', format: v => formatCompetitors(v), inputType: 'textarea' },
+  ],
+  8: [
     { key: 'market_opportunity', label: '赛道契机', format: v => `**赛道契机**：${v}`, inputType: 'textarea' },
   ],
 };
 
 const CARD_TITLES = {
   1: '首页', 2: '公司介绍', 3: '发展沿袭',
-  4: '产品线（主产品）', 5: '其他产品', 6: '商业模式', 7: '总结'
+  4: '产品线（主产品）', 5: '其他产品', 6: '商业模式', 7: '竞争格局', 8: '总结'
 };
 
 function formatTimeline(val) {
@@ -113,7 +115,7 @@ function buildCardMarkdown(cardIndex, fields, imgPaths = {}) {
 
 function buildFullMarkdown(allCards, imgPaths = {}) {
   const parts = [];
-  for (let i = 1; i <= 7; i++) {
+  for (let i = 1; i <= 8; i++) {
     const card = allCards[i];
     if (card && Object.keys(card).length > 0) {
       parts.push(buildCardMarkdown(i, card, imgPaths[i] || {}));

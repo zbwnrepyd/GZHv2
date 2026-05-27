@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识卡片</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: #F2F3F5;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  body {
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+  :root {
+    --card-width: 900px;
+    --card-height: 1200px;
+    --card-padding-x: 72px;
+    --card-padding-y: 64px;
+    --nav-size: 20px;
+    --title-size: 54px;
+    --title-line-height: 1.08;
+    --title-top: 64px;
+    --body-size: 28px;
+    --body-line-height: 1.45;
+    --image-height: 260px;
+    --image-radius: 32px;
+    --text-primary: #111827;
+    --text-muted: #8A94A6;
+    --accent: #29B8D4;
+  }
+  #card-page {
+    width: var(--card-width);
+    height: var(--card-height);
+    transform-origin: center center;
+  }
+  .knowledge-card {
+    width: var(--card-width);
+    height: var(--card-height);
+    padding: var(--card-padding-y) var(--card-padding-x);
+    background: #FFFFFF;
+    color: var(--text-primary);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .card-nav {
+    display: flex;
+    gap: 22px;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: var(--nav-size);
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .card-nav strong {
+    color: var(--text-primary);
+    font-weight: 850;
+  }
+  .card-image-frame {
+    margin-top: 58px;
+    height: var(--image-height);
+    border-radius: var(--image-radius);
+    border: 1px solid rgba(210, 218, 230, .9);
+    background: linear-gradient(135deg, rgba(255,255,255,.88), rgba(244,247,251,.64));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 24px 56px rgba(148,163,184,.18);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+  .card-image {
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+  }
+  .card-image.placeholder {
+    width: 136px;
+    height: 136px;
+    border-radius: 42px;
+    border: 1px solid rgba(41,184,212,.28);
+    background: linear-gradient(135deg, #E6FBFF, #F8FAFC);
+    position: relative;
+  }
+  .card-image.placeholder::before {
+    content: "";
+    position: absolute;
+    left: 35px;
+    top: 42px;
+    width: 60px;
+    height: 44px;
+    border: 6px solid #1B2A4A;
+    border-radius: 16px;
+    opacity: .72;
+  }
+  .card-title {
+    margin: var(--title-top) 0 0;
+    max-width: 760px;
+    color: var(--text-primary);
+    font-size: var(--title-size);
+    line-height: var(--title-line-height);
+    letter-spacing: 0;
+    font-weight: 850;
+  }
+  .card-body {
+    margin-top: 34px;
+    color: #2F3A4A;
+    font-size: var(--body-size);
+    line-height: var(--body-line-height);
+    display: grid;
+    gap: 20px;
+  }
+  .card-body p { margin: 0; }
+  .card-body ul {
+    margin: 0;
+    padding-left: 1.15em;
+    display: grid;
+    gap: 12px;
+  }
+  .card-body strong {
+    color: var(--text-primary);
+    font-weight: 820;
+  }
+  .field-block {
+    display: grid;
+    gap: 8px;
+  }
+  .field-label {
+    color: var(--text-muted);
+    font-size: calc(var(--body-size) * .72);
+    line-height: 1.2;
+    font-weight: 760;
+  }
+  .field-value {
+    color: #2F3A4A;
+  }
+  .empty-card {
+    height: 100%;
+    display: grid;
+    place-items: center;
+    color: var(--text-muted);
+    font-size: 28px;
+  }
+</style>
+</head>
+<body>
+<main id="card-page">
+  <article class="knowledge-card">
+    <div class="empty-card">正在加载卡片...</div>
+  </article>
+</main>
+<script src="/canvas/js/markdown-parser.js"></script>
+<script src="/canvas/js/api-loader.js"></script>
+<script src="/canvas/js/html-card-renderer.js"></script>
+<script src="/canvas/js/source-editor.js"></script>
+<script>
+function getRouteCardInfo() {
+  const match = window.location.pathname.match(/\/canvas\/card\/(.+)\/(\d+)$/);
+  if (!match) return { companyName: '', cardIndex: 1 };
+  return {
+    companyName: decodeURIComponent(match[1]),
+    cardIndex: Number(match[2]),
+  };
+}
+
+window.renderSourcePreview = function renderSourcePreview(source) {
+  renderSourceIntoDocument(document, source);
+  fitCardPage();
+};
+
+window.renderCardPage = function renderCardPage({ companyName, cardIndex, cardData }) {
+  const sourceMap = SourceEditor ? SourceEditor.loadMap(companyName) : {};
+  const source = sourceMap[cardIndex] || renderCardSource({ companyName, cardIndex, cardData });
+  window.renderSourcePreview(source);
+};
+
+function fitCardPage() {
+  const root = document.getElementById('card-page');
+  const scale = Math.min(window.innerWidth / 900, window.innerHeight / 1200, 1);
+  root.style.transform = `scale(${scale})`;
+}
+
+window.addEventListener('resize', fitCardPage);
+
+document.addEventListener('DOMContentLoaded', async () => {
+  const { companyName, cardIndex } = getRouteCardInfo();
+  if (!companyName) return;
+  try {
+    const cardData = await loadSingleCardFromAPI(companyName, cardIndex);
+    window.renderCardPage({
+      companyName,
+      cardIndex,
+      cardData,
+    });
+  } catch (error) {
+    document.getElementById('card-page').innerHTML = renderEmptyCard(`加载失败：${error.message}`);
+  }
+});
+</script>
+</body>
+</html>

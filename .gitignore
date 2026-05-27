@@ -25,8 +25,8 @@ images/
 
 # Claude Code
 .claude/
+.superpowers/
 
 # n8n local data
 .n8n-data/
 legacy/n8n/.n8n-data/
-

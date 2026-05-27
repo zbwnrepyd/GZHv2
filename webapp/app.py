@@ -29,7 +29,7 @@ _jobs_lock = threading.Lock()
 @app.route("/api/companies")
 def list_companies():
     try:
-        companies = database.get_companies(config.DB_PATH_RESEARCH)
+        companies = database.get_companies(config.DB_PATH_RESEARCH, config.DB_PATH_FINAL)
         return jsonify(companies)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -66,8 +66,8 @@ def get_all_versions(company: str):
 
 @app.route("/api/research/<company>/card/<int:card_index>")
 def get_research_card_markdown(company: str, card_index: int):
-    if card_index < 1 or card_index > 7:
-        return jsonify({"error": "card_index 必须在 1-7 之间"}), 400
+    if card_index < 1 or card_index > 8:
+        return jsonify({"error": "card_index 必须在 1-8 之间"}), 400
     version = request.args.get("version", "standard")
     if version not in ("standard", "business", "spread"):
         return jsonify({"error": f"无效的版本: {version}"}), 400
@@ -186,8 +186,8 @@ def save_final_card():
 
         if not company_name or not card_index:
             return jsonify({"error": "缺少 company_name 或 card_index"}), 400
-        if card_index < 1 or card_index > 7:
-            return jsonify({"error": "card_index 必须在 1-7 之间"}), 400
+        if card_index < 1 or card_index > 8:
+            return jsonify({"error": "card_index 必须在 1-8 之间"}), 400
 
         if markdown_content is not None:
             database.save_final_markdown(
@@ -206,6 +206,17 @@ def save_final_card():
 def get_final_status(company: str):
     try:
         return jsonify(database.get_final_status(config.DB_PATH_FINAL, company))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/final/card/<company>/<int:card_index>")
+def get_final_card(company: str, card_index: int):
+    try:
+        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+        if markdown is None:
+            return jsonify({"company_name": company, "card_index": card_index, "markdown_content": ""})
+        return jsonify({"company_name": company, "card_index": card_index, "markdown_content": markdown})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -239,13 +250,21 @@ def generate_image_route():
         prompt = data.get("prompt", "")
         company_name = data.get("company_name", "unknown")
         field_name = data.get("field_name", "image")
+        image_api_url = (data.get("image_api_url") or "").strip() or None
+        image_api_key = (data.get("image_api_key") or "").strip() or None
 
         if not prompt:
             return jsonify({"error": "缺少 prompt"}), 400
 
         safe_name = company_name.replace("/", "_").replace(" ", "_")
         filename = f"{safe_name}_{field_name}_{int(time.time())}.png"
-        path = generate_image(prompt, config.IMAGES_DIR, filename)
+        path = generate_image(
+            prompt,
+            config.IMAGES_DIR,
+            filename,
+            api_url=image_api_url,
+            api_key=image_api_key,
+        )
         return jsonify({"status": "ok", "img_path": f"/images/{Path(path).name}"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -350,6 +369,13 @@ def editor_page(company: str = None):
 @app.route("/canvas/")
 def canvas_page():
     return send_from_directory("../canvas", "card-renderer.html")
+
+
+@app.route("/canvas/card/<company>/<int:card_index>")
+def canvas_card_page(company: str, card_index: int):
+    if card_index < 1 or card_index > 8:
+        return jsonify({"error": "card_index 必须在 1-8 之间"}), 400
+    return send_from_directory("../canvas", "card.html")
 
 
 @app.route("/canvas/<path:filename>")

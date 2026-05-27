@@ -13,7 +13,7 @@ function exportCardAsPNG(cardIndex) {
 }
 
 async function exportAllCards(allCardData, companyName) {
-  showStatus('正在生成全部 7 张卡片...', 'info');
+  showStatus('正在生成全部 8 张卡片...', 'info');
 
   const cardDataURLs = await renderAllCards(allCardData);
   const keys = Object.keys(cardDataURLs);

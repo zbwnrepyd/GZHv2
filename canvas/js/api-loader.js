@@ -75,3 +75,8 @@ async function loadFromAPI(company) {
 
   return { company_name: json.company_name, allCardData };
 }
+
+async function loadSingleCardFromAPI(company, cardIndex) {
+  const result = await loadFromAPI(company);
+  return result.allCardData[cardIndex] || {};
+}

@@ -84,7 +84,7 @@ function card1Layout(data) {
 
   // 底部
   elements.push(el('text', { text: '三分钟认识一家AI初创公司', x: cx, y: H - 120, font: FONTS.small, fill: COLORS.mediumGray, textAlign: 'center' }));
-  elements.push(el('text', { text: '卡片 1/7', x: cx, y: H - 80, font: FONTS.tiny, fill: COLORS.mediumGray, textAlign: 'center' }));
+  elements.push(el('text', { text: '卡片 1/8', x: cx, y: H - 80, font: FONTS.tiny, fill: COLORS.mediumGray, textAlign: 'center' }));
 
   return elements;
 }
@@ -258,14 +258,14 @@ function card6Layout(data) {
   return elements;
 }
 
-// ── 卡片7：总结 ──────────────────────────────────
+// ── 卡片7：竞争格局 ───────────────────────────────
 function card7Layout(data) {
   const elements = [];
   elements.push(el('rect', { x: 0, y: 0, w: W, h: H, fill: COLORS.white }));
-  elements.push(bgHeader('总结与展望'));
+  elements.push(bgHeader('竞争格局'));
 
   let y = 180;
-  const fields = ['竞争壁垒', '竞争格局', '赛道契机'];
+  const fields = ['竞争壁垒', '竞争格局'];
 
   for (const f of fields) {
     if (data[f] && data[f] !== '暂缺') {
@@ -280,6 +280,28 @@ function card7Layout(data) {
   return elements;
 }
 
+// ── 卡片8：总结 ──────────────────────────────────
+function card8Layout(data) {
+  const elements = [];
+  elements.push(el('rect', { x: 0, y: 0, w: W, h: H, fill: COLORS.white }));
+  elements.push(bgHeader('总结与展望'));
+
+  let y = 180;
+  const fields = ['赛道契机'];
+
+  for (const f of fields) {
+    if (data[f] && data[f] !== '暂缺') {
+      elements.push(el('rect', { x: PADDING, y: y - 4, w: CONTENT_WIDTH, h: 6, fill: COLORS.accent, rx: 3 }));
+      const rows = labelValueRow(f, data[f], y + 12);
+      elements.push(...rows);
+      y += Math.max(80, estimateTextHeight(data[f], FONTS.body, rows[1].maxWidth || CONTENT_WIDTH) + 40);
+    }
+  }
+
+  elements.push(cardFooter(8));
+  return elements;
+}
+
 // ── 布局注册表 ──────────────────────────────────
 const CARD_LAYOUTS = {
   1: card1Layout,
@@ -289,6 +311,7 @@ const CARD_LAYOUTS = {
   5: card5Layout,
   6: card6Layout,
   7: card7Layout,
+  8: card8Layout,
 };
 
 // ── 辅助函数 ────────────────────────────────────
@@ -305,7 +328,7 @@ function bgHeader(title, y = 80) {
 
 function cardFooter(cardIndex) {
   return el('text', {
-    text: `${cardIndex}/7 · aistartups.cn`,
+    text: `${cardIndex}/8 · aistartups.cn`,
     x: W - PADDING,
     y: H - 60,
     font: FONTS.tiny,

@@ -4,6 +4,7 @@
 
 ```bash
 pip install -r requirements.txt
+npm install
 sqlite3 db/research_db.sqlite < db/init_research_db.sql
 sqlite3 db/final_db.sqlite < db/init_final_db.sql
 ```
@@ -28,6 +29,8 @@ DB_PATH_RESEARCH=/absolute/path/to/research_db.sqlite
 DB_PATH_FINAL=/absolute/path/to/final_db.sqlite
 IMAGES_DIR=/absolute/path/to/images
 ```
+
+`IMAGE_API_KEY` and `IMAGE_API_URL` are defaults for image generation. The card workbench can also send a one-off `image_api_url` and `image_api_key` to `/api/generate-image`; the one-off API key is not persisted or returned.
 
 ## Start
 
@@ -54,6 +57,7 @@ FLASK_PORT=5051 python3 app.py
 ```bash
 python3 -m unittest discover -s tests -v
 python3 -m py_compile webapp/*.py
+node canvas/screenshot.js --help
 ```
 
 Prompt loading:
@@ -109,7 +113,9 @@ Open finalization desk:
 http://127.0.0.1:5050/editor?company=Anthropic
 ```
 
-In the finalization desk, each card is edited row by row across four columns: standard version, business version, spread version, and final input. Confirm cards 1-7. The spread hook paragraphs are available from the left-side `传播钩子文案` entry; they are copy options for the article opening and do not generate card 8.
+In the finalization desk, each card is edited row by row across four columns: standard version, business version, spread version, and final input. Confirm cards 1-8. Card 7 is the competition landscape; card 8 is the summary and contains the market opportunity. The spread hook paragraphs are available from the left-side `传播钩子文案` entry; they are copy options for the article opening and are not written into cards.
+
+The research desk company table shows finalization progress as `confirmed/8`. The card workbench `返回定稿台` button should return to `/editor?company=<company>` for the currently loaded company.
 
 Export for canvas:
 
@@ -119,6 +125,31 @@ curl "http://127.0.0.1:5050/api/final/export/Anthropic?format=json" | python3 -m
 
 # Open canvas directly with company data
 open "http://127.0.0.1:5050/canvas/?company=Anthropic"
+
+# Open one card directly
+open "http://127.0.0.1:5050/canvas/card/Anthropic/1"
+```
+
+## Card Workbench And PNG Export
+
+The card workbench is an HTML/CSS renderer, not the legacy fabric.js canvas. The middle pane previews a scaled `900 x 1200` card. The right pane shows the current card's full `<style>...</style>` plus `<article class="knowledge-card">...</article>` source with syntax highlighting. Editing the source live-renders into the middle iframe. Use “保存当前页源码” to persist that card's source in browser `localStorage`.
+
+The bottom image bar has:
+
+- prompt input
+- optional image API URL
+- API Key password input
+- reset prompt and generate buttons
+
+The API Key input is intentionally not saved. If the browser reloads, paste it again or use `IMAGE_API_KEY` in the environment.
+
+Batch export:
+
+```bash
+node canvas/screenshot.js \
+  --company Anthropic \
+  --base-url http://127.0.0.1:5050 \
+  --out output/cards/Anthropic
 ```
 
 Check job persistence across restarts:
@@ -133,5 +164,8 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
 - If a research job fails at L3, no partial all-missing record should be written.
 - If hook copy is missing in the finalization desk, open the left-side `传播钩子文案` entry and confirm `hook_paragraph_1/2/3` exist in `GET /api/research/<company>/<version>`.
 - If generated images do not display, confirm `/images/<filename>` returns 200 and `IMAGES_DIR` points to the saved image directory.
+- If image generation fails from the card workbench, check the bottom-bar API URL/API Key first, then the environment `IMAGE_API_URL` and `IMAGE_API_KEY`.
+- If the card preview differs from the source editor, reload `/canvas/?company=<company>` and confirm the current card source was saved in the same browser profile.
+- If PNG export says Puppeteer is missing, run `npm install` from the project root.
 - If imports fail in a new environment, reinstall with `pip install -r requirements.txt`.
 - `urllib3` may warn about LibreSSL on the system Python. The warning is noisy but was not a blocker in local verification.

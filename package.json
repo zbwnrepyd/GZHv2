@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "export:cards": "node canvas/screenshot.js"
+  },
+  "dependencies": {
+    "puppeteer": "^24.10.2"
+  }
+}

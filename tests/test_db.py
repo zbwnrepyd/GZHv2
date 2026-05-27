@@ -81,6 +81,14 @@ class FinalCardSaveTests(unittest.TestCase):
         self.assertEqual(len(cards), 1)
         self.assertEqual(cards[0]["field_value"], "新内容")
 
+    def test_final_status_counts_eight_cards(self):
+        db.save_final_markdown(self.db_path, "DemoCo", 8, "## 卡片8：总结\n\n**机遇**：新机会")
+
+        status = db.get_final_status(self.db_path, "DemoCo")
+
+        self.assertEqual(status["confirmed"], [8])
+        self.assertEqual(status["total"], 8)
+
 
 if __name__ == "__main__":
     unittest.main()
