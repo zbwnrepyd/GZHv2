@@ -92,7 +92,7 @@ async function run() {
       deviceScaleFactor: 2,
     });
 
-    for (let cardIndex = 1; cardIndex <= 7; cardIndex += 1) {
+    for (let cardIndex = 1; cardIndex <= 8; cardIndex += 1) {
       const url = `${args.baseUrl.replace(/\/$/, '')}/canvas/card/${encodeURIComponent(company)}/${cardIndex}`;
       await page.goto(url, { waitUntil: 'networkidle0' });
       await waitForCard(page);

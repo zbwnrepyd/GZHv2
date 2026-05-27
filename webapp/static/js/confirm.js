@@ -16,7 +16,7 @@ const ConfirmManager = {
   },
 
   allConfirmed() {
-    for (let i = 1; i <= 7; i++) {
+    for (let i = 1; i <= 8; i++) {
       if (!this.confirmed.has(i)) return false;
     }
     return true;

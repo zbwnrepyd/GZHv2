@@ -61,8 +61,14 @@ class PageRouteTests(unittest.TestCase):
         self.assertIn('id="card-page"', html)
         self.assertIn("knowledge-card", html)
 
-    def test_canvas_single_card_route_rejects_card_8(self):
+    def test_canvas_single_card_route_accepts_card_8(self):
         response = self.client.get("/canvas/card/DemoCo/8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="card-page"', response.get_data(as_text=True))
+
+    def test_canvas_single_card_route_rejects_card_9(self):
+        response = self.client.get("/canvas/card/DemoCo/9")
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("card_index", response.get_json()["error"])
@@ -84,6 +90,7 @@ class ResearchCardMarkdownTests(unittest.TestCase):
                     "timeline_events": [
                         {"date": "2024-01", "event": "上线 Beta", "impact": "获得首批用户"}
                     ],
+                    "market_opportunity": "AI 工作流进入重构期。",
                 }
             ],
         )
@@ -99,6 +106,14 @@ class ResearchCardMarkdownTests(unittest.TestCase):
         payload = response.get_json()
         self.assertIn("## 卡片3：发展沿袭", payload["markdown"])
         self.assertIn("2024-01", payload["markdown"])
+
+    def test_research_card_endpoint_returns_card_8_summary_markdown(self):
+        response = self.client.get("/api/research/DemoCo/card/8?version=standard")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertIn("## 卡片8：总结", payload["markdown"])
+        self.assertIn("**机遇**：AI 工作流进入重构期。", payload["markdown"])
 
 
 class ImageRouteTests(unittest.TestCase):
@@ -158,7 +173,7 @@ class FinalMarkdownFlowTests(unittest.TestCase):
             "/api/final/save",
             json={
                 "company_name": "DemoCo",
-                "card_index": 1,
+                "card_index": 8,
                 "markdown_content": "# DemoCo\n\n**AI 工具**",
             },
         )
@@ -166,13 +181,13 @@ class FinalMarkdownFlowTests(unittest.TestCase):
 
         status = self.client.get("/api/final/status/DemoCo")
         self.assertEqual(status.status_code, 200)
-        self.assertEqual(status.get_json()["confirmed"], [1])
-        self.assertEqual(status.get_json()["total"], 7)
+        self.assertEqual(status.get_json()["confirmed"], [8])
+        self.assertEqual(status.get_json()["total"], 8)
 
         exported = self.client.get("/api/final/export/DemoCo?format=json")
         self.assertEqual(exported.status_code, 200)
         payload = exported.get_json()
-        self.assertEqual(payload["cards"]["1"]["markdown_content"], "# DemoCo\n\n**AI 工具**")
+        self.assertEqual(payload["cards"]["8"]["markdown_content"], "# DemoCo\n\n**AI 工具**")
         self.assertEqual(payload["confirmed_count"], 1)
 
 

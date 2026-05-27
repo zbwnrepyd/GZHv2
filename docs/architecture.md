@@ -14,14 +14,14 @@ The app no longer depends on n8n for the main path. Research is started from the
 - `webapp/pipeline.py`: four-source collection, DeepSeek L0-L3 analysis, validation, database write.
 - `webapp/db.py`: SQLite access helpers for research records, job tracking, and final card content.
 - `prompts/`: prompt templates loaded by `webapp/deepseek_client.py`.
-- `webapp/static/js/index.js`: research desk orchestration and research job polling.
+- `webapp/static/js/index.js`: research desk orchestration, research job polling, and finalization progress display as `confirmed/8`.
 - `webapp/static/js/editor.js`: finalization desk orchestration, four-column line choice, hook-copy view, and card confirmation.
 - `canvas/`: HTML/CSS card workbench, single-card render page, and Puppeteer screenshot CLI.
 - `canvas/js/api-loader.js`: loads card data from `/api/final/export?format=json` when opened with `?company=`.
 - `canvas/js/html-card-renderer.js`: converts parsed card data into editable `<style> + <article>` card source.
 - `canvas/js/source-editor.js`: syntax-highlighted HTML/CSS source editor with live iframe rendering.
 - `canvas/js/prompt-bar.js`: per-card image prompt editor and image API request wiring.
-- `canvas/screenshot.js`: screenshots cards 1-7 through Puppeteer.
+- `canvas/screenshot.js`: screenshots cards 1-8 through Puppeteer.
 
 ## Research Pipeline
 
@@ -76,7 +76,7 @@ Pages and static assets:
 - `GET /editor` and `GET /editor?company=<company>` — finalization desk.
 - `GET /editor/<company>` legacy-compatible editor route.
 - `GET /canvas/` — card workbench. Use `?company=<company>` to load confirmed cards.
-- `GET /canvas/card/<company>/<card_index>` — single-card HTML page for iframe preview and Puppeteer export. Valid indexes are 1-7.
+- `GET /canvas/card/<company>/<card_index>` — single-card HTML page for iframe preview and Puppeteer export. Valid indexes are 1-8.
 - `GET /canvas/<path>`
 
 `POST /api/generate-image` accepts the existing `company_name`, `field_name`, and `prompt` fields. It also accepts optional runtime `image_api_url` and `image_api_key`; these override environment defaults for that request only. The API key is never returned in the response.
@@ -84,6 +84,8 @@ Pages and static assets:
 ## Card Workbench
 
 The card workbench uses browser-native HTML/CSS layout instead of fabric.js. The center pane shows a scaled 3:4 iframe preview based on a `900 x 1200` card. The right pane shows the current card's complete HTML+CSS source with local syntax highlighting; edits debounce-render into the iframe and can be saved per company/card in browser `localStorage`.
+
+The workbench toolbar includes `返回定稿台`. With a company loaded, it links to `/editor?company=<company>`; without a company it falls back to `/editor`.
 
 The bottom prompt bar stores per-card prompts and generated image paths in browser `localStorage`. The API URL may be remembered locally, but the API key is kept only in page memory and sent only with the image generation request.
 
@@ -95,4 +97,4 @@ The CLI export path opens `/canvas/card/<company>/<card_index>` for each card an
 - `canvas/` main path uses HTML/CSS and iframe rendering; legacy fabric.js files may remain in the tree but are not referenced by `canvas/card-renderer.html`.
 - SQLite through Python `sqlite3`; no ORM.
 - Website scraping uses local `trafilatura` via `webapp/firecrawl_local.py`; no Firecrawl API.
-- Card 8 is not generated. `hook_paragraph_1/2/3` are displayed through the left-side `传播钩子文案` entry as supporting opening-copy options.
+- Cards 1-8 are generated. Card 7 is `竞争格局` and contains moat plus competitors; card 8 is `总结` and contains the market opportunity. `hook_paragraph_1/2/3` are displayed through the left-side `传播钩子文案` entry as supporting opening-copy options and are not written into cards.

@@ -33,9 +33,10 @@ CREATE TABLE IF NOT EXISTS research (
   cold_start      TEXT,
   customer_segment TEXT,
   growth_flywheel TEXT,
-  -- 卡片7：总结 ───────────────────────────────────────────────
+  -- 卡片7：竞争格局 ───────────────────────────────────────────
   moat            TEXT,
   competitors     TEXT, -- JSON数组: [{"name":"...", "product":"...", "data":"..."}]
+  -- 卡片8：总结 ───────────────────────────────────────────────
   market_opportunity TEXT,
   -- 传播钩子段落 ───────────────────────────────────────────────
   hook_paragraph_1 TEXT,

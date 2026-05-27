@@ -56,10 +56,13 @@ class CanvasParserTests(unittest.TestCase):
     def test_parse_confirmed_markdown_english_keys_for_card7(self):
         markdown = textwrap.dedent(
             """
-            ## 卡片7：总结
+            ## 卡片7：竞争格局
 
             - **moat**：迁移成本高，数据结构和团队流程深度绑定。
             - **competitors**：[{"name":"Airtable","product":"Airtable","data":"ARR 公开估计"}]
+
+            ## 卡片8：总结
+
             - **market_opportunity**：AI 工作流重构带来新机会。
             """
         ).strip()
@@ -69,7 +72,8 @@ class CanvasParserTests(unittest.TestCase):
         self.assertEqual(parsed["7"]["竞争壁垒"], "迁移成本高，数据结构和团队流程深度绑定。")
         self.assertIn("TOP1", parsed["7"]["竞争格局"])
         self.assertIn("Airtable", parsed["7"]["竞争格局"])
-        self.assertEqual(parsed["7"]["赛道契机"], "AI 工作流重构带来新机会。")
+        self.assertEqual(parsed["8"]["赛道契机"], "AI 工作流重构带来新机会。")
+        self.assertNotIn("赛道契机", parsed["7"])
 
     def test_parse_confirmed_markdown_json_timeline_for_card3(self):
         markdown = textwrap.dedent(
@@ -98,10 +102,13 @@ class CanvasParserTests(unittest.TestCase):
 
             - **Calendar**：日历产品（日程联动）
 
-            ## 卡片7：总结
+            ## 卡片7：竞争格局
 
             **竞争壁垒**：生态粘性强
             **TOP1**：Airtable — 数据库产品（公开数据）
+
+            ## 卡片8：总结
+
             **赛道契机**：AI 办公需求上升
             """
         ).strip()
@@ -111,6 +118,7 @@ class CanvasParserTests(unittest.TestCase):
         self.assertIn("2024-01", parsed["3"]["发展沿袭时间线"])
         self.assertIn("Calendar", parsed["5"]["其他产品"])
         self.assertIn("Airtable", parsed["7"]["竞争格局"])
+        self.assertEqual(parsed["8"]["赛道契机"], "AI 办公需求上升")
 
     def test_api_loader_parses_markdown_content_json_to_canvas_fields(self):
         api_json = {

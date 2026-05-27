@@ -12,7 +12,8 @@ CARD_TITLES = {
     4: "主产品",
     5: "其他产品",
     6: "商业模式",
-    7: "总结",
+    7: "竞争格局",
+    8: "总结",
 }
 
 
@@ -129,6 +130,9 @@ def build_card_markdown(db_path: str, company_name: str, card_index: int, versio
         lines += [
             f"**壁垒**：{_value(record, 'moat')}",
             _format_competitors(record.get("competitors")),
+        ]
+    elif card_index == 8:
+        lines += [
             f"**机遇**：{_value(record, 'market_opportunity')}",
         ]
 

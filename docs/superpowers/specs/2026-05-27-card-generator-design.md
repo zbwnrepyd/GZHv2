@@ -37,7 +37,7 @@
 3. 不新增 n8n 工作流。
 4. 不恢复旧字段级编辑器作为主路径。
 5. 不新增外部图片生成供应商；第一版复用项目现有 `/api/generate-image`。
-6. 不生成卡片 8。
+6. 生成 1-8 号卡片；卡片 7 为竞争格局，卡片 8 为总结。
 
 ## 4. 推荐架构
 
@@ -57,7 +57,7 @@
 
 ```text
 /editor?company=Anthropic
-  -> 确认 1-7 张卡片
+  -> 确认 1-8 张卡片
   -> 点击“去制作卡片”
   -> /canvas/?company=Anthropic
 ```
@@ -70,7 +70,7 @@
 ┌──────────────┬──────────────────────────────────────┬────────────────┐
 │ 左栏 210     │ 中间画布优先完整展示                  │ 右栏 520       │
 │              │                                      │                │
-│ 卡片 1-7     │ 顶部：当前卡片名 + 适配窗口 + 导出    │ HTML+CSS源码   │
+│ 卡片 1-8     │ 顶部：当前卡片名 + 适配窗口 + 导出    │ HTML+CSS源码   │
 │ 确认状态     │ 中部：3:4 HTML 卡片 iframe            │ 语法高亮/保存  │
 │ 导出入口     │ 底部：图片 prompt bar                 │ 当前页/全部    │
 └──────────────┴──────────────────────────────────────┴────────────────┘
@@ -81,7 +81,7 @@
 - 左栏只放必要导航，避免挤占画布。
 - 中间区域默认 `fit-to-window`，保证完整卡片可见。
 - 右栏不是滑块 UI，而是当前页完整 HTML+CSS 源码编辑器，带本地语法高亮。
-- 右栏可折叠；折叠后中间画布自动扩展。
+- 中间区域优先保证完整画布可见；右栏固定展示当前页源码。
 
 ## 6. 单张卡片结构
 
@@ -243,8 +243,8 @@ GET /canvas/card/<company>/<int:card_index>
 用途：返回单张卡片 HTML。参数：
 
 - `company`：公司名。
-- `card_index`：1-7。
-- `css_token` 或 `style_id`：可选，用于服务端导出场景。
+- `card_index`：1-8。
+- 第一版不提供服务端样式 token；单页路由按数据库定稿内容和浏览器本地源码状态渲染。
 
 第一版也可让 iframe 使用静态 `canvas/card.html`，再通过 query 参数拉 JSON 渲染。两种方式取舍：
 
@@ -260,7 +260,7 @@ GET /canvas/card/<company>/<int:card_index>
 ```text
 canvas/
   card-renderer.html          # 制作台入口，三栏布局
-  card-template.html          # 单卡 HTML 模板，或由 Flask render_template 返回
+  card.html                   # 单卡 HTML 页面，由 Flask 单卡路由返回
   screenshot.js               # Puppeteer 批量截图
   js/
     markdown-parser.js        # 保留并收敛：Markdown -> card data
@@ -297,8 +297,8 @@ node canvas/screenshot.js \
 
 行为：
 
-1. 请求 `/api/final/export/<company>?format=json` 确认数据存在。
-2. 逐张打开 `/canvas/card/<company>/<card_index>`。
+1. 逐张打开 `/canvas/card/<company>/<card_index>`。
+2. 单卡页面通过 `/api/final/export/<company>?format=json` 加载定稿数据。
 3. 等待字体、图片、布局完成。
 4. 按 `900 x 1200` 或 2x 输出 PNG。
 5. 文件名为：
@@ -307,7 +307,7 @@ node canvas/screenshot.js \
 <company>_card_01.png
 <company>_card_02.png
 ...
-<company>_card_07.png
+<company>_card_08.png
 ```
 
 截图参数：
@@ -355,8 +355,8 @@ aistartups.cardSource.<company_name>
 Python 测试：
 
 1. `/canvas/` 返回新的制作台 HTML。
-2. `/canvas/card/<company>/<n>` 对 1-7 返回 200。
-3. `/canvas/card/<company>/8` 返回 400 或 404。
+2. `/canvas/card/<company>/<n>` 对 1-8 返回 200。
+3. `/canvas/card/<company>/9` 返回 400。
 4. `/api/final/export/<company>?format=json` 仍兼容 `markdown_full`。
 5. `/api/generate-image` 现有 mock 测试保持通过。
 

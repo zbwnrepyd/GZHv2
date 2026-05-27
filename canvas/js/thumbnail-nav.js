@@ -1,4 +1,4 @@
-// 缩略图导航：为 7 张卡片生成小尺寸预览图
+// 缩略图导航：为 8 张卡片生成小尺寸预览图
 
 const THUMB_SCALE = 0.12; // 约 130×230 px
 let thumbnailDataURLs = {};
@@ -7,7 +7,7 @@ async function generateThumbnails(allCardData) {
   thumbnailDataURLs = {};
   const promises = [];
 
-  for (let i = 1; i <= 7; i++) {
+  for (let i = 1; i <= 8; i++) {
     const data = allCardData[i];
     if (!data) continue;
 

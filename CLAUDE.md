@@ -54,13 +54,14 @@ sqlite3 db/final_db.sqlite < db/init_final_db.sql
 - 所有LLM调用使用DeepSeek V4 Pro
 - 前端不用React/Vue，Vanilla JS + CDN
 - `canvas/` 主路径不用 fabric.js；使用 HTML/CSS 源码编辑器 + iframe 预览，右侧展示当前页完整 HTML+CSS 并实时渲染
+- 卡片制作台返回按钮应回到当前公司的定稿台 `/editor?company=<公司名>`；研究台定稿进度以 8 张为总数
 - 数据库用sqlite3标准库，不用ORM
 - 网页抓取用本地 trafilatura（`webapp/firecrawl_local.py`），不依赖外部 API
 - 成本目标 < $0.20/次研究
-- 不生成卡片8
+- 生成 1-8 号卡片；卡片7为竞争格局（壁垒、竞争格局），卡片8为总结（机遇）
 - 研究主流程不依赖 n8n；不要新增 n8n 工作流作为主路径
 - 定稿台是四列逐行选择：标准版、商业版、传播版、定稿输入；不要恢复旧字段级编辑器作为主路径
-- `hook_paragraph_1/2/3` 只在左侧“传播钩子文案”入口展示，不写入卡片8，也不参与卡片确认保存
+- `hook_paragraph_1/2/3` 只在左侧“传播钩子文案”入口展示，不写入知识卡片，也不参与卡片确认保存
 - `final_content` 以 `company_name + card_index + field_name` 作为唯一字段键，重复确认应更新而非插入
 - 定稿保存优先使用 `field_name='markdown_full'` 的整张 Markdown
 - L3 任一版本字段提取失败时，任务应失败且不写入假成功记录

@@ -113,7 +113,9 @@ Open finalization desk:
 http://127.0.0.1:5050/editor?company=Anthropic
 ```
 
-In the finalization desk, each card is edited row by row across four columns: standard version, business version, spread version, and final input. Confirm cards 1-7. The spread hook paragraphs are available from the left-side `传播钩子文案` entry; they are copy options for the article opening and do not generate card 8.
+In the finalization desk, each card is edited row by row across four columns: standard version, business version, spread version, and final input. Confirm cards 1-8. Card 7 is the competition landscape; card 8 is the summary and contains the market opportunity. The spread hook paragraphs are available from the left-side `传播钩子文案` entry; they are copy options for the article opening and are not written into cards.
+
+The research desk company table shows finalization progress as `confirmed/8`. The card workbench `返回定稿台` button should return to `/editor?company=<company>` for the currently loaded company.
 
 Export for canvas:
 

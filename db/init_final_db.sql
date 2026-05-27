@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS final_content (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   company_name    TEXT    NOT NULL,
-  card_index      INTEGER NOT NULL, -- 1-7
+  card_index      INTEGER NOT NULL, -- 1-8
   field_name      TEXT    NOT NULL,
   field_value     TEXT,
   img_local_path  TEXT,  -- 图片本地路径（如有）

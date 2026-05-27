@@ -5,8 +5,11 @@ const CARD_TITLES = {
   4: '主产品',
   5: '其他产品',
   6: '商业模式',
-  7: '总结',
+  7: '竞争格局',
+  8: '总结',
 };
+
+const CARD_COUNT = 8;
 
 const VERSION_LABELS = {
   standard: '标准版',
@@ -18,7 +21,7 @@ const VERSIONS = ['standard', 'business', 'spread'];
 
 const EditorApp = {
   companyName: '',
-  currentCard: 1,
+  currentCard: null,
   currentMode: 'card',
   versionChoices: {},
   hookChoices: {},
@@ -39,7 +42,6 @@ const EditorApp = {
     document.getElementById('btn-go-canvas').href = `/canvas/?company=${encodeURIComponent(this.companyName)}`;
     await this.loadStatus();
     await this.loadHookChoices();
-    await this.loadCard(1);
   },
 
   bindEvents() {
@@ -75,7 +77,7 @@ const EditorApp = {
       if (this.currentCard > 1) this.loadCard(this.currentCard - 1);
     });
     document.getElementById('btn-next').addEventListener('click', () => {
-      if (this.currentCard < 7) this.loadCard(this.currentCard + 1);
+      if (this.currentCard < CARD_COUNT) this.loadCard(this.currentCard + 1);
     });
     document.getElementById('btn-confirm').addEventListener('click', () => this.confirmCurrentCard());
   },
@@ -98,10 +100,28 @@ const EditorApp = {
     this.showCardMode();
     await this.loadVersionChoices(cardIndex);
     this.ensureFinalLines();
+    await this.restoreFinalLines(cardIndex);
     this.renderLineChoices();
     this.updateMeta();
     this.setPreview(this.getFinalMarkdown());
     this.updateButtons();
+  },
+
+  async restoreFinalLines(cardIndex) {
+    if (!ConfirmManager.isConfirmed(cardIndex)) return;
+    try {
+      const result = await API.getFinalCard(this.companyName, cardIndex);
+      if (result.markdown_content) {
+        const blocks = result.markdown_content.replace(/\n+$/, '').split('\n\n');
+        const rows = this.getRenderableRows();
+        const finalLines = this.finalLinesByCard[cardIndex];
+        for (let i = 0; i < Math.min(blocks.length, rows.length); i++) {
+          finalLines[rows[i]] = blocks[i];
+        }
+      }
+    } catch {
+      // 加载失败静默忽略
+    }
   },
 
   async showHooks() {
@@ -226,11 +246,21 @@ const EditorApp = {
   applyLineChoice(row, version) {
     this.ensureFinalLines();
     const value = this.getVersionLine(version, row);
-    this.finalLinesByCard[this.currentCard][row] = value;
-    const input = document.querySelector(`.final-line-input[data-row="${row}"]`);
-    if (input) {
-      input.value = value;
-      this.autoGrow(input);
+    const current = this.finalLinesByCard[this.currentCard][row];
+    if (current === value) {
+      this.finalLinesByCard[this.currentCard][row] = '';
+      const input = document.querySelector(`.final-line-input[data-row="${row}"]`);
+      if (input) {
+        input.value = '';
+        this.autoGrow(input);
+      }
+    } else {
+      this.finalLinesByCard[this.currentCard][row] = value;
+      const input = document.querySelector(`.final-line-input[data-row="${row}"]`);
+      if (input) {
+        input.value = value;
+        this.autoGrow(input);
+      }
     }
     this.markDirty();
     this.setPreview(this.getFinalMarkdown());
@@ -241,14 +271,14 @@ const EditorApp = {
     const lines = this.ensureFinalLines();
     return this.getRenderableRows()
       .map((row) => lines[row] || '')
-      .join('\n')
+      .filter((line) => line.trim())
+      .join('\n\n')
       .replace(/\s+$/g, '') + '\n';
   },
 
   ensureFinalLines() {
     if (!this.finalLinesByCard[this.currentCard]) {
-      const standard = this.versionChoices[this.currentCard]?.standard || '';
-      this.finalLinesByCard[this.currentCard] = this.splitMarkdownLines(standard);
+      this.finalLinesByCard[this.currentCard] = [];
       this.padFinalLines();
     }
     return this.finalLinesByCard[this.currentCard];
@@ -316,10 +346,10 @@ const EditorApp = {
   },
 
   nextUnconfirmed() {
-    for (let i = this.currentCard + 1; i <= 7; i++) {
+    for (let i = this.currentCard + 1; i <= CARD_COUNT; i++) {
       if (!ConfirmManager.isConfirmed(i)) return i;
     }
-    for (let i = 1; i <= 7; i++) {
+    for (let i = 1; i <= CARD_COUNT; i++) {
       if (!ConfirmManager.isConfirmed(i)) return i;
     }
     return null;
@@ -330,6 +360,8 @@ const EditorApp = {
       const card = button.dataset.card;
       if (this.currentMode === 'hook') {
         button.classList.toggle('active', card === 'hook');
+      } else if (this.currentCard === null) {
+        button.classList.remove('active');
       } else {
         button.classList.toggle('active', Number(card) === this.currentCard);
       }
@@ -337,13 +369,13 @@ const EditorApp = {
   },
 
   updateButtons() {
-    if (this.currentMode === 'hook') {
+    if (this.currentMode === 'hook' || this.currentCard === null) {
       document.getElementById('btn-prev').disabled = true;
       document.getElementById('btn-next').disabled = true;
       return;
     }
     document.getElementById('btn-prev').disabled = this.currentCard <= 1;
-    document.getElementById('btn-next').disabled = this.currentCard >= 7;
+    document.getElementById('btn-next').disabled = this.currentCard >= CARD_COUNT;
   },
 
   updateGoCanvas() {

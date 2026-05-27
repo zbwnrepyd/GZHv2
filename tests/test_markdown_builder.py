@@ -50,13 +50,21 @@ class MarkdownBuilderTests(unittest.TestCase):
         card7 = markdown_builder.build_card_markdown(
             self.db_path, "DemoCo", 7, "standard"
         )
+        card8 = markdown_builder.build_card_markdown(
+            self.db_path, "DemoCo", 8, "standard"
+        )
 
         self.assertIn("## 卡片3：发展沿袭", card3)
         self.assertIn("2024-01", card3)
         self.assertIn("获得首批用户", card3)
-        self.assertIn("## 卡片7：总结", card7)
+        self.assertIn("## 卡片7：竞争格局", card7)
         self.assertIn("**TOP1**：Airtable", card7)
+        self.assertIn("**壁垒**：流程沉淀强。", card7)
+        self.assertNotIn("机遇", card7)
         self.assertNotIn("[{", card7)
+        self.assertIn("## 卡片8：总结", card8)
+        self.assertIn("**机遇**：AI 内容生产转向流程系统。", card8)
+        self.assertNotIn("竞争格局", card8)
 
     def test_build_card_markdown_returns_empty_for_missing_record(self):
         markdown = markdown_builder.build_card_markdown(

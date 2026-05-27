@@ -221,11 +221,11 @@ function displayCard(cardIndex, cardData) {
 }
 
 /**
- * 渲染所有 7 张卡片（用于批量导出）
+ * 渲染所有 8 张卡片（用于批量导出）
  */
 async function renderAllCards(allCardData) {
   const results = {};
-  for (let i = 1; i <= 7; i++) {
+  for (let i = 1; i <= 8; i++) {
     const data = allCardData[i];
     if (data) {
       clearCanvas();

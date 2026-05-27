@@ -93,9 +93,13 @@
     background: #fff;
     color: #344054;
     padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
+    text-decoration: none;
     white-space: nowrap;
   }
   .btn:hover { border-color: var(--cyan); }
@@ -232,7 +236,6 @@
   .tok-prop { color: #93C5FD; }
   .tok-number { color: #FDBA74; }
   .tok-selector { color: #F0ABFC; }
-  }
   .source-hint {
     border-bottom: 1px solid var(--border);
     padding: 10px 12px;
@@ -291,6 +294,7 @@
     <div id="canvas-toolbar">
       <div id="canvas-title">卡片制作台</div>
       <div class="toolbar-actions">
+        <a class="btn" id="btn-back-research" href="/editor">返回定稿台</a>
         <button class="btn" id="btn-fit">适配窗口</button>
         <button class="btn" id="btn-open-card">打开单页</button>
         <button class="btn primary" id="btn-export-current">导出当前</button>
@@ -342,7 +346,8 @@ const CARD_TABS = {
   4: '主产品',
   5: '产品线',
   6: '商业',
-  7: '总结',
+  7: '竞争',
+  8: '总结',
 };
 
 const Workbench = {
@@ -354,6 +359,7 @@ const Workbench = {
     const params = new URLSearchParams(window.location.search);
     this.companyName = params.get('company') || '';
     document.getElementById('company-name-input').value = this.companyName;
+    this.updateBackLink();
     this.bindEvents();
     this.renderNav();
     SourceEditor.init({
@@ -381,6 +387,7 @@ const Workbench = {
   bindEvents() {
     document.getElementById('company-name-input').addEventListener('change', async (event) => {
       this.companyName = event.target.value.trim();
+      this.updateBackLink();
       await this.loadCompany();
     });
     document.getElementById('btn-reload').addEventListener('click', () => this.loadCompany());
@@ -389,6 +396,15 @@ const Workbench = {
     document.getElementById('btn-export-current').addEventListener('click', () => ExportClient.exportCurrent(this));
     document.getElementById('btn-export-all').addEventListener('click', () => ExportClient.exportAll(this));
     window.addEventListener('resize', () => this.updateFrameScale());
+  },
+
+  updateBackLink() {
+    const link = document.getElementById('btn-back-research');
+    if (this.companyName) {
+      link.href = `/editor?company=${encodeURIComponent(this.companyName)}`;
+    } else {
+      link.href = '/editor';
+    }
   },
 
   async loadCompany() {
@@ -414,7 +430,7 @@ const Workbench = {
   renderNav() {
     const nav = document.getElementById('card-nav');
     nav.innerHTML = '';
-    for (let i = 1; i <= 7; i += 1) {
+    for (let i = 1; i <= 8; i += 1) {
       const button = document.createElement('button');
       button.className = 'card-tab';
       button.dataset.card = String(i);

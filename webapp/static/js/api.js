@@ -73,6 +73,12 @@ const API = {
     return res.json();
   },
 
+  async getFinalCard(company, cardIndex) {
+    const res = await fetch(`/api/final/card/${encodeURIComponent(company)}/${cardIndex}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
   async getFinalStatus(company) {
     const res = await fetch(`/api/final/status/${encodeURIComponent(company)}`);
     if (!res.ok) throw new Error(await res.text());
