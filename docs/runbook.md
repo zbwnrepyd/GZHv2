@@ -132,7 +132,7 @@ open "http://127.0.0.1:5050/canvas/card/Anthropic/1"
 
 ## Card Workbench And PNG Export
 
-The card workbench is an HTML/CSS renderer, not the legacy fabric.js canvas. The middle pane previews a scaled `900 x 1200` card. The right pane shows the current card's full `<style>...</style>` plus `<article class="knowledge-card">...</article>` source with syntax highlighting. Editing the source live-renders into the middle iframe. Use “保存当前页源码” to persist that card's source in browser `localStorage`.
+The card workbench is an HTML/CSS renderer, not the legacy fabric.js canvas. The left pane shows the current project name as read-only state from `?company=<company>`; use the finalization desk link or URL parameter to switch projects. “卡片每一页” and “图片夹” are mutually exclusive accordions, and each open panel scrolls internally when content is long. The image folder should show Markdown images from finalized cards plus images generated from the prompt bar, and it also contains the background-watermark upload/clear controls. The middle pane previews a scaled `900 x 1200` card. The right pane shows the current card's full `<style>...</style>` plus `<article class="knowledge-card">...</article>` source with syntax highlighting. Editing the source live-renders into the middle iframe. Use “保存当前页源码” to persist that card's source in browser `localStorage`.
 
 The bottom image bar has:
 
@@ -164,7 +164,10 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
 - If a research job fails at L3, no partial all-missing record should be written.
 - If hook copy is missing in the finalization desk, open the left-side `传播钩子文案` entry and confirm `hook_paragraph_1/2/3` exist in `GET /api/research/<company>/<version>`.
 - If generated images do not display, confirm `/images/<filename>` returns 200 and `IMAGES_DIR` points to the saved image directory.
+- If the image folder is empty, first confirm the finalized Markdown contains `![alt](url)` image syntax or generate an image from the bottom prompt bar; both local and remote Markdown image URLs should be preserved by the canvas parser.
+- If the background watermark is missing, open “图片夹”, upload a local image again, and confirm browser `localStorage` is available for `aistartups_bg_image`.
 - If image generation fails from the card workbench, check the bottom-bar API URL/API Key first, then the environment `IMAGE_API_URL` and `IMAGE_API_KEY`.
+- If the card workbench opens without a project name, go back through `/editor?company=<company>` or add `?company=<company>` to the canvas URL; the left project label is intentionally not editable.
 - If the card preview differs from the source editor, reload `/canvas/?company=<company>` and confirm the current card source was saved in the same browser profile.
 - If PNG export says Puppeteer is missing, run `npm install` from the project root.
 - If imports fail in a new environment, reinstall with `pip install -r requirements.txt`.

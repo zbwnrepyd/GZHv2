@@ -5,12 +5,13 @@ const path = require('path');
 
 function usage() {
   console.log(`Usage:
-  node canvas/screenshot.js --company <name> [--base-url http://127.0.0.1:5050] [--out output/cards/<name>]
+  node canvas/screenshot.js --company <name> [--base-url http://127.0.0.1:5050] [--out output/cards/<name>] [--bg-image <path>]
 
 Options:
   --company   Company name to export. Required.
   --base-url  Flask base URL. Default: http://127.0.0.1:5050
   --out       Output directory. Default: output/cards/<company>
+  --bg-image  Path to local watermark image (PNG/JPEG). Injected as base64 data URL.
   --help      Show this help.
 `);
 }
@@ -20,6 +21,7 @@ function parseArgs(argv) {
     baseUrl: 'http://127.0.0.1:5050',
     company: '',
     out: '',
+    bgImage: null,
   };
   for (let i = 2; i < argv.length; i += 1) {
     const item = argv[i];
@@ -31,6 +33,8 @@ function parseArgs(argv) {
       args.baseUrl = argv[++i] || args.baseUrl;
     } else if (item === '--out') {
       args.out = argv[++i] || '';
+    } else if (item === '--bg-image' || item === '-b') {
+      args.bgImage = argv[++i] || null;
     }
   }
   return args;
@@ -38,6 +42,17 @@ function parseArgs(argv) {
 
 function safeName(value) {
   return String(value || 'company').replace(/[/\\?%*:|"<>]/g, '_');
+}
+
+function buildCardUrl(baseUrl, company, cardIndex, bgImagePath) {
+  let url = `${baseUrl.replace(/\/$/, '')}/canvas/card/${encodeURIComponent(company)}/${cardIndex}`;
+  if (bgImagePath) {
+    const mime = bgImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    const b64 = fs.readFileSync(bgImagePath).toString('base64');
+    const dataUrl = `data:${mime};base64,${b64}`;
+    url += `?bg=${encodeURIComponent(dataUrl)}`;
+  }
+  return url;
 }
 
 async function waitForCard(page) {
@@ -93,7 +108,7 @@ async function run() {
     });
 
     for (let cardIndex = 1; cardIndex <= 8; cardIndex += 1) {
-      const url = `${args.baseUrl.replace(/\/$/, '')}/canvas/card/${encodeURIComponent(company)}/${cardIndex}`;
+      const url = buildCardUrl(args.baseUrl, company, cardIndex, args.bgImage);
       await page.goto(url, { waitUntil: 'networkidle0' });
       await waitForCard(page);
       const filePath = path.join(outDir, `${safeCompany}_card_${String(cardIndex).padStart(2, '0')}.png`);

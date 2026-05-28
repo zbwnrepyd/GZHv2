@@ -17,7 +17,7 @@ The app no longer depends on n8n for the main path. Research is started from the
 - `webapp/static/js/index.js`: research desk orchestration, research job polling, and finalization progress display as `confirmed/8`.
 - `webapp/static/js/editor.js`: finalization desk orchestration, four-column line choice, hook-copy view, and card confirmation.
 - `canvas/`: HTML/CSS card workbench, single-card render page, and Puppeteer screenshot CLI.
-- `canvas/js/api-loader.js`: loads card data from `/api/final/export?format=json` when opened with `?company=`.
+- `canvas/js/api-loader.js`: loads card data from `/api/final/export?format=json` when opened with `?company=`, including `markdown_full` content and Markdown image URLs.
 - `canvas/js/html-card-renderer.js`: converts parsed card data into editable `<style> + <article>` card source.
 - `canvas/js/source-editor.js`: syntax-highlighted HTML/CSS source editor with live iframe rendering.
 - `canvas/js/prompt-bar.js`: per-card image prompt editor and image API request wiring.
@@ -83,11 +83,13 @@ Pages and static assets:
 
 ## Card Workbench
 
-The card workbench uses browser-native HTML/CSS layout instead of fabric.js. The center pane shows a scaled 3:4 iframe preview based on a `900 x 1200` card. The right pane shows the current card's complete HTML+CSS source with local syntax highlighting; edits debounce-render into the iframe and can be saved per company/card in browser `localStorage`.
+The card workbench uses browser-native HTML/CSS layout instead of fabric.js. The center pane shows a scaled 3:4 iframe preview based on a `900 x 1200` card. The left pane is project-scoped: it displays the current company as read-only state from `?company=`, then uses mutually exclusive accordions for card navigation and the image folder. The image folder collects Markdown image URLs from confirmed cards plus generated images saved from the bottom prompt bar, and it contains the local background-watermark controls. Export controls stay outside the accordions so batch export is always visible. The right pane shows the current card's complete HTML+CSS source with local syntax highlighting; edits debounce-render into the iframe and can be saved per company/card in browser `localStorage`.
 
 The workbench toolbar includes `返回定稿台`. With a company loaded, it links to `/editor?company=<company>`; without a company it falls back to `/editor`.
 
 The bottom prompt bar stores per-card prompts and generated image paths in browser `localStorage`. The API URL may be remembered locally, but the API key is kept only in page memory and sent only with the image generation request.
+
+`canvas/js/markdown-parser.js` supports current `markdown_full` exports and legacy field rows. It preserves remote and local Markdown images as `_image`, maps card 1 `# 公司名` plus bold-only subtitle into homepage fields, and maps unlabeled body text on cards 2 and 4 into the expected intro/product fields so the canvas does not drop finalized prose.
 
 The CLI export path opens `/canvas/card/<company>/<card_index>` for each card and captures PNG files. Install Node dependencies with `npm install`, then run `node canvas/screenshot.js --company <company> --base-url http://127.0.0.1:5050`.
 

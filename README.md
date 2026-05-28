@@ -78,7 +78,7 @@ http://127.0.0.1:5050/editor?company=Anthropic
 http://127.0.0.1:5050/canvas/?company=Anthropic
 ```
 
-卡片制作台会从 `final_db` 读取已确认的 `markdown_full`，中间显示 3:4 HTML 画布，右侧显示当前页完整 HTML+CSS 源码并带语法高亮；编辑源码会实时渲染到中间画布。顶部“返回定稿台”会回到当前公司的 `/editor?company=<公司名>`。底部可以编辑图片提示词，并可临时配置图片 API URL / API Key 生成当前页插图。
+卡片制作台会从 `final_db` 读取已确认的 `markdown_full`。左侧只读显示当前项目名，并用互斥手风琴组织“卡片每一页”和“图片夹”；图片夹展示 Markdown 中已有的图片、底部生成过的图片和背景水印控件，导出按钮始终常驻。中间显示 3:4 HTML 画布，右侧显示当前页完整 HTML+CSS 源码并带语法高亮；编辑源码会实时渲染到中间画布。顶部“返回定稿台”会回到当前公司的 `/editor?company=<公司名>`。底部可以编辑图片提示词，并可临时配置图片 API URL / API Key 生成当前页插图。
 
 批量导出 PNG 需要 Node 依赖：
 

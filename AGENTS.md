@@ -54,6 +54,8 @@ sqlite3 db/final_db.sqlite < db/init_final_db.sql
 - 所有LLM调用使用DeepSeek V4 Pro
 - 前端不用React/Vue，Vanilla JS + CDN
 - `canvas/` 主路径不用 fabric.js；使用 HTML/CSS 源码编辑器 + iframe 预览，右侧展示当前页完整 HTML+CSS 并实时渲染
+- 卡片制作台左侧公司名是只读项目状态，来自定稿台跳转或 `?company=<公司名>`；不要恢复可输入公司名框
+- 左侧“卡片每一页”和“图片夹”是互斥手风琴，长内容在各自面板内滚动；背景水印控件放在图片夹内，导出按钮保持常驻，不放进折叠区
 - 卡片制作台返回按钮应回到当前公司的定稿台 `/editor?company=<公司名>`；研究台定稿进度以 8 张为总数
 - 数据库用sqlite3标准库，不用ORM
 - 网页抓取用本地 trafilatura（`webapp/firecrawl_local.py`），不依赖外部 API
@@ -64,6 +66,7 @@ sqlite3 db/final_db.sqlite < db/init_final_db.sql
 - `hook_paragraph_1/2/3` 只在左侧“传播钩子文案”入口展示，不写入知识卡片，也不参与卡片确认保存
 - `final_content` 以 `company_name + card_index + field_name` 作为唯一字段键，重复确认应更新而非插入
 - 定稿保存优先使用 `field_name='markdown_full'` 的整张 Markdown
+- canvas Markdown 解析必须保留远程/本地 Markdown 图片 URL，并兼容首页、公司介绍、主产品里的无标签正文
 - L3 任一版本字段提取失败时，任务应失败且不写入假成功记录
 - 图片 API Key 可通过环境变量配置，也可在卡片制作台临时输入；临时 Key 只随 `/api/generate-image` 请求发送，不写入 localStorage 或响应
 
@@ -71,4 +74,3 @@ sqlite3 db/final_db.sqlite < db/init_final_db.sql
 - 新人入口：`README.md`
 - 架构说明：`docs/architecture.md`
 - 运行手册：`docs/runbook.md`
-- 技术文档：aistartups_tech_doc.docx

@@ -2,14 +2,16 @@ const SourceEditor = {
   getCompanyName: () => '',
   getCurrentCard: () => 1,
   getCurrentSource: () => '',
+  getDefaultSource: () => '',
   refreshPreview: () => {},
   setStatus: () => {},
   previewTimer: null,
 
-  init({ getCompanyName, getCurrentCard, getCurrentSource, refreshPreview, setStatus }) {
+  init({ getCompanyName, getCurrentCard, getCurrentSource, getDefaultSource, refreshPreview, setStatus }) {
     this.getCompanyName = getCompanyName;
     this.getCurrentCard = getCurrentCard;
     this.getCurrentSource = getCurrentSource;
+    this.getDefaultSource = getDefaultSource || (() => '');
     this.refreshPreview = refreshPreview;
     this.setStatus = setStatus;
 
@@ -40,9 +42,23 @@ const SourceEditor = {
     localStorage.setItem(this.key(), JSON.stringify(map));
   },
 
+  signature(source) {
+    const text = String(source || '');
+    let hash = 0;
+    for (let i = 0; i < text.length; i += 1) {
+      hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+    }
+    return String(hash);
+  },
+
   loadCurrentSource(defaultSource) {
     const map = this.loadMap();
-    return map[this.getCurrentCard()] || defaultSource || '';
+    const saved = map[this.getCurrentCard()];
+    const signature = this.signature(defaultSource);
+    if (saved && typeof saved === 'object' && saved.signature === signature) {
+      return saved.source || defaultSource || '';
+    }
+    return defaultSource || '';
   },
 
   setEditorValue(source) {
@@ -54,7 +70,11 @@ const SourceEditor = {
   saveCurrent() {
     const editor = document.getElementById('source-editor');
     const map = this.loadMap();
-    map[this.getCurrentCard()] = editor?.value || '';
+    const defaultSource = this.getDefaultSource();
+    map[this.getCurrentCard()] = {
+      source: editor?.value || '',
+      signature: this.signature(defaultSource),
+    };
     this.saveMap(map);
     this.setStatus(`卡片 ${this.getCurrentCard()} 源码已保存到本机浏览器。`, 'success');
   },
