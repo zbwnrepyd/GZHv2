@@ -296,6 +296,72 @@ class CanvasParserTests(unittest.TestCase):
         self.assertIn("<strong>其他产品</strong>", source)
         self.assertNotIn("产品线", source)
 
+    def test_renderer_uses_deep_console_visual_system(self):
+        source = render_card_source(
+            1,
+            {"公司名": "Zuma", "类型": "AI 招聘自动化"},
+            company="zuma",
+        )
+
+        self.assertIn("--navy-900:          #05070D", source)
+        self.assertIn("--blue-500:          #0A62FF", source)
+        self.assertIn("--cyan-500:          var(--blue-500)", source)
+        self.assertIn("fonts.googleapis.com", source)
+        self.assertIn("--bg-card:           radial-gradient(72% 42% at 18% 10%", source)
+        self.assertIn("linear-gradient(145deg, #FFFFFF 0%, #070A12 38%, #031A4C 62%, #0A62FF 100%)", source)
+        self.assertIn("--font-display:", source)
+        self.assertIn("DM Serif Display", source)
+        self.assertIn("IBM Plex Mono", source)
+        self.assertIn("Instrument Sans", source)
+        self.assertIn("Noto Sans SC", source)
+        self.assertIn("Source Han Sans CN", source)
+        self.assertIn('class="paper-wash"', source)
+        self.assertIn('class="film-grain"', source)
+        self.assertIn('class="red-mark"', source)
+        self.assertNotIn("∞", source)
+        self.assertIn("repeating-radial-gradient", source)
+
+        product_source = render_card_source(
+            4,
+            {"主产品名": "Zuma AI", "产品定义": "AI sales agent", "亮点功能": "自动回复", "产品成就": "转化提升"},
+            company="zuma",
+        )
+        business_source = render_card_source(
+            6,
+            {"盈利方式": "SaaS", "增长飞轮": "用户反馈驱动模型优化"},
+            company="zuma",
+        )
+        self.assertIn('class="visual-panel product-wireframe"', product_source)
+        self.assertIn('class="visual-panel flywheel-visual"', business_source)
+
+    def test_renderer_scales_typography_by_content_density(self):
+        sparse_source = render_card_source(
+            2,
+            {"公司定义": "AI 工作流平台。"},
+            company="Cursor",
+        )
+        dense_source = render_card_source(
+            2,
+            {
+                "地理位置": "San Francisco",
+                "公司定义": " ".join(["面向复杂团队协作的 AI 工作流平台"] * 22),
+                "创始人": "Michael Truell",
+                "学历背景": "MIT",
+                "工作背景": " ".join(["长期深耕开发工具和自动化系统"] * 18),
+                "团队规模": "50+",
+                "团队亮点": " ".join(["工程和产品团队都具备强 AI 原生经验"] * 12),
+                "融资信息": " ".join(["多轮融资，投资方包括一线机构"] * 16),
+            },
+            company="Cursor",
+        )
+
+        self.assertIn("density-airy", sparse_source)
+        self.assertIn("density-packed", dense_source)
+        self.assertIn("--body-size:", dense_source)
+        self.assertIn("--field-gap:", dense_source)
+        self.assertIn("--visual-height:", dense_source)
+        self.assertIn("--section-title-size:", dense_source)
+
     def test_parser_maps_unlabeled_intro_body_to_expected_fields(self):
         markdown = textwrap.dedent(
             """

@@ -12,6 +12,13 @@ import db as database
 
 _REQUIRED_FIELDS = database.REQUIRED_RESEARCH_FIELDS
 
+_SOURCE_LABELS = {
+    "tavily": "Tavily 搜索",
+    "github": "GitHub",
+    "youtube": "YouTube",
+    "website": "官网抓取",
+}
+
 
 def _report(progress_callback, stage: str, detail: str = "", job_id: str = None):
     if progress_callback:
@@ -20,9 +27,15 @@ def _report(progress_callback, stage: str, detail: str = "", job_id: str = None)
         try:
             import db as _db
             from config import config as _cfg
-            _db.update_job(_cfg.DB_PATH_RESEARCH, job_id, stage=stage, detail=detail)
+            _db.update_job(_cfg.DB_PATH_RESEARCH, job_id, stage=stage, detail=_detail_text(detail))
         except Exception:
             pass
+
+
+def _detail_text(detail) -> str:
+    if isinstance(detail, dict):
+        return str(detail.get("message") or "")
+    return str(detail or "")
 
 
 # ── Step 1: 4路并行采集 ──────────────────────────
@@ -32,14 +45,47 @@ def _search_tavily(company_name: str):
         f"{company_name} AI startup overview funding founders",
         f"{company_name} company news competitors product",
     ]
-    results = []
-    for q in queries:
+    return [_search_tavily_query(q) for q in queries]
+
+
+def _tavily_keys() -> list[str]:
+    keys = getattr(config, "TAVILY_API_KEYS", None)
+    if keys:
+        return keys
+    return [config.TAVILY_API_KEY] if config.TAVILY_API_KEY else []
+
+
+def _is_tavily_quota_response(resp) -> bool:
+    text = getattr(resp, "text", "") or ""
+    return resp.status_code in (429, 432) or "usage limit" in text.lower() or "quota" in text.lower()
+
+
+def _tavily_error_text(resp) -> str:
+    try:
+        data = resp.json()
+        detail = data.get("detail") if isinstance(data, dict) else None
+        if isinstance(detail, dict):
+            return str(detail.get("error") or detail)
+        if detail:
+            return str(detail)
+    except Exception:
+        pass
+    return f"HTTP {resp.status_code}"
+
+
+def _search_tavily_query(query: str):
+    keys = _tavily_keys()
+    if not keys:
+        return {"error": "TAVILY_API_KEYS not configured", "results": []}
+
+    last_error = ""
+    for index, api_key in enumerate(keys):
         try:
             resp = requests.post(
                 "https://api.tavily.com/search",
                 json={
-                    "api_key": config.TAVILY_API_KEY,
-                    "query": q,
+                    "api_key": api_key,
+                    "query": query,
                     "search_depth": "advanced",
                     "include_answer": True,
                     "include_raw_content": True,
@@ -47,11 +93,16 @@ def _search_tavily(company_name: str):
                 },
                 timeout=(10, 60),
             )
-            resp.raise_for_status()
-            results.append(resp.json())
+            if resp.status_code >= 400:
+                last_error = _tavily_error_text(resp)
+                if _is_tavily_quota_response(resp) and index < len(keys) - 1:
+                    continue
+                return {"error": last_error, "results": []}
+            return resp.json()
         except Exception as e:
-            results.append({"error": str(e), "results": []})
-    return results
+            last_error = str(e)
+            break
+    return {"error": last_error or "Tavily request failed", "results": []}
 
 
 def _search_github(company_name: str):
@@ -94,9 +145,78 @@ def _scrape_website(company_url: str):
     return result
 
 
+def _summarize_collection_source(name: str, data) -> dict:
+    label = _SOURCE_LABELS.get(name, name)
+    summary = {
+        "label": label,
+        "status": "empty",
+        "count": 0,
+        "unit": "条",
+        "detail": "未获得有效信息",
+    }
+
+    if name == "tavily":
+        items = data if isinstance(data, list) else []
+        count = sum(len(item.get("results", [])) for item in items if isinstance(item, dict))
+        errors = [str(item.get("error")) for item in items if isinstance(item, dict) and item.get("error")]
+        summary.update({"count": count, "unit": "条结果"})
+        if count > 0:
+            detail = f"获得 {count} 条搜索结果"
+            if errors:
+                detail += f"，部分查询失败：{errors[0]}"
+            summary.update({"status": "ok", "detail": detail})
+        elif errors:
+            summary.update({"status": "failed", "detail": errors[0]})
+        return summary
+
+    if name == "github":
+        count = len(data.get("items", [])) if isinstance(data, dict) else 0
+        error = data.get("error") if isinstance(data, dict) else None
+        summary.update({"count": count, "unit": "个仓库"})
+        if count > 0:
+            summary.update({"status": "ok", "detail": f"找到 {count} 个相关仓库"})
+        elif error:
+            summary.update({"status": "failed", "detail": str(error)})
+        return summary
+
+    if name == "youtube":
+        count = len(data.get("items", [])) if isinstance(data, dict) else 0
+        note = data.get("note") if isinstance(data, dict) else None
+        error = data.get("error") if isinstance(data, dict) else None
+        summary.update({"count": count, "unit": "个视频"})
+        if count > 0:
+            summary.update({"status": "ok", "detail": f"找到 {count} 个相关视频"})
+        elif note:
+            summary.update({"status": "skipped", "detail": str(note)})
+        elif error:
+            summary.update({"status": "failed", "detail": str(error)})
+        return summary
+
+    if name == "website":
+        text = ""
+        if isinstance(data, dict):
+            text = data.get("text") or data.get("markdown") or data.get("content") or ""
+        count = len(str(text).strip())
+        error = data.get("error") if isinstance(data, dict) else None
+        summary.update({"count": count, "unit": "字符"})
+        if count > 0:
+            summary.update({"status": "ok", "detail": f"抓取 {count} 个正文字符"})
+        elif error:
+            summary.update({"status": "failed", "detail": str(error)})
+        return summary
+
+    return summary
+
+
 def _collect_all(company_name: str, company_url: str, progress_callback=None, job_id: str = None) -> dict:
     """4路并行采集"""
-    _report(progress_callback, "采集", "4路并行采集中...", job_id=job_id)
+    source_summary = {}
+    _report(
+        progress_callback,
+        "采集",
+        {"message": "4路并行采集中...", "sources": source_summary},
+        job_id=job_id,
+    )
     tasks = {
         "tavily": lambda: _search_tavily(company_name),
         "github": lambda: _search_github(company_name),
@@ -113,7 +233,17 @@ def _collect_all(company_name: str, company_url: str, progress_callback=None, jo
                 raw[name] = future.result()
             except Exception as e:
                 raw[name] = {"error": str(e)}
-            _report(progress_callback, "采集", f"  {name} 完成", job_id=job_id)
+            source_summary[name] = _summarize_collection_source(name, raw[name])
+            _report(
+                progress_callback,
+                "采集",
+                {
+                    "message": f"{source_summary[name]['label']}完成：{source_summary[name]['detail']}",
+                    "sources": dict(source_summary),
+                },
+                job_id=job_id,
+            )
+    raw["_source_summary"] = source_summary
     return raw
 
 
@@ -283,7 +413,15 @@ def run_pipeline(company_name: str, company_url: str,
     # Step 1: 采集
     raw = _collect_all(company_name, company_url, progress_callback, job_id=job_id)
     t1 = time.time()
-    _report(progress_callback, "采集完成", f"({t1 - t0:.1f}s)", job_id=job_id)
+    _report(
+        progress_callback,
+        "采集完成",
+        {
+            "message": f"4路采集完成（{t1 - t0:.1f}s）",
+            "sources": raw.get("_source_summary", {}),
+        },
+        job_id=job_id,
+    )
 
     # Step 2: AI 分析
     _report(progress_callback, "分析", "开始 4 层 LLM 分析...", job_id=job_id)

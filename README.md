@@ -8,6 +8,7 @@
 pip install -r requirements.txt
 sqlite3 db/research_db.sqlite < db/init_research_db.sql
 sqlite3 db/final_db.sqlite < db/init_final_db.sql
+sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 cd webapp
 python3 app.py
 ```
@@ -22,11 +23,13 @@ http://127.0.0.1:5050/
 
 ## 环境变量
 
-服务会读取系统环境变量，也会尝试读取 `~/.env`。
+服务会读取系统环境变量，也会尝试读取项目根目录 `.env`。优先级是：系统环境变量 > 项目 `.env`。项目不读取 `~/.env`。
 
 ```bash
 DEEPSEEK_API_KEY=sk-...
+# Tavily 单 Key 或多 Key 二选一；多 Key 用英文逗号分隔，遇到额度限制会自动尝试下一个
 TAVILY_API_KEY=tvly-...
+TAVILY_API_KEYS=tvly-...,tvly-...
 YOUTUBE_API_KEY=...
 IMAGE_API_KEY=sk-...
 IMAGE_API_URL=https://api.openai.com/v1/images/generations

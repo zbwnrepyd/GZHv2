@@ -48,6 +48,7 @@ node canvas/screenshot.js --help
 ```bash
 sqlite3 db/research_db.sqlite < db/init_research_db.sql
 sqlite3 db/final_db.sqlite < db/init_final_db.sql
+sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 ```
 
 ## 技术约束
@@ -59,6 +60,8 @@ sqlite3 db/final_db.sqlite < db/init_final_db.sql
 - 卡片制作台返回按钮应回到当前公司的定稿台 `/editor?company=<公司名>`；研究台定稿进度以 8 张为总数
 - 数据库用sqlite3标准库，不用ORM
 - 网页抓取用本地 trafilatura（`webapp/firecrawl_local.py`），不依赖外部 API
+- 环境变量只读取系统环境变量和项目根目录 `.env`；不要读取或恢复用户目录 `~/.env`
+- Tavily 可用 `TAVILY_API_KEYS` 配置逗号分隔的多 Key，额度限制时自动尝试下一个；不要把真实 Key 写进代码、测试、文档或日志
 - 成本目标 < $0.20/次研究
 - 生成 1-8 号卡片；卡片7为竞争格局（壁垒、竞争格局），卡片8为总结（机遇）
 - 研究主流程不依赖 n8n；不要新增 n8n 工作流作为主路径
@@ -69,6 +72,9 @@ sqlite3 db/final_db.sqlite < db/init_final_db.sql
 - canvas Markdown 解析必须保留远程/本地 Markdown 图片 URL，并兼容首页、公司介绍、主产品里的无标签正文
 - L3 任一版本字段提取失败时，任务应失败且不写入假成功记录
 - 图片 API Key 可通过环境变量配置，也可在卡片制作台临时输入；临时 Key 只随 `/api/generate-image` 请求发送，不写入 localStorage 或响应
+- 公司图片资产通过 `company_assets` 表管理（7 种 asset_key），不用路径约定或 localStorage；资产采集走 `asset_pipeline.py`，信息图（飞轮/时间线）走 `infographic.py` 的 SVG 模板渲染管线
+- `POST /api/assets/generate/<company>/flywheel|timeline` 依赖该卡片的 Markdown 已定稿（卡片6=飞轮，卡片3=时间线）；SVG 渲染需要 Playwright
+- 研究台要展示 Tavily/GitHub/YouTube/官网抓取的链路状态与数量；公司库点击一条只展开该公司研究信息，点另一条时其他行折叠
 
 ## 参考
 - 新人入口：`README.md`

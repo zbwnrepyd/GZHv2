@@ -6,6 +6,9 @@ from deepseek_client import call_deepseek, load_prompt
 from image_client import generate_image
 from firecrawl_local import scrape_url
 from pipeline import run_pipeline
+from asset_store import init_assets_db, ensure_assets_rows, get_assets, upsert_asset
+from asset_pipeline import collect_all_assets
+from infographic import generate_flywheel_from_markdown, generate_timeline_from_markdown
 import markdown_builder
 import json
 import time
@@ -18,6 +21,9 @@ app.config.from_object(config)
 
 # 确保图片目录存在
 Path(config.IMAGES_DIR).mkdir(parents=True, exist_ok=True)
+
+# 初始化资产数据库
+init_assets_db(config.DB_PATH_ASSETS)
 
 # 后台任务状态
 _jobs: dict[str, dict] = {}
@@ -104,10 +110,14 @@ def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
     database.create_job(config.DB_PATH_RESEARCH, job_id, company_name, company_url)
 
     def on_progress(stage: str, detail: str):
+        message = detail.get("message", "") if isinstance(detail, dict) else detail
+        sources = detail.get("sources") if isinstance(detail, dict) else None
         with _jobs_lock:
             if job_id in _jobs:
                 _jobs[job_id]["stage"] = stage
-                _jobs[job_id]["detail"] = detail
+                _jobs[job_id]["detail"] = message
+                if sources is not None:
+                    _jobs[job_id]["sources"] = sources
 
     try:
         ids = run_pipeline(company_name, company_url, progress_callback=on_progress, job_id=job_id)
@@ -115,9 +125,13 @@ def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
             if job_id in _jobs:
                 _jobs[job_id]["status"] = "done"
                 _jobs[job_id]["record_ids"] = ids
+                _jobs[job_id]["stage"] = "完成"
+                _jobs[job_id]["detail"] = f"共 {len(ids)} 条记录"
         database.update_job(config.DB_PATH_RESEARCH, job_id,
                             status="done", record_ids=json.dumps(ids),
                             stage="完成", detail=f"共 {len(ids)} 条记录")
+
+        threading.Thread(target=_collect_assets_silently, args=(company_name,), daemon=True).start()
     except Exception as e:
         with _jobs_lock:
             if job_id in _jobs:
@@ -126,6 +140,24 @@ def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
         database.update_job(config.DB_PATH_RESEARCH, job_id,
                             status="failed", error=str(e),
                             stage="失败", detail=str(e)[:200])
+
+
+def _collect_assets_silently(company_name: str):
+    """研究完成后的图片资产采集不再占用研究任务状态。"""
+    try:
+        research = database.get_research(config.DB_PATH_RESEARCH, company_name, "standard")
+        if not research:
+            return
+        company_data = {
+            "company_url": research.get("website_url", ""),
+            "website_url": research.get("website_url", ""),
+            "location": research.get("location", ""),
+            "other_products": research.get("other_products", ""),
+            "competitors": research.get("competitors", ""),
+        }
+        collect_all_assets(config.DB_PATH_ASSETS, config.IMAGES_DIR, company_name, company_data)
+    except Exception:
+        pass
 
 
 @app.route("/api/research/start", methods=["POST"])
@@ -146,6 +178,7 @@ def start_research():
                 "stage": "启动",
                 "detail": "准备开始...",
                 "record_ids": None,
+                "sources": {},
             }
 
         t = threading.Thread(target=_run_pipeline_job,
@@ -250,6 +283,7 @@ def generate_image_route():
         prompt = data.get("prompt", "")
         company_name = data.get("company_name", "unknown")
         field_name = data.get("field_name", "image")
+        asset_key = data.get("asset_key", "")  # 可选：写入 company_assets
         image_api_url = (data.get("image_api_url") or "").strip() or None
         image_api_key = (data.get("image_api_key") or "").strip() or None
 
@@ -265,7 +299,17 @@ def generate_image_route():
             api_url=image_api_url,
             api_key=image_api_key,
         )
-        return jsonify({"status": "ok", "img_path": f"/images/{Path(path).name}"})
+        img_path = f"/images/{Path(path).name}"
+
+        # 如果指定了 asset_key，写入资产表
+        if asset_key:
+            init_assets_db(config.DB_PATH_ASSETS)
+            ensure_assets_rows(config.DB_PATH_ASSETS, company_name)
+            upsert_asset(config.DB_PATH_ASSETS, company_name, asset_key,
+                        local_path=img_path, source_type="api_generate",
+                        source_url="", prompt=prompt, status="ready")
+
+        return jsonify({"status": "ok", "img_path": img_path})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -273,6 +317,98 @@ def generate_image_route():
 @app.route("/images/<path:filename>")
 def image_assets(filename):
     return send_from_directory(config.IMAGES_DIR, filename)
+
+
+# ── API：资产系统 ──────────────────────────────────────────────
+
+@app.route("/api/assets/<company>")
+def get_company_assets(company: str):
+    """获取某公司全部资产"""
+    try:
+        assets = get_assets(config.DB_PATH_ASSETS, company)
+        return jsonify({"company_name": company, "assets": assets})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/assets/collect/<company>", methods=["POST"])
+def collect_assets(company: str):
+    """触发七图自动采集"""
+    try:
+        # 从 research DB 获取公司数据
+        research = database.get_research(config.DB_PATH_RESEARCH, company, "standard")
+        if not research:
+            return jsonify({"error": f"未找到公司 {company} 的研究数据"}), 404
+
+        company_data = {
+            "company_url": research.get("website_url", ""),
+            "website_url": research.get("website_url", ""),
+            "location": research.get("location", ""),
+            "other_products": research.get("other_products", ""),
+            "competitors": research.get("competitors", ""),
+        }
+
+        images_root = config.IMAGES_DIR
+        results = collect_all_assets(config.DB_PATH_ASSETS, images_root, company, company_data)
+        return jsonify({"status": "ok", "company_name": company, "results": results})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/assets/generate/<company>/<asset_key>", methods=["POST"])
+def generate_asset(company: str, asset_key: str):
+    """生成信息图（flywheel 或 timeline）"""
+    if asset_key not in ("flywheel", "timeline"):
+        return jsonify({"error": f"不支持的 asset_key: {asset_key}，仅支持 flywheel/timeline"}), 400
+
+    try:
+        # 获取对应卡片的 markdown
+        card_index = 6 if asset_key == "flywheel" else 3
+        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+        if not markdown:
+            return jsonify({"error": f"未找到公司 {company} 卡片 {card_index} 的定稿内容"}), 404
+
+        # 确保资产行存在
+        ensure_assets_rows(config.DB_PATH_ASSETS, company)
+
+        # 输出路径
+        dest_dir = os.path.join(config.IMAGES_DIR, company)
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, f"{asset_key}.png")
+
+        # 包装 deepseek 调用
+        def ds_call(system_prompt, user_message, temperature=0.1, max_tokens=2048):
+            return call_deepseek(
+                config.DEEPSEEK_API_KEY,
+                system_prompt,
+                user_message,
+                model=config.DEEPSEEK_MODEL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+
+        if asset_key == "flywheel":
+            ok = generate_flywheel_from_markdown(markdown, dest, ds_call)
+        else:
+            ok = generate_timeline_from_markdown(markdown, dest, ds_call)
+
+        if not ok:
+            upsert_asset(config.DB_PATH_ASSETS, company, asset_key, status="failed",
+                        meta={"error": "SVG 渲染失败或 LLM 提取失败"})
+            return jsonify({"error": "生成失败"}), 500
+
+        upsert_asset(config.DB_PATH_ASSETS, company, asset_key,
+                    local_path=f"/images/{company}/{asset_key}.png",
+                    source_type="svg_render", status="ready")
+
+        return jsonify({
+            "status": "ok",
+            "company_name": company,
+            "asset_key": asset_key,
+            "local_path": f"/images/{company}/{asset_key}.png",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── API：网页抓取（本地 trafilatura） ─────────────────────────

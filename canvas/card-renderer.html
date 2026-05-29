@@ -185,6 +185,11 @@
   .image-tile:hover {
     border-color: var(--cyan);
   }
+  .image-tile.is-selected {
+    border-color: var(--cyan);
+    background: rgba(41, 184, 212, 0.10);
+    box-shadow: 0 0 0 2px var(--cyan);
+  }
   .image-thumb {
     width: 100%;
     aspect-ratio: 1;
@@ -236,6 +241,11 @@
     white-space: nowrap;
   }
   .btn:hover { border-color: var(--cyan); }
+  .btn.active {
+    border-color: var(--cyan);
+    background: rgba(41, 184, 212, .10);
+    color: #0B5F70;
+  }
   .btn.primary {
     background: #111827;
     border-color: #111827;
@@ -345,6 +355,24 @@
     background: #0F172A;
     overflow: hidden;
   }
+  .source-code-wrap::before {
+    content: attr(data-source-view);
+    position: absolute;
+    right: 10px;
+    top: 8px;
+    z-index: 3;
+    padding: 2px 7px;
+    border: 1px solid rgba(148, 163, 184, .32);
+    border-radius: 999px;
+    background: rgba(15, 23, 42, .84);
+    color: #94A3B8;
+    font: 700 10px/1.4 "SF Mono", Menlo, Consolas, monospace;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+  .source-code-wrap.is-inspecting {
+    box-shadow: inset 0 0 0 2px rgba(41, 184, 212, .62);
+  }
   #source-highlight, #source-editor {
     position: absolute;
     inset: 0;
@@ -381,24 +409,11 @@
   .tok-prop { color: #93C5FD; }
   .tok-number { color: #FDBA74; }
   .tok-selector { color: #F0ABFC; }
-  .source-hint {
-    border-bottom: 1px solid var(--border);
-    padding: 10px 12px;
-    color: var(--muted);
-    font-size: 12px;
-    line-height: 1.55;
-    background: #FAFBFC;
-  }
-  .source-hint code {
-    color: var(--text);
-    font-family: "SF Mono", Menlo, Consolas, monospace;
-    font-size: 11px;
-  }
   .source-actions {
     border-top: 1px solid var(--border);
     padding: 10px;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 8px;
   }
   .source-actions .span-all { grid-column: 1 / -1; }
@@ -485,7 +500,6 @@
     <div class="pane-body">
       <div class="section">
         <div id="current-company-name" class="company-display empty">未选择项目</div>
-        <p class="hint">当前项目名来自定稿台跳转或 URL 中的 company 参数。</p>
       </div>
       <div class="accordion-stack">
         <section class="left-accordion is-open" id="cards-accordion">
@@ -509,6 +523,8 @@
               </label>
               <button class="btn full-width bg-clear-btn" type="button" onclick="BgLoader.clear();window.reloadCurrentCard&&window.reloadCurrentCard()">清除背景</button>
               <p class="hint">上传图片作为卡片水印背景，保存在本机浏览器。</p>
+              <button class="btn full-width" id="btn-collect-assets" style="margin-top:8px">采集公司图片</button>
+              <p class="hint">自动采集 Logo、办公室、产品截图、竞品 Logo 等。</p>
             </div>
             <div id="image-folder">
               <p class="image-folder-empty">暂无图片。</p>
@@ -529,8 +545,7 @@
       <div class="toolbar-actions">
         <a class="btn" id="btn-back-research" href="/editor">返回定稿台</a>
         <button class="btn" id="btn-fit">适配窗口</button>
-        <button class="btn" id="btn-open-card">打开单页</button>
-        <button class="btn primary" id="btn-export-current">导出当前</button>
+<button class="btn primary" id="btn-export-current">导出当前</button>
       </div>
     </div>
     <div id="canvas-stage">
@@ -551,15 +566,15 @@
       <span>HTML + CSS</span>
       <button class="btn danger" id="btn-reset-source">重置</button>
     </div>
-    <div class="source-hint">
-      风格提示：优先调 <code>--title-size</code>、<code>--body-size</code>、<code>--card-padding-x</code>、<code>--image-height</code>、<code>--accent</code>。
-      内容结构可直接改 <code>.card-nav</code>、<code>.card-title</code>、<code>.card-body</code>。
-    </div>
     <div class="source-code-wrap">
       <pre id="source-highlight" aria-hidden="true"></pre>
       <textarea id="source-editor" spellcheck="false" wrap="off"></textarea>
     </div>
     <div class="source-actions">
+      <button class="btn active" id="btn-source-all">全部</button>
+      <button class="btn" id="btn-source-css">CSS</button>
+      <button class="btn" id="btn-source-html">HTML</button>
+      <button class="btn span-all" id="btn-inspect-source">检查画布元素</button>
       <button class="btn primary span-all" id="btn-save-source">保存当前页源码</button>
     </div>
   </aside>
@@ -588,6 +603,7 @@ const Workbench = {
   companyName: '',
   currentCard: 1,
   allCardData: {},
+  selectedImages: {},
 
   async init() {
     BgLoader.init();
@@ -624,7 +640,6 @@ const Workbench = {
     this.bindAccordions();
     document.getElementById('btn-reload').addEventListener('click', () => this.loadCompany());
     document.getElementById('btn-fit').addEventListener('click', () => this.fitFrame());
-    document.getElementById('btn-open-card').addEventListener('click', () => window.open(this.cardUrl(), '_blank'));
     document.getElementById('btn-export-current').addEventListener('click', () => ExportClient.exportCurrent(this));
     document.getElementById('btn-export-all').addEventListener('click', () => ExportClient.exportAll(this));
     window.addEventListener('resize', () => this.updateFrameScale());
@@ -638,6 +653,35 @@ const Workbench = {
       });
     }
     window.reloadCurrentCard = () => this.refreshPreview();
+
+    document.getElementById('btn-collect-assets')?.addEventListener('click', () => this.collectAssets());
+  },
+
+  async collectAssets() {
+    if (!this.companyName) { this.setStatus('缺少公司名。', 'error'); return; }
+    try {
+      this.setStatus('正在采集公司图片...', 'info');
+      const resp = await fetch(`/api/assets/collect/${encodeURIComponent(this.companyName)}`, {
+        method: 'POST',
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
+      const result = await resp.json();
+      // 重新加载资产和预览
+      const assets = await loadAssetsFromAPI(this.companyName);
+      for (let i = 1; i <= 8; i++) {
+        if (!this.allCardData[i]) this.allCardData[i] = {};
+        this.allCardData[i]._assets = assets;
+      }
+      this.renderImageFolder();
+      await this.refreshPreview();
+      const counts = Object.values(result.results || {}).filter(Boolean).length;
+      this.setStatus(`图片采集完成，${counts} 项成功。`, 'success');
+    } catch (error) {
+      this.setStatus(`采集失败：${error.message}`, 'error');
+    }
   },
 
   bindAccordions() {
@@ -679,6 +723,14 @@ const Workbench = {
       this.setStatus(`正在加载 ${this.companyName}...`, 'info');
       const result = await loadFromAPI(this.companyName);
       this.allCardData = result.allCardData || {};
+
+      // 加载资产，合并到对应卡片的 _assets 字段
+      const assets = await loadAssetsFromAPI(this.companyName);
+      for (let i = 1; i <= 8; i++) {
+        if (!this.allCardData[i]) this.allCardData[i] = {};
+        this.allCardData[i]._assets = assets;
+      }
+
       this.currentCard = Number(Object.keys(this.allCardData)[0] || 1);
       this.renderNav();
       this.renderImageFolder();
@@ -727,6 +779,16 @@ const Workbench = {
       images.push({ cardIndex, src, source });
     };
 
+    // 服务器资产
+    const assets = this.allCardData[1]?._assets || {};
+    for (const [assetKey, asset] of Object.entries(assets)) {
+      if (asset && asset.local_path && asset.status === 'ready') {
+        const cardIndex = Object.entries(CARD_ASSET_MAP).find(([, v]) => v === assetKey)?.[0];
+        const label = ASSET_LABELS[assetKey] || assetKey;
+        add(Number(cardIndex) || 0, asset.local_path, label);
+      }
+    }
+
     for (const [cardIndex, data] of Object.entries(this.allCardData || {})) {
       add(Number(cardIndex), data?._image, '定稿图片');
     }
@@ -760,26 +822,38 @@ const Workbench = {
       </button>
     `).join('');
 
+    const currentCardKey = String(this.currentCard);
     folder.querySelectorAll('.image-tile').forEach((button) => {
+      const imgSrc = button.querySelector('.image-thumb')?.src;
+      if (this.selectedImages[currentCardKey] === imgSrc) {
+        button.classList.add('is-selected');
+      }
       button.addEventListener('click', async () => {
-        const card = Number(button.dataset.card);
-        if (card) {
-          this.currentCard = card;
-          this.renderNav();
-          await this.refreshPreview();
+        const src = button.querySelector('.image-thumb')?.src;
+        const key = String(this.currentCard);
+        if (this.selectedImages[key] === src) {
+          delete this.selectedImages[key];
+        } else {
+          this.selectedImages[key] = src;
         }
+        await this.refreshPreview();
       });
     });
   },
 
   cardUrl() {
-    return `/canvas/card/${encodeURIComponent(this.companyName)}/${this.currentCard}`;
+    return `/canvas/card/${encodeURIComponent(this.companyName)}/${this.currentCard}?parent-driven=1`;
   },
 
   currentCardDataWithImage() {
     const imagePath = PromptBar.getImageForCard(this.currentCard);
     const cardData = Object.assign({}, this.allCardData[this.currentCard] || {});
-    if (imagePath) cardData._image = imagePath;
+    const selectedImage = this.selectedImages[String(this.currentCard)];
+    if (selectedImage) {
+      cardData._selectedImage = selectedImage;
+    } else if (imagePath) {
+      cardData._image = imagePath;
+    }
     return cardData;
   },
 
@@ -792,6 +866,15 @@ const Workbench = {
   },
 
   async refreshPreview() {
+    // 刷新资产
+    if (this.companyName) {
+      const assets = await loadAssetsFromAPI(this.companyName);
+      for (let i = 1; i <= 8; i++) {
+        if (!this.allCardData[i]) this.allCardData[i] = {};
+        this.allCardData[i]._assets = assets;
+      }
+    }
+
     const frame = document.getElementById('card-frame');
     frame.src = this.cardUrl();
     await new Promise((resolve) => {
@@ -810,7 +893,7 @@ const Workbench = {
   },
 
   currentSource() {
-    return document.getElementById('source-editor')?.value || '';
+    return SourceEditor.getFullSource ? SourceEditor.getFullSource() : (document.getElementById('source-editor')?.value || '');
   },
 
   fitFrame() {
