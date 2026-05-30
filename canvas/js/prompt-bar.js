@@ -66,6 +66,10 @@ const PromptBar = {
 
   defaultPrompt() {
     const cardIndex = this.getCurrentCard();
+    const assetKey = CARD_ASSET_MAP[cardIndex];
+    if (assetKey === 'flywheel') return '增长飞轮信息图 — 点击"生成图片"自动从 Markdown 渲染';
+    if (assetKey === 'timeline') return '发展时间线信息图 — 点击"生成图片"自动从 Markdown 渲染';
+
     const cardData = this.getCardData();
     const title = cardData._title || cardData['公司名'] || `卡片${cardIndex}`;
     const values = Object.entries(cardData)
@@ -108,12 +112,21 @@ const PromptBar = {
 
   async generateImage() {
     const prompt = document.getElementById('prompt-input').value.trim();
+    const cardIndex = this.getCurrentCard();
+    const assetKey = CARD_ASSET_MAP[cardIndex];
+
+    // 飞轮/时间线走 SVG 渲染管线（不需要 prompt）
+    if (assetKey === 'flywheel' || assetKey === 'timeline') {
+      await this.generateInfographic(cardIndex, assetKey);
+      return;
+    }
+
+    // 其他卡片走通用图片生成
     if (!prompt) {
       this.setStatus('提示词为空。', 'error');
       return;
     }
     this.savePrompt();
-    const cardIndex = this.getCurrentCard();
     try {
       this.setStatus(`正在生成卡片 ${cardIndex} 图片...`, 'info');
       const response = await fetch('/api/generate-image', {
@@ -123,6 +136,7 @@ const PromptBar = {
           company_name: this.getCompanyName(),
           field_name: `card_${cardIndex}_image`,
           prompt,
+          asset_key: assetKey || '',
           ...this.saveApiConfig(),
         }),
       });
@@ -135,6 +149,29 @@ const PromptBar = {
       await this.refreshPreview();
     } catch (error) {
       this.setStatus(`图片生成失败：${error.message}`, 'error');
+    }
+  },
+
+  async generateInfographic(cardIndex, assetKey) {
+    try {
+      this.setStatus(`正在生成${assetKey === 'flywheel' ? '增长飞轮' : '时间线'}信息图...`, 'info');
+      const response = await fetch(
+        `/api/assets/generate/${encodeURIComponent(this.getCompanyName())}/${assetKey}`,
+        { method: 'POST' }
+      );
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${response.status}`);
+      }
+      const result = await response.json();
+      // 也写入 localStorage 图片映射，兼容现有图片夹逻辑
+      const images = this.loadMap(this.imageKey());
+      images[cardIndex] = result.local_path;
+      this.saveMap(this.imageKey(), images);
+      this.setStatus(`卡片 ${cardIndex} ${assetKey === 'flywheel' ? '飞轮' : '时间线'}已生成。`, 'success');
+      await this.refreshPreview();
+    } catch (error) {
+      this.setStatus(`信息图生成失败：${error.message}`, 'error');
     }
   },
 };

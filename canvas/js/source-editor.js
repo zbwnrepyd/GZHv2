@@ -2,19 +2,25 @@ const SourceEditor = {
   getCompanyName: () => '',
   getCurrentCard: () => 1,
   getCurrentSource: () => '',
+  getDefaultSource: () => '',
   refreshPreview: () => {},
   setStatus: () => {},
   previewTimer: null,
+  fullSource: '',
+  viewMode: 'all',
+  inspectMode: false,
 
-  init({ getCompanyName, getCurrentCard, getCurrentSource, refreshPreview, setStatus }) {
+  init({ getCompanyName, getCurrentCard, getCurrentSource, getDefaultSource, refreshPreview, setStatus }) {
     this.getCompanyName = getCompanyName;
     this.getCurrentCard = getCurrentCard;
     this.getCurrentSource = getCurrentSource;
+    this.getDefaultSource = getDefaultSource || (() => '');
     this.refreshPreview = refreshPreview;
     this.setStatus = setStatus;
 
     const editor = document.getElementById('source-editor');
     editor?.addEventListener('input', () => {
+      this.updateFullSourceFromEditor();
       this.updateHighlight();
       clearTimeout(this.previewTimer);
       this.previewTimer = setTimeout(() => this.previewEditorSource(), 160);
@@ -22,6 +28,11 @@ const SourceEditor = {
     editor?.addEventListener('scroll', () => this.syncHighlightScroll());
     document.getElementById('btn-save-source')?.addEventListener('click', () => this.saveCurrent());
     document.getElementById('btn-reset-source')?.addEventListener('click', () => this.resetCurrent());
+    document.getElementById('btn-source-all')?.addEventListener('click', () => this.showSection('all'));
+    document.getElementById('btn-source-css')?.addEventListener('click', () => this.showSection('css'));
+    document.getElementById('btn-source-html')?.addEventListener('click', () => this.showSection('html'));
+    document.getElementById('btn-inspect-source')?.addEventListener('click', () => this.toggleInspect());
+    this.updateViewButtons();
   },
 
   key(companyName) {
@@ -40,21 +51,117 @@ const SourceEditor = {
     localStorage.setItem(this.key(), JSON.stringify(map));
   },
 
+  signature(source) {
+    const text = String(source || '');
+    let hash = 0;
+    for (let i = 0; i < text.length; i += 1) {
+      hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+    }
+    return String(hash);
+  },
+
   loadCurrentSource(defaultSource) {
     const map = this.loadMap();
-    return map[this.getCurrentCard()] || defaultSource || '';
+    const saved = map[this.getCurrentCard()];
+    const signature = this.signature(defaultSource);
+    if (saved && typeof saved === 'object' && saved.signature === signature) {
+      return saved.source || defaultSource || '';
+    }
+    return defaultSource || '';
+  },
+
+  getFullSource() {
+    this.updateFullSourceFromEditor();
+    return this.fullSource || '';
   },
 
   setEditorValue(source) {
+    this.fullSource = source || '';
+    this.renderEditorView();
+  },
+
+  splitSource(source) {
+    const text = String(source || '');
+    const styleStart = text.indexOf('<style>');
+    const styleEnd = text.indexOf('</style>');
+    if (styleStart === -1 || styleEnd === -1 || styleEnd < styleStart) {
+      return { prefix: '', css: '', html: text };
+    }
+    return {
+      prefix: text.slice(0, styleStart),
+      css: text.slice(styleStart + '<style>'.length, styleEnd).replace(/^\n/, '').replace(/\n$/, ''),
+      html: text.slice(styleEnd + '</style>'.length).replace(/^\n/, ''),
+    };
+  },
+
+  composeSource(parts) {
+    if (!parts.css) return parts.html || '';
+    const css = String(parts.css || '').replace(/\s+$/, '');
+    const html = String(parts.html || '').replace(/^\n+/, '');
+    return `${parts.prefix || ''}<style>\n${css}\n</style>\n${html}`;
+  },
+
+  updateFullSourceFromEditor() {
     const editor = document.getElementById('source-editor');
-    if (editor) editor.value = source || '';
+    if (!editor) return;
+    if (this.viewMode === 'css') {
+      const parts = this.splitSource(this.fullSource);
+      parts.css = editor.value;
+      this.fullSource = this.composeSource(parts);
+    } else if (this.viewMode === 'html') {
+      const parts = this.splitSource(this.fullSource);
+      parts.html = editor.value;
+      this.fullSource = this.composeSource(parts);
+    } else {
+      this.fullSource = editor.value || '';
+    }
+  },
+
+  renderEditorView() {
+    const editor = document.getElementById('source-editor');
+    if (!editor) return;
+    const parts = this.splitSource(this.fullSource);
+    if (this.viewMode === 'css') {
+      editor.value = parts.css;
+    } else if (this.viewMode === 'html') {
+      editor.value = parts.html;
+    } else {
+      editor.value = this.fullSource || '';
+    }
+    document.querySelector('.source-code-wrap')?.setAttribute('data-source-view', this.viewMode);
+    this.updateViewButtons();
     this.updateHighlight();
   },
 
+  showSection(mode) {
+    if (!['all', 'css', 'html'].includes(mode)) return;
+    this.updateFullSourceFromEditor();
+    this.viewMode = mode;
+    this.renderEditorView();
+    const label = mode === 'css' ? 'CSS' : mode === 'html' ? 'HTML' : '全部源码';
+    this.setStatus(`源码栏已切换到 ${label}。`, 'info');
+  },
+
+  updateViewButtons() {
+    const map = {
+      all: 'btn-source-all',
+      css: 'btn-source-css',
+      html: 'btn-source-html',
+    };
+    Object.entries(map).forEach(([mode, id]) => {
+      document.getElementById(id)?.classList.toggle('active', this.viewMode === mode);
+    });
+    document.getElementById('btn-inspect-source')?.classList.toggle('active', this.inspectMode);
+    document.querySelector('.source-code-wrap')?.classList.toggle('is-inspecting', this.inspectMode);
+  },
+
   saveCurrent() {
-    const editor = document.getElementById('source-editor');
     const map = this.loadMap();
-    map[this.getCurrentCard()] = editor?.value || '';
+    const defaultSource = this.getDefaultSource();
+    map[this.getCurrentCard()] = {
+      source: this.getFullSource(),
+      signature: this.signature(defaultSource),
+    };
     this.saveMap(map);
     this.setStatus(`卡片 ${this.getCurrentCard()} 源码已保存到本机浏览器。`, 'success');
   },
@@ -70,13 +177,150 @@ const SourceEditor = {
   applyToFrame(frame, source) {
     if (!frame?.contentWindow?.document) return;
     frame.contentWindow.renderSourcePreview(source);
+    this.installInspectHooks(frame);
   },
 
   previewEditorSource() {
     const frame = document.getElementById('card-frame');
+    if (!frame) return;
+    this.applyToFrame(frame, this.getFullSource());
+  },
+
+  toggleInspect() {
+    this.inspectMode = !this.inspectMode;
+    this.updateViewButtons();
+    this.syncInspectFrame(document.getElementById('card-frame'));
+    this.setStatus(this.inspectMode ? '检查模式已开启：点击画布元素跳转到源码。' : '检查模式已关闭。', 'info');
+  },
+
+  syncInspectFrame(frame) {
+    const doc = frame?.contentWindow?.document;
+    if (!doc?.documentElement) return;
+    doc.documentElement.dataset.sourceInspecting = this.inspectMode ? 'true' : 'false';
+    let style = doc.getElementById('source-inspect-style');
+    if (!style) {
+      style = doc.createElement('style');
+      style.id = 'source-inspect-style';
+      doc.head.appendChild(style);
+    }
+    style.textContent = `
+      [data-source-inspecting="true"] .knowledge-card * { cursor: crosshair !important; }
+      [data-source-inspecting="true"] .source-inspect-hover {
+        outline: 2px solid #29B8D4 !important;
+        outline-offset: 3px !important;
+      }
+    `;
+  },
+
+  installInspectHooks(frame) {
+    const doc = frame?.contentWindow?.document;
+    if (!doc || doc.__sourceInspectInstalled) {
+      this.syncInspectFrame(frame);
+      return;
+    }
+    doc.__sourceInspectInstalled = true;
+    doc.addEventListener('mouseover', (event) => {
+      if (!this.inspectMode) return;
+      const target = this.pickInspectableElement(event.target);
+      target?.classList?.add('source-inspect-hover');
+    }, true);
+    doc.addEventListener('mouseout', (event) => {
+      event.target?.classList?.remove('source-inspect-hover');
+    }, true);
+    doc.addEventListener('click', (event) => {
+      if (!this.inspectMode) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const target = this.pickInspectableElement(event.target);
+      this.locateSourceForElement(target);
+    }, true);
+    this.syncInspectFrame(frame);
+  },
+
+  pickInspectableElement(target) {
+    if (!target?.closest) return target;
+    return target.closest([
+      '.md-field',
+      '.md-label',
+      '.md-value',
+      '.md-h1',
+      '.md-h2',
+      '.md-h3',
+      '.md-list',
+      '.md-p',
+      '.img-box',
+      '.card-body',
+      '.p1-hero',
+      '.p1-title',
+      '.p1-type',
+      '.p1-rule',
+      '.p1-tagline',
+      'article',
+    ].join(',')) || target;
+  },
+
+  escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  },
+
+  classNeedles(element) {
+    return Array.from(element?.classList || [])
+      .filter((className) => className !== 'source-inspect-hover')
+      .map((className) => ({
+        className,
+        pattern: new RegExp(`class="[^"]*\\b${this.escapeRegExp(className)}\\b[^"]*"`),
+      }));
+  },
+
+  locateSourceForElement(element) {
+    if (!element) return false;
+    this.updateFullSourceFromEditor();
+    const source = this.fullSource || '';
+    const parts = this.splitSource(source);
+    const htmlStart = source.length - parts.html.length;
+    const html = parts.html;
+
+    if (element.id) {
+      const idNeedle = `id="${element.id}"`;
+      const idIndex = html.indexOf(idNeedle);
+      if (idIndex >= 0) return this.jumpToSource(htmlStart + idIndex, idNeedle.length);
+    }
+
+    const text = String(element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 32);
+    if (text) {
+      const textIndex = html.indexOf(text);
+      if (textIndex >= 0) return this.jumpToSource(htmlStart + textIndex, text.length);
+    }
+
+    for (const { pattern } of this.classNeedles(element)) {
+      const match = pattern.exec(html);
+      if (match) return this.jumpToSource(htmlStart + match.index, match[0].length);
+    }
+
+    const tagNeedle = `<${String(element.tagName || '').toLowerCase()}`;
+    const tagIndex = html.indexOf(tagNeedle);
+    if (tagIndex >= 0) return this.jumpToSource(htmlStart + tagIndex, tagNeedle.length);
+
+    this.setStatus('没有在源码中定位到这个元素。', 'error');
+    return false;
+  },
+
+  jumpToSource(start, length = 1) {
+    this.viewMode = 'all';
+    this.renderEditorView();
     const editor = document.getElementById('source-editor');
-    if (!frame || !editor) return;
-    this.applyToFrame(frame, editor.value);
+    if (!editor) return false;
+    const safeStart = Math.max(0, Math.min(start, editor.value.length));
+    const safeEnd = Math.max(safeStart, Math.min(safeStart + length, editor.value.length));
+    editor.focus();
+    editor.setSelectionRange(safeStart, safeEnd);
+    const line = editor.value.slice(0, safeStart).split('\n').length;
+    const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 18;
+    editor.scrollTop = Math.max(0, (line - 8) * lineHeight);
+    editor.scrollLeft = 0;
+    this.syncHighlightScroll();
+    this.setStatus('已跳转到对应源码。', 'success');
+    return true;
   },
 
   escapeSource(source) {

@@ -61,6 +61,7 @@ async function loadFromAPI(company) {
     const idx = parseInt(ci);
     const hasMarkdown = typeof card.markdown_content === 'string' && card.markdown_content.trim();
     const data = hasMarkdown ? parseMarkdownCardData(card.markdown_content, idx) : {};
+    if (hasMarkdown) data._markdown = card.markdown_content;
     const legacyData = mapLegacyFields(card);
 
     for (const [key, value] of Object.entries(legacyData)) {
@@ -80,3 +81,38 @@ async function loadSingleCardFromAPI(company, cardIndex) {
   const result = await loadFromAPI(company);
   return result.allCardData[cardIndex] || {};
 }
+
+// ─── 资产加载 ──────────────────────────────────────────────────
+
+// card_index → asset_key 映射（与后端 CARD_ASSET_MAP 一致）
+const CARD_ASSET_MAP = {
+  1: "logo",
+  2: "office",
+  3: "timeline",
+  4: "product_main",
+  5: "products_other",
+  6: "flywheel",
+  7: "competitors",
+};
+
+async function loadAssetsFromAPI(company) {
+  try {
+    const resp = await fetch(`/api/assets/${encodeURIComponent(company)}`);
+    if (!resp.ok) return {};
+    const json = await resp.json();
+    return json.assets || {};
+  } catch {
+    return {};
+  }
+}
+
+// asset_key → 中文标签
+const ASSET_LABELS = {
+  logo: "Logo",
+  office: "办公室/地图",
+  product_main: "主产品截图",
+  products_other: "其他产品",
+  competitors: "竞品 Logo",
+  flywheel: "增长飞轮",
+  timeline: "发展时间线",
+};

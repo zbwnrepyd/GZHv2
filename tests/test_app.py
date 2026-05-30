@@ -116,6 +116,32 @@ class ResearchCardMarkdownTests(unittest.TestCase):
         self.assertIn("**机遇**：AI 工作流进入重构期。", payload["markdown"])
 
 
+class CompanyListTests(unittest.TestCase):
+    def setUp(self):
+        self.db_path = init_sqlite("init_research_db.sql")
+        db.save_research_records(
+            self.db_path,
+            [
+                {
+                    "company_name": "DemoCo",
+                    "version": "standard",
+                    "company_type": "AI 工具",
+                    "website_url": "https://demo.example",
+                }
+            ],
+        )
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def test_company_list_includes_latest_website_url_for_refill(self):
+        companies = db.get_companies(self.db_path)
+
+        self.assertEqual(companies[0]["company_name"], "DemoCo")
+        self.assertEqual(companies[0]["website_url"], "https://demo.example")
+        self.assertEqual(companies[0]["company_url"], "https://demo.example")
+
+
 class ImageRouteTests(unittest.TestCase):
     def setUp(self):
         self.client = app_module.app.test_client()

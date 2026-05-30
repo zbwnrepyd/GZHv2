@@ -40,9 +40,14 @@ def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
             confirmed = 0
             if final_db_path:
                 confirmed = _count_confirmed_cards(final_db_path, row["company_name"])
+            website_url = latest["website_url"] if latest else ""
+            if not website_url or str(website_url).strip() in ("", "暂缺"):
+                website_url = _latest_job_company_url(conn, row["company_name"])
             companies.append(
                 {
                     "company_name": row["company_name"],
+                    "company_url": website_url,
+                    "website_url": website_url,
                     "created_at": row["created_at"],
                     "researched_at": row["created_at"],
                     "completeness": completeness,
@@ -51,6 +56,17 @@ def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
                 }
             )
         return companies
+
+
+def _latest_job_company_url(conn: sqlite3.Connection, company_name: str) -> str:
+    try:
+        row = conn.execute(
+            "SELECT company_url FROM research_jobs WHERE company_name=? ORDER BY created_at DESC LIMIT 1",
+            (company_name,),
+        ).fetchone()
+        return row["company_url"] if row else ""
+    except sqlite3.Error:
+        return ""
 
 
 def _count_confirmed_cards(final_db_path: str, company_name: str) -> int:

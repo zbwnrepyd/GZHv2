@@ -8,6 +8,7 @@
 pip install -r requirements.txt
 sqlite3 db/research_db.sqlite < db/init_research_db.sql
 sqlite3 db/final_db.sqlite < db/init_final_db.sql
+sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 cd webapp
 python3 app.py
 ```
@@ -22,11 +23,13 @@ http://127.0.0.1:5050/
 
 ## 环境变量
 
-服务会读取系统环境变量，也会尝试读取 `~/.env`。
+服务会读取系统环境变量，也会尝试读取项目根目录 `.env`。优先级是：系统环境变量 > 项目 `.env`。项目不读取 `~/.env`。
 
 ```bash
 DEEPSEEK_API_KEY=sk-...
+# Tavily 单 Key 或多 Key 二选一；多 Key 用英文逗号分隔，遇到额度限制会自动尝试下一个
 TAVILY_API_KEY=tvly-...
+TAVILY_API_KEYS=tvly-...,tvly-...
 YOUTUBE_API_KEY=...
 IMAGE_API_KEY=sk-...
 IMAGE_API_URL=https://api.openai.com/v1/images/generations
@@ -78,7 +81,7 @@ http://127.0.0.1:5050/editor?company=Anthropic
 http://127.0.0.1:5050/canvas/?company=Anthropic
 ```
 
-卡片制作台会从 `final_db` 读取已确认的 `markdown_full`，中间显示 3:4 HTML 画布，右侧显示当前页完整 HTML+CSS 源码并带语法高亮；编辑源码会实时渲染到中间画布。顶部“返回定稿台”会回到当前公司的 `/editor?company=<公司名>`。底部可以编辑图片提示词，并可临时配置图片 API URL / API Key 生成当前页插图。
+卡片制作台会从 `final_db` 读取已确认的 `markdown_full`。左侧只读显示当前项目名，并用互斥手风琴组织“卡片每一页”和“图片夹”；图片夹展示 Markdown 中已有的图片、底部生成过的图片和背景水印控件，导出按钮始终常驻。中间显示 3:4 HTML 画布，右侧显示当前页完整 HTML+CSS 源码并带语法高亮；编辑源码会实时渲染到中间画布。顶部“返回定稿台”会回到当前公司的 `/editor?company=<公司名>`。底部可以编辑图片提示词，并可临时配置图片 API URL / API Key 生成当前页插图。
 
 批量导出 PNG 需要 Node 依赖：
 

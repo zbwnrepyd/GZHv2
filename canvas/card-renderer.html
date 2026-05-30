@@ -18,6 +18,7 @@
   body {
     margin: 0;
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     background: var(--bg);
     color: var(--text);
@@ -25,9 +26,12 @@
   }
   #card-workbench {
     display: grid;
-    grid-template-columns: 210px minmax(480px, 1fr) 520px;
+    grid-template-columns: clamp(160px, 17vw, 210px) minmax(0, 1fr) clamp(320px, 36vw, 520px);
     height: 100vh;
-    min-width: 1220px;
+    height: 100dvh;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
   }
   #left-pane, #right-pane {
     background: var(--panel);
@@ -35,6 +39,7 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    min-height: 0;
   }
   #left-pane { border-right: 1px solid var(--border); }
   #right-pane { border-left: 1px solid var(--border); }
@@ -51,11 +56,75 @@
   }
   .pane-body {
     padding: 10px;
-    overflow: auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
   }
   #card-nav {
     display: grid;
     gap: 7px;
+  }
+  .accordion-stack {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .left-accordion {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+    overflow: hidden;
+    flex: 0 0 auto;
+    min-height: 0;
+  }
+  .left-accordion.is-open {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .accordion-trigger {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #344054;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    text-align: left;
+  }
+  .accordion-trigger::after {
+    content: "⌄";
+    color: var(--muted);
+    font-size: 13px;
+    transition: transform .16s ease;
+  }
+  .left-accordion.is-open .accordion-trigger::after {
+    transform: rotate(180deg);
+  }
+  .accordion-count {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .accordion-panel {
+    border-top: 1px solid var(--border);
+    padding: 8px;
+    overflow: auto;
+    min-height: 0;
+  }
+  .left-accordion:not(.is-open) .accordion-panel {
+    display: none;
   }
   .card-tab {
     width: 100%;
@@ -78,13 +147,82 @@
     font-weight: 800;
   }
   .card-tab.empty { opacity: .42; }
-  .compact-input {
-    width: 100%;
-    height: 34px;
+  #image-folder {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+  }
+  .image-folder-tools {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+  }
+  .bg-upload-label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .bg-clear-btn { margin-top: 6px; }
+  .image-folder-empty {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .image-tile {
+    min-width: 0;
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 0 9px;
-    font-size: 12px;
+    padding: 4px;
+    background: #FAFBFC;
+    cursor: pointer;
+    text-align: left;
+  }
+  .image-tile:hover {
+    border-color: var(--cyan);
+  }
+  .image-tile.is-selected {
+    border-color: var(--cyan);
+    background: rgba(41, 184, 212, 0.10);
+    box-shadow: 0 0 0 2px var(--cyan);
+  }
+  .image-thumb {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 6px;
+    background: #EEF2F7;
+    object-fit: cover;
+    display: block;
+  }
+  .image-meta {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .company-display {
+    width: 100%;
+    min-height: 38px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 10px;
+    background: #F8FAFC;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+  .company-display.empty {
+    color: var(--muted);
+    font-weight: 700;
   }
   .btn {
     height: 32px;
@@ -103,14 +241,23 @@
     white-space: nowrap;
   }
   .btn:hover { border-color: var(--cyan); }
+  .btn.active {
+    border-color: var(--cyan);
+    background: rgba(41, 184, 212, .10);
+    color: #0B5F70;
+  }
   .btn.primary {
     background: #111827;
     border-color: #111827;
     color: #fff;
   }
   .btn.danger { color: var(--danger); }
+  .btn.full-width { width: 100%; }
+  .hidden-file-input { display: none; }
   #center-pane {
     min-width: 0;
+    min-height: 0;
+    overflow: hidden;
     display: grid;
     grid-template-rows: 44px minmax(0, 1fr) 126px 24px;
   }
@@ -122,6 +269,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    min-width: 0;
   }
   #canvas-title {
     font-size: 13px;
@@ -135,9 +283,11 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    min-width: 0;
   }
   #canvas-stage {
     position: relative;
+    min-width: 0;
     min-height: 0;
     padding: 14px;
     overflow: hidden;
@@ -158,13 +308,16 @@
     border-top: 1px solid var(--border);
     padding: 10px 12px;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 180px 84px;
+    grid-template-columns: minmax(0, 1fr) minmax(140px, 180px) 84px;
     grid-template-rows: 44px 44px;
     gap: 8px;
     align-items: center;
+    min-width: 0;
+    box-sizing: border-box;
   }
   #prompt-input, #image-api-url, #image-api-key {
     width: 100%;
+    min-width: 0;
     height: 44px;
     border: 1px solid var(--border);
     border-radius: 9px;
@@ -172,6 +325,7 @@
     font-size: 12px;
     line-height: 1.35;
     font-family: inherit;
+    box-sizing: border-box;
   }
   #prompt-input {
     grid-row: 1 / span 2;
@@ -188,6 +342,7 @@
     border-top: 1px solid var(--border);
     color: var(--muted);
     font-size: 12px;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -199,6 +354,24 @@
     min-height: 0;
     background: #0F172A;
     overflow: hidden;
+  }
+  .source-code-wrap::before {
+    content: attr(data-source-view);
+    position: absolute;
+    right: 10px;
+    top: 8px;
+    z-index: 3;
+    padding: 2px 7px;
+    border: 1px solid rgba(148, 163, 184, .32);
+    border-radius: 999px;
+    background: rgba(15, 23, 42, .84);
+    color: #94A3B8;
+    font: 700 10px/1.4 "SF Mono", Menlo, Consolas, monospace;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+  .source-code-wrap.is-inspecting {
+    box-shadow: inset 0 0 0 2px rgba(41, 184, 212, .62);
   }
   #source-highlight, #source-editor {
     position: absolute;
@@ -236,37 +409,84 @@
   .tok-prop { color: #93C5FD; }
   .tok-number { color: #FDBA74; }
   .tok-selector { color: #F0ABFC; }
-  .source-hint {
-    border-bottom: 1px solid var(--border);
-    padding: 10px 12px;
-    color: var(--muted);
-    font-size: 12px;
-    line-height: 1.55;
-    background: #FAFBFC;
-  }
-  .source-hint code {
-    color: var(--text);
-    font-family: "SF Mono", Menlo, Consolas, monospace;
-    font-size: 11px;
-  }
   .source-actions {
     border-top: 1px solid var(--border);
     padding: 10px;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 8px;
   }
+  .source-actions .span-all { grid-column: 1 / -1; }
   .section {
+    flex: 0 0 auto;
     border-bottom: 1px solid var(--border);
     padding-bottom: 10px;
     margin-bottom: 10px;
   }
+  .section.spaced { margin-top: 10px; }
   .section:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
   .hint {
     margin: 8px 0 0;
     color: var(--muted);
     font-size: 12px;
     line-height: 1.45;
+  }
+  @media (max-width: 900px) {
+    #card-workbench {
+      grid-template-columns: 132px minmax(0, 1fr) minmax(260px, 44vw);
+    }
+    .pane-head {
+      padding: 0 8px;
+    }
+    .pane-body {
+      padding: 8px;
+    }
+    #canvas-toolbar {
+      padding: 0 8px;
+      gap: 6px;
+    }
+    .toolbar-actions {
+      gap: 4px;
+    }
+    .toolbar-actions .btn {
+      padding: 0 7px;
+    }
+    #canvas-stage {
+      padding: 8px;
+    }
+    #prompt-bar {
+      grid-template-columns: minmax(0, 1fr) 80px;
+      grid-template-rows: 36px 36px 36px;
+      height: 124px;
+      padding: 8px;
+      gap: 6px;
+    }
+    #prompt-input {
+      grid-column: 1;
+      grid-row: 1 / span 3;
+      height: 100%;
+    }
+    #image-api-url {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    #image-api-key {
+      grid-column: 2;
+      grid-row: 2;
+    }
+    #btn-reset-prompt {
+      display: none;
+    }
+    #btn-generate-image {
+      grid-column: 2;
+      grid-row: 3;
+      padding: 0 6px;
+    }
+    #prompt-input, #image-api-url, #image-api-key {
+      height: 36px;
+      padding: 6px 8px;
+      font-size: 11px;
+    }
   }
 </style>
 </head>
@@ -279,12 +499,41 @@
     </div>
     <div class="pane-body">
       <div class="section">
-        <input id="company-name-input" class="compact-input" placeholder="公司名">
-        <p class="hint">默认读取 URL 中的 company 参数。</p>
+        <div id="current-company-name" class="company-display empty">未选择项目</div>
       </div>
-      <nav id="card-nav"></nav>
-      <div class="section" style="margin-top:10px">
-        <button class="btn primary" id="btn-export-all" style="width:100%">导出全部 PNG</button>
+      <div class="accordion-stack">
+        <section class="left-accordion is-open" id="cards-accordion">
+          <button class="accordion-trigger" type="button" data-accordion-target="cards-accordion">
+            卡片每一页 <span class="accordion-count" id="card-count">0/8</span>
+          </button>
+          <div class="accordion-panel">
+            <nav id="card-nav"></nav>
+          </div>
+        </section>
+        <section class="left-accordion" id="image-folder-accordion">
+          <button class="accordion-trigger" type="button" data-accordion-target="image-folder-accordion">
+            图片夹 <span class="accordion-count" id="image-count">0</span>
+          </button>
+          <div class="accordion-panel">
+            <div class="image-folder-tools">
+              <label class="bg-upload-label">
+                背景水印
+                <input class="hidden-file-input" type="file" accept="image/*" id="bg-file-input">
+                <button class="btn full-width" type="button" onclick="document.getElementById('bg-file-input').click()">选择本地图片</button>
+              </label>
+              <button class="btn full-width bg-clear-btn" type="button" onclick="BgLoader.clear();window.reloadCurrentCard&&window.reloadCurrentCard()">清除背景</button>
+              <p class="hint">上传图片作为卡片水印背景，保存在本机浏览器。</p>
+              <button class="btn full-width" id="btn-collect-assets" style="margin-top:8px">采集公司图片</button>
+              <p class="hint">自动采集 Logo、办公室、产品截图、竞品 Logo 等。</p>
+            </div>
+            <div id="image-folder">
+              <p class="image-folder-empty">暂无图片。</p>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div class="section spaced">
+        <button class="btn primary full-width" id="btn-export-all">导出全部 PNG</button>
         <p class="hint">命令行导出默认读取数据库；源码改动保存在本机浏览器。</p>
       </div>
     </div>
@@ -296,8 +545,7 @@
       <div class="toolbar-actions">
         <a class="btn" id="btn-back-research" href="/editor">返回定稿台</a>
         <button class="btn" id="btn-fit">适配窗口</button>
-        <button class="btn" id="btn-open-card">打开单页</button>
-        <button class="btn primary" id="btn-export-current">导出当前</button>
+<button class="btn primary" id="btn-export-current">导出当前</button>
       </div>
     </div>
     <div id="canvas-stage">
@@ -318,16 +566,16 @@
       <span>HTML + CSS</span>
       <button class="btn danger" id="btn-reset-source">重置</button>
     </div>
-    <div class="source-hint">
-      风格提示：优先调 <code>--title-size</code>、<code>--body-size</code>、<code>--card-padding-x</code>、<code>--image-height</code>、<code>--accent</code>。
-      内容结构可直接改 <code>.card-nav</code>、<code>.card-title</code>、<code>.card-body</code>。
-    </div>
     <div class="source-code-wrap">
       <pre id="source-highlight" aria-hidden="true"></pre>
       <textarea id="source-editor" spellcheck="false" wrap="off"></textarea>
     </div>
     <div class="source-actions">
-      <button class="btn primary" id="btn-save-source" style="grid-column:1 / -1">保存当前页源码</button>
+      <button class="btn active" id="btn-source-all">全部</button>
+      <button class="btn" id="btn-source-css">CSS</button>
+      <button class="btn" id="btn-source-html">HTML</button>
+      <button class="btn span-all" id="btn-inspect-source">检查画布元素</button>
+      <button class="btn primary span-all" id="btn-save-source">保存当前页源码</button>
     </div>
   </aside>
 </main>
@@ -338,6 +586,7 @@
 <script src="/canvas/js/source-editor.js"></script>
 <script src="/canvas/js/prompt-bar.js"></script>
 <script src="/canvas/js/export-client.js"></script>
+<script src="/canvas/js/bg-loader.js"></script>
 <script>
 const CARD_TABS = {
   1: '首页',
@@ -354,11 +603,13 @@ const Workbench = {
   companyName: '',
   currentCard: 1,
   allCardData: {},
+  selectedImages: {},
 
   async init() {
+    BgLoader.init();
     const params = new URLSearchParams(window.location.search);
     this.companyName = params.get('company') || '';
-    document.getElementById('company-name-input').value = this.companyName;
+    this.updateCompanyDisplay();
     this.updateBackLink();
     this.bindEvents();
     this.renderNav();
@@ -366,6 +617,7 @@ const Workbench = {
       getCompanyName: () => this.companyName,
       getCurrentCard: () => this.currentCard,
       getCurrentSource: () => this.currentSource(),
+      getDefaultSource: () => this.defaultSourceForCurrentCard(),
       refreshPreview: () => this.refreshPreview(),
       setStatus: (msg, type) => this.setStatus(msg, type),
     });
@@ -380,22 +632,77 @@ const Workbench = {
     if (this.companyName) {
       await this.loadCompany();
     } else {
-      this.setStatus('请在左侧输入公司名，或通过 ?company= 公司名打开。', 'info');
+      this.setStatus('请从定稿台进入，或通过 ?company= 公司名打开。', 'info');
     }
   },
 
   bindEvents() {
-    document.getElementById('company-name-input').addEventListener('change', async (event) => {
-      this.companyName = event.target.value.trim();
-      this.updateBackLink();
-      await this.loadCompany();
-    });
+    this.bindAccordions();
     document.getElementById('btn-reload').addEventListener('click', () => this.loadCompany());
     document.getElementById('btn-fit').addEventListener('click', () => this.fitFrame());
-    document.getElementById('btn-open-card').addEventListener('click', () => window.open(this.cardUrl(), '_blank'));
     document.getElementById('btn-export-current').addEventListener('click', () => ExportClient.exportCurrent(this));
     document.getElementById('btn-export-all').addEventListener('click', () => ExportClient.exportAll(this));
     window.addEventListener('resize', () => this.updateFrameScale());
+    const bgInput = document.getElementById('bg-file-input');
+    if (bgInput) {
+      bgInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        await BgLoader.loadFromFile(file);
+        this.refreshPreview();
+      });
+    }
+    window.reloadCurrentCard = () => this.refreshPreview();
+
+    document.getElementById('btn-collect-assets')?.addEventListener('click', () => this.collectAssets());
+  },
+
+  async collectAssets() {
+    if (!this.companyName) { this.setStatus('缺少公司名。', 'error'); return; }
+    try {
+      this.setStatus('正在采集公司图片...', 'info');
+      const resp = await fetch(`/api/assets/collect/${encodeURIComponent(this.companyName)}`, {
+        method: 'POST',
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
+      const result = await resp.json();
+      // 重新加载资产和预览
+      const assets = await loadAssetsFromAPI(this.companyName);
+      for (let i = 1; i <= 8; i++) {
+        if (!this.allCardData[i]) this.allCardData[i] = {};
+        this.allCardData[i]._assets = assets;
+      }
+      this.renderImageFolder();
+      await this.refreshPreview();
+      const counts = Object.values(result.results || {}).filter(Boolean).length;
+      this.setStatus(`图片采集完成，${counts} 项成功。`, 'success');
+    } catch (error) {
+      this.setStatus(`采集失败：${error.message}`, 'error');
+    }
+  },
+
+  bindAccordions() {
+    const accordions = Array.from(document.querySelectorAll('.left-accordion'));
+    document.querySelectorAll('.accordion-trigger').forEach((trigger) => {
+      trigger.addEventListener('click', () => {
+        const accordion = document.getElementById(trigger.dataset.accordionTarget);
+        if (!accordion) return;
+        accordion.classList.add('is-open');
+        accordions.forEach((other) => {
+          if (other !== accordion) other.classList.remove('is-open');
+        });
+      });
+    });
+  },
+
+  updateCompanyDisplay() {
+    const display = document.getElementById('current-company-name');
+    if (!display) return;
+    display.textContent = this.companyName || '未选择项目';
+    display.classList.toggle('empty', !this.companyName);
   },
 
   updateBackLink() {
@@ -416,13 +723,23 @@ const Workbench = {
       this.setStatus(`正在加载 ${this.companyName}...`, 'info');
       const result = await loadFromAPI(this.companyName);
       this.allCardData = result.allCardData || {};
+
+      // 加载资产，合并到对应卡片的 _assets 字段
+      const assets = await loadAssetsFromAPI(this.companyName);
+      for (let i = 1; i <= 8; i++) {
+        if (!this.allCardData[i]) this.allCardData[i] = {};
+        this.allCardData[i]._assets = assets;
+      }
+
       this.currentCard = Number(Object.keys(this.allCardData)[0] || 1);
       this.renderNav();
+      this.renderImageFolder();
       await this.refreshPreview();
       this.setStatus(`已加载 ${result.company_name || this.companyName}`, 'success');
     } catch (error) {
       this.allCardData = {};
       this.renderNav();
+      this.renderImageFolder();
       this.setStatus(`加载失败：${error.message}`, 'error');
     }
   },
@@ -434,7 +751,7 @@ const Workbench = {
       const button = document.createElement('button');
       button.className = 'card-tab';
       button.dataset.card = String(i);
-      button.innerHTML = `<span>${i} ${CARD_TABS[i]}</span><span>${this.allCardData[i] ? '✓' : '·'}</span>`;
+      button.innerHTML = `<span>${i} ${this.cardLabel(i)}</span><span>${this.allCardData[i] ? '✓' : '·'}</span>`;
       button.classList.toggle('active', i === this.currentCard);
       button.classList.toggle('empty', !this.allCardData[i]);
       button.addEventListener('click', async () => {
@@ -444,37 +761,139 @@ const Workbench = {
       });
       nav.appendChild(button);
     }
+    const count = Object.keys(this.allCardData).length;
+    const countEl = document.getElementById('card-count');
+    if (countEl) countEl.textContent = `${count}/8`;
+  },
+
+  cardLabel(cardIndex) {
+    return this.allCardData[cardIndex]?._title || CARD_TABS[cardIndex] || `卡片${cardIndex}`;
+  },
+
+  collectImages() {
+    const images = [];
+    const seen = new Set();
+    const add = (cardIndex, src, source) => {
+      if (!src || seen.has(src)) return;
+      seen.add(src);
+      images.push({ cardIndex, src, source });
+    };
+
+    // 服务器资产
+    const assets = this.allCardData[1]?._assets || {};
+    for (const [assetKey, asset] of Object.entries(assets)) {
+      if (asset && asset.local_path && asset.status === 'ready') {
+        const cardIndex = Object.entries(CARD_ASSET_MAP).find(([, v]) => v === assetKey)?.[0];
+        const label = ASSET_LABELS[assetKey] || assetKey;
+        add(Number(cardIndex) || 0, asset.local_path, label);
+      }
+    }
+
+    for (const [cardIndex, data] of Object.entries(this.allCardData || {})) {
+      add(Number(cardIndex), data?._image, '定稿图片');
+    }
+
+    if (window.PromptBar) {
+      const generated = PromptBar.loadMap(PromptBar.imageKey());
+      for (const [cardIndex, src] of Object.entries(generated || {})) {
+        add(Number(cardIndex), src, '生成图片');
+      }
+    }
+
+    return images;
+  },
+
+  renderImageFolder() {
+    const folder = document.getElementById('image-folder');
+    const countEl = document.getElementById('image-count');
+    if (!folder) return;
+
+    const images = this.collectImages();
+    if (countEl) countEl.textContent = String(images.length);
+    if (!images.length) {
+      folder.innerHTML = '<p class="image-folder-empty">暂无图片。</p>';
+      return;
+    }
+
+    folder.innerHTML = images.map((image, index) => `
+      <button class="image-tile" data-card="${image.cardIndex}" title="卡片 ${image.cardIndex} · ${this.esc(image.source)}">
+        <img class="image-thumb" src="${this.escAttr(image.src)}" alt="">
+        <div class="image-meta">${image.cardIndex} · ${this.esc(image.source || `图片${index + 1}`)}</div>
+      </button>
+    `).join('');
+
+    const currentCardKey = String(this.currentCard);
+    folder.querySelectorAll('.image-tile').forEach((button) => {
+      const imgSrc = button.querySelector('.image-thumb')?.src;
+      if (this.selectedImages[currentCardKey] === imgSrc) {
+        button.classList.add('is-selected');
+      }
+      button.addEventListener('click', async () => {
+        const src = button.querySelector('.image-thumb')?.src;
+        const key = String(this.currentCard);
+        if (this.selectedImages[key] === src) {
+          delete this.selectedImages[key];
+        } else {
+          this.selectedImages[key] = src;
+        }
+        await this.refreshPreview();
+      });
+    });
   },
 
   cardUrl() {
-    return `/canvas/card/${encodeURIComponent(this.companyName)}/${this.currentCard}`;
+    return `/canvas/card/${encodeURIComponent(this.companyName)}/${this.currentCard}?parent-driven=1`;
+  },
+
+  currentCardDataWithImage() {
+    const imagePath = PromptBar.getImageForCard(this.currentCard);
+    const cardData = Object.assign({}, this.allCardData[this.currentCard] || {});
+    const selectedImage = this.selectedImages[String(this.currentCard)];
+    if (selectedImage) {
+      cardData._selectedImage = selectedImage;
+    } else if (imagePath) {
+      cardData._image = imagePath;
+    }
+    return cardData;
+  },
+
+  defaultSourceForCurrentCard() {
+    return renderCardSource({
+      companyName: this.companyName,
+      cardIndex: this.currentCard,
+      cardData: this.currentCardDataWithImage(),
+    });
   },
 
   async refreshPreview() {
+    // 刷新资产
+    if (this.companyName) {
+      const assets = await loadAssetsFromAPI(this.companyName);
+      for (let i = 1; i <= 8; i++) {
+        if (!this.allCardData[i]) this.allCardData[i] = {};
+        this.allCardData[i]._assets = assets;
+      }
+    }
+
     const frame = document.getElementById('card-frame');
     frame.src = this.cardUrl();
     await new Promise((resolve) => {
       frame.onload = resolve;
     });
-    const imagePath = PromptBar.getImageForCard(this.currentCard);
-    const cardData = Object.assign({}, this.allCardData[this.currentCard] || {});
-    if (imagePath) cardData._image = imagePath;
-    const defaultSource = renderCardSource({
-      companyName: this.companyName,
-      cardIndex: this.currentCard,
-      cardData,
-    });
+    const cardData = this.currentCardDataWithImage();
+    const defaultSource = this.defaultSourceForCurrentCard();
     const source = SourceEditor.loadCurrentSource(defaultSource);
     SourceEditor.setEditorValue(source);
     SourceEditor.applyToFrame(frame, source);
     PromptBar.syncPromptInput();
     const title = cardData._title || CARD_TABS[this.currentCard] || `卡片${this.currentCard}`;
     document.getElementById('canvas-title').textContent = `卡片${this.currentCard} · ${title}`;
+    this.renderImageFolder();
     this.updateFrameScale();
   },
 
   currentSource() {
-    return document.getElementById('source-editor')?.value || '';
+    return SourceEditor.getFullSource ? SourceEditor.getFullSource() : (document.getElementById('source-editor')?.value || '');
   },
 
   fitFrame() {
@@ -485,8 +904,7 @@ const Workbench = {
   updateFrameScale() {
     const stage = document.getElementById('canvas-stage');
     const frame = document.getElementById('card-frame');
-    const scale = Math.min((stage.clientWidth - 28) / 900, (stage.clientHeight - 28) / 1200, 1);
-    frame.style.transform = `translate(-50%, -50%) scale(${scale})`;
+    fitFrameToStage(stage, frame);
   },
 
   setStatus(message, type = 'info') {
@@ -494,7 +912,33 @@ const Workbench = {
     el.textContent = message;
     el.dataset.type = type;
   },
+
+  esc(value) {
+    return String(value || '').replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;',
+    }[ch]));
+  },
+
+  escAttr(value) {
+    return this.esc(value).replace(/`/g, '&#096;');
+  },
 };
+
+function fitFrameToStage(stage, frame) {
+  if (!stage || !frame) return 1;
+  const rect = stage.getBoundingClientRect();
+  const availableWidth = Math.max(0, rect.width - 28);
+  const availableHeight = Math.max(0, rect.height - 28);
+  const scale = Math.min(availableWidth / 900, availableHeight / 1200, 1);
+  frame.style.left = '50%';
+  frame.style.top = '50%';
+  frame.style.transform = `translate(-50%, -50%) scale(${scale})`;
+  return scale;
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   Workbench.init();

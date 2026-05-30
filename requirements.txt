@@ -4,3 +4,5 @@ trafilatura
 markdownify
 beautifulsoup4
 lxml
+playwright
+Pillow
