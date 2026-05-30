@@ -74,6 +74,7 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - 图片 API Key 可通过环境变量配置，也可在卡片制作台临时输入；临时 Key 只随 `/api/generate-image` 请求发送，不写入 localStorage 或响应
 - 公司图片资产通过 `company_assets` 表管理（7 种 asset_key），不用路径约定或 localStorage；资产采集走 `asset_pipeline.py`，信息图（飞轮/时间线）走 `infographic.py` 的 SVG 模板渲染管线
 - `POST /api/assets/generate/<company>/flywheel|timeline` 依赖该卡片的 Markdown 已定稿（卡片6=飞轮，卡片3=时间线）；SVG 渲染需要 Playwright
+- 国内环境访问 Tavily 和 YouTube API 需配 HTTPS_PROXY（`config.py` 不自动设置代理，需在 `.env` 手动配置）
 - 研究台要展示 Tavily/GitHub/YouTube/官网抓取的链路状态与数量；公司库点击一条只展开该公司研究信息，点另一条时其他行折叠
 
 ## 参考
