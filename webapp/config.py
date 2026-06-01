@@ -36,6 +36,9 @@ class Config:
         default_factory=lambda: _env_list("TAVILY_API_KEYS", "TAVILY_API_KEY")
     )
     YOUTUBE_API_KEY: str = os.environ.get("YOUTUBE_API_KEY", "")
+    GOOGLE_MAPS_API_KEY: str = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+    PEXELS_API_KEY: str = os.environ.get("PEXELS_API_KEY", "")
+    UNSPLASH_ACCESS_KEY: str = os.environ.get("UNSPLASH_ACCESS_KEY", "")
     IMAGE_API_KEY: str = os.environ.get("IMAGE_API_KEY", "")
     IMAGE_API_URL: str = os.environ.get(
         "IMAGE_API_URL", "https://api.openai.com/v1/images/generations"

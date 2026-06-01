@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import textwrap
 import unittest
@@ -69,6 +70,16 @@ const source = context.renderCardSource({{
 console.log(source);
 """
     return subprocess.check_output(["node", "-e", script], text=True)
+
+
+def article_style_number(source: str, var_name: str) -> float:
+    match = re.search(r'<article[^>]+style="([^"]+)"', source)
+    if not match:
+        raise AssertionError("article style not found")
+    value = re.search(rf'{re.escape(var_name)}:\s*([0-9.]+)', match.group(1))
+    if not value:
+        raise AssertionError(f"{var_name} not found in article style")
+    return float(value.group(1))
 
 
 class CanvasParserTests(unittest.TestCase):
@@ -275,25 +286,28 @@ class CanvasParserTests(unittest.TestCase):
 
         self.assertEqual(loaded["allCardData"]["7"]["_title"], "竞争格局")
 
-    def test_renderer_breadcrumb_contains_all_card_sections(self):
+    def test_renderer_renders_structured_card_fields(self):
         source = render_card_source(
             7,
             {"竞争壁垒": "垂直场景数据和集成壁垒。", "竞争格局": "头部玩家分散。"},
             company="Zuma",
         )
 
-        for label in ["首页", "公司介绍", "发展沿袭", "主产品", "其他产品", "商业模式", "竞争格局", "总结"]:
-            self.assertIn(label, source)
-        self.assertIn("<strong>竞争格局</strong>", source)
+        self.assertIn('<span class="md-label">竞争壁垒</span>', source)
+        self.assertIn('<span class="md-label">竞争格局</span>', source)
+        self.assertIn("垂直场景数据和集成壁垒。", source)
+        self.assertIn("头部玩家分散。", source)
+        self.assertNotIn("暂无内容", source)
 
-    def test_renderer_breadcrumb_uses_formal_card5_title(self):
+    def test_renderer_uses_formal_card5_field_label(self):
         source = render_card_source(
             5,
             {"其他产品": "- **AI催租助手**：自动化处理租金催缴流程。"},
             company="Zuma",
         )
 
-        self.assertIn("<strong>其他产品</strong>", source)
+        self.assertIn('<span class="md-label">其他产品</span>', source)
+        self.assertIn("<strong>AI催租助手</strong>", source)
         self.assertNotIn("产品线", source)
 
     def test_renderer_uses_deep_console_visual_system(self):
@@ -303,23 +317,20 @@ class CanvasParserTests(unittest.TestCase):
             company="zuma",
         )
 
-        self.assertIn("--navy-900:          #05070D", source)
-        self.assertIn("--blue-500:          #0A62FF", source)
-        self.assertIn("--cyan-500:          var(--blue-500)", source)
+        self.assertIn("--navy-deep:         #0B1629", source)
+        self.assertIn("--navy-mid:          #162440", source)
+        self.assertIn("--accent:            #29B8D4", source)
         self.assertIn("fonts.googleapis.com", source)
-        self.assertIn("--bg-card:           radial-gradient(72% 42% at 18% 10%", source)
-        self.assertIn("linear-gradient(145deg, #FFFFFF 0%, #070A12 38%, #031A4C 62%, #0A62FF 100%)", source)
+        self.assertIn("linear-gradient(180deg", source)
         self.assertIn("--font-display:", source)
         self.assertIn("DM Serif Display", source)
         self.assertIn("IBM Plex Mono", source)
         self.assertIn("Instrument Sans", source)
         self.assertIn("Noto Sans SC", source)
         self.assertIn("Source Han Sans CN", source)
-        self.assertIn('class="paper-wash"', source)
-        self.assertIn('class="film-grain"', source)
-        self.assertIn('class="red-mark"', source)
+        self.assertIn('class="card-grain"', source)
+        self.assertIn('class="card-decay"', source)
         self.assertNotIn("∞", source)
-        self.assertIn("repeating-radial-gradient", source)
 
         product_source = render_card_source(
             4,
@@ -331,8 +342,8 @@ class CanvasParserTests(unittest.TestCase):
             {"盈利方式": "SaaS", "增长飞轮": "用户反馈驱动模型优化"},
             company="zuma",
         )
-        self.assertIn('class="visual-panel product-wireframe"', product_source)
-        self.assertIn('class="visual-panel flywheel-visual"', business_source)
+        self.assertIn('<span class="md-label">主产品名</span>', product_source)
+        self.assertIn('<span class="md-label">增长飞轮</span>', business_source)
 
     def test_renderer_scales_typography_by_content_density(self):
         sparse_source = render_card_source(
@@ -355,12 +366,10 @@ class CanvasParserTests(unittest.TestCase):
             company="Cursor",
         )
 
-        self.assertIn("density-airy", sparse_source)
-        self.assertIn("density-packed", dense_source)
-        self.assertIn("--body-size:", dense_source)
+        self.assertGreater(article_style_number(sparse_source, "--fs-body"), article_style_number(dense_source, "--fs-body"))
+        self.assertIn("--fs-body:", dense_source)
         self.assertIn("--field-gap:", dense_source)
-        self.assertIn("--visual-height:", dense_source)
-        self.assertIn("--section-title-size:", dense_source)
+        self.assertIn("--section-gap:", dense_source)
 
     def test_parser_maps_unlabeled_intro_body_to_expected_fields(self):
         markdown = textwrap.dedent(

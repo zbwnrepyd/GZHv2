@@ -8,6 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, "webapp"))
 
 import db
+import asset_store
 
 
 class FinalCardSaveTests(unittest.TestCase):
@@ -88,6 +89,61 @@ class FinalCardSaveTests(unittest.TestCase):
 
         self.assertEqual(status["confirmed"], [8])
         self.assertEqual(status["total"], 8)
+
+
+class AssetVariantTests(unittest.TestCase):
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        asset_store.init_assets_db(self.db_path)
+        asset_store.ensure_assets_rows(self.db_path, "DemoCo")
+        asset_store.ensure_assets_rows(self.db_path, "OtherCo")
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def test_select_variant_rejects_variant_from_other_company(self):
+        other_variant_id = asset_store.insert_variant(
+            self.db_path,
+            "OtherCo",
+            "office",
+            local_path="/images/OtherCo/variants/office.png",
+            source_type="import_upload",
+        )
+
+        selected = asset_store.select_variant(
+            self.db_path,
+            "DemoCo",
+            "office",
+            other_variant_id,
+        )
+
+        self.assertFalse(selected)
+        demo_asset = asset_store.get_asset(self.db_path, "DemoCo", "office")
+        self.assertEqual(demo_asset["status"], "missing")
+        self.assertIsNone(demo_asset["local_path"])
+
+    def test_select_variant_normalizes_absolute_image_path_for_browser(self):
+        variant_id = asset_store.insert_variant(
+            self.db_path,
+            "DemoCo",
+            "office",
+            local_path="/Users/example/project/images/DemoCo/variants/office.png",
+            source_type="web_tavily",
+        )
+
+        selected = asset_store.select_variant(
+            self.db_path,
+            "DemoCo",
+            "office",
+            variant_id,
+        )
+
+        self.assertTrue(selected)
+        demo_asset = asset_store.get_asset(self.db_path, "DemoCo", "office")
+        variants = asset_store.list_variants(self.db_path, "DemoCo", "office")
+        self.assertEqual(demo_asset["local_path"], "/images/DemoCo/variants/office.png")
+        self.assertEqual(variants[0]["local_path"], "/images/DemoCo/variants/office.png")
 
 
 if __name__ == "__main__":

@@ -6,11 +6,24 @@ from deepseek_client import call_deepseek, load_prompt
 from image_client import generate_image
 from firecrawl_local import scrape_url
 from pipeline import run_pipeline
-from asset_store import init_assets_db, ensure_assets_rows, get_assets, upsert_asset
-from asset_pipeline import collect_all_assets
-from infographic import generate_flywheel_from_markdown, generate_timeline_from_markdown
+from asset_store import (
+    init_assets_db, ensure_assets_rows, get_assets, upsert_asset,
+    list_variants, insert_variant, select_variant, delete_variant,
+)
+from asset_pipeline import (
+    collect_all_assets, _download, _variant_path, _render_osm_map,
+    _company_image_dir, _image_url_path, _variant_url_path,
+)
+from infographic import (
+    generate_flywheel_from_markdown, generate_timeline_from_markdown,
+    render_with_template, extract_flywheel_json, extract_timeline_json,
+)
+from infographic_templates import get_all as get_all_templates, get as get_template, upload as upload_template, delete as delete_template
+from image_search import search_images
 import markdown_builder
 import json
+import os
+import re
 import time
 import uuid
 import threading
@@ -143,21 +156,118 @@ def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
 
 
 def _collect_assets_silently(company_name: str):
-    """研究完成后的图片资产采集不再占用研究任务状态。"""
+    """研究完成后仅自动采集 Logo（其余图片已由流水线图片采集阶段处理）。"""
     try:
         research = database.get_research(config.DB_PATH_RESEARCH, company_name, "standard")
         if not research:
             return
-        company_data = {
-            "company_url": research.get("website_url", ""),
-            "website_url": research.get("website_url", ""),
-            "location": research.get("location", ""),
-            "other_products": research.get("other_products", ""),
-            "competitors": research.get("competitors", ""),
-        }
-        collect_all_assets(config.DB_PATH_ASSETS, config.IMAGES_DIR, company_name, company_data)
+        company_url = research.get("website_url", "")
+        website_url = research.get("website_url", "")
+        from asset_pipeline import collect_logo, ensure_assets_rows
+        ensure_assets_rows(config.DB_PATH_ASSETS, company_name)
+        collect_logo(config.DB_PATH_ASSETS, config.IMAGES_DIR, company_name,
+                     company_url, website_url)
     except Exception:
         pass
+
+
+def _pre_extract_svg_data(company_name: str, card_index: int):
+    """从定稿卡片 Markdown 预提取飞轮/时间线结构化 JSON，缓存到资产 meta 中。"""
+    try:
+        asset_key = "timeline" if card_index == 3 else "flywheel"
+        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company_name, card_index)
+        if not markdown:
+            return
+
+        def ds_call(sys_prompt, usr_msg, **kw):
+            return call_deepseek(
+                config.DEEPSEEK_API_KEY, sys_prompt, usr_msg,
+                model=config.DEEPSEEK_MODEL, **kw
+            )
+
+        data = None
+        if asset_key == "flywheel":
+            data = extract_flywheel_json(markdown, ds_call)
+        else:
+            data = extract_timeline_json(markdown, ds_call)
+
+        if data:
+            upsert_asset(config.DB_PATH_ASSETS, company_name, asset_key,
+                        meta={"svg_data": data, "cached_at": time.time()})
+    except Exception:
+        pass  # 静默失败，不影响定稿保存
+
+
+def _fallback_svg_data(asset_key: str, markdown: str) -> dict | None:
+    """Best-effort parser used when LLM extraction fails."""
+    lines = [line.strip() for line in (markdown or "").splitlines() if line.strip()]
+    if asset_key == "timeline":
+        events = []
+        for line in lines:
+            match = re.match(
+                r"^[-*]\s*(?:\*\*)?([12]\d{3}(?:[-./年]\d{1,2})?)(?:\*\*)?\s*[:：\-—]?\s*(.+)$",
+                line,
+            )
+            if not match:
+                continue
+            year = match.group(1).replace("年", "")
+            text = re.sub(r"\*+", "", match.group(2)).strip(" -—:：")
+            parts = re.split(r"\s+[—-]\s+|[。；;]", text, maxsplit=1)
+            title = (parts[0].strip() or year)[:18]
+            desc = (parts[1].strip() if len(parts) > 1 else text)[:80]
+            events.append({"year": year, "title": title, "desc": desc})
+            if len(events) >= 6:
+                break
+        return {"events": events} if events else None
+
+    if asset_key == "flywheel":
+        stages = []
+        for line in lines:
+            match = re.match(r"^(?:[-*]\s*)?\*\*([^*：:]{2,14})\*\*[：:]\s*(.+)$", line)
+            if not match:
+                match = re.match(r"^(?:[-*]\s*)?([^：:]{2,14})[：:]\s*(.+)$", line)
+            if not match:
+                continue
+            label = re.sub(r"\*+", "", match.group(1)).strip()
+            desc = re.sub(r"\*+", "", match.group(2)).strip()
+            if label in {"卡片6", "商业模式", "增长飞轮"}:
+                continue
+            stages.append({"label": label[:8], "desc": desc[:60]})
+            if len(stages) >= 5:
+                break
+        return {"center": "增长飞轮", "stages": stages} if len(stages) >= 2 else None
+
+    return None
+
+
+def _load_svg_data(company: str, asset_key: str, markdown: str) -> tuple[dict | None, bool]:
+    existing = get_assets(config.DB_PATH_ASSETS, company).get(asset_key)
+    cached = (existing or {}).get("meta", {}).get("svg_data")
+    if cached:
+        return cached, True
+
+    def ds_call(sys, usr, **kw):
+        return call_deepseek(
+            config.DEEPSEEK_API_KEY, sys, usr,
+            model=config.DEEPSEEK_MODEL, **kw
+        )
+
+    data = None
+    try:
+        if asset_key == "flywheel":
+            data = extract_flywheel_json(markdown, ds_call)
+        else:
+            data = extract_timeline_json(markdown, ds_call)
+    except Exception:
+        data = None
+
+    if not data:
+        data = _fallback_svg_data(asset_key, markdown)
+
+    if data:
+        upsert_asset(config.DB_PATH_ASSETS, company, asset_key,
+                    meta={"svg_data": data, "cached_at": time.time()})
+    return data, False
 
 
 @app.route("/api/research/start", methods=["POST"])
@@ -230,6 +340,11 @@ def save_final_card():
             database.save_final_card(
                 config.DB_PATH_FINAL, company_name, card_index, fields, img_paths
             )
+
+        # 预提取 SVG 数据（卡片3=timeline, 卡片6=flywheel）
+        if card_index in (3, 6):
+            _pre_extract_svg_data(company_name, card_index)
+
         return jsonify({"status": "ok", "card_index": card_index})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -305,9 +420,18 @@ def generate_image_route():
         if asset_key:
             init_assets_db(config.DB_PATH_ASSETS)
             ensure_assets_rows(config.DB_PATH_ASSETS, company_name)
-            upsert_asset(config.DB_PATH_ASSETS, company_name, asset_key,
-                        local_path=img_path, source_type="api_generate",
-                        source_url="", prompt=prompt, status="ready")
+            variant_id = insert_variant(
+                config.DB_PATH_ASSETS,
+                company_name,
+                asset_key,
+                local_path=img_path,
+                source_type="api_generate",
+                source_url="",
+                author="AI Generated",
+                license="AI",
+                prompt=prompt,
+            )
+            select_variant(config.DB_PATH_ASSETS, company_name, asset_key, variant_id)
 
         return jsonify({"status": "ok", "img_path": img_path})
     except Exception as e:
@@ -372,7 +496,7 @@ def generate_asset(company: str, asset_key: str):
         ensure_assets_rows(config.DB_PATH_ASSETS, company)
 
         # 输出路径
-        dest_dir = os.path.join(config.IMAGES_DIR, company)
+        dest_dir = _company_image_dir(config.IMAGES_DIR, company)
         os.makedirs(dest_dir, exist_ok=True)
         dest = os.path.join(dest_dir, f"{asset_key}.png")
 
@@ -398,14 +522,14 @@ def generate_asset(company: str, asset_key: str):
             return jsonify({"error": "生成失败"}), 500
 
         upsert_asset(config.DB_PATH_ASSETS, company, asset_key,
-                    local_path=f"/images/{company}/{asset_key}.png",
+                    local_path=_image_url_path(company, f"{asset_key}.png"),
                     source_type="svg_render", status="ready")
 
         return jsonify({
             "status": "ok",
             "company_name": company,
             "asset_key": asset_key,
-            "local_path": f"/images/{company}/{asset_key}.png",
+            "local_path": _image_url_path(company, f"{asset_key}.png"),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -493,6 +617,79 @@ def check_company_status(company: str):
         return jsonify({"error": str(e)}), 500
 
 
+# ── API：SVG 模板管理 ───────────────────────────────────────────
+
+@app.route("/api/svg-templates")
+def list_svg_templates():
+    """返回全部 SVG 模板的 META 列表"""
+    try:
+        templates = get_all_templates()
+        return jsonify({"templates": templates})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/svg-templates/upload", methods=["POST"])
+def upload_svg_template():
+    """上传用户自定义模板 .py 文件"""
+    try:
+        if not _is_local_request():
+            return jsonify({"error": "Python 模板上传仅允许本机请求"}), 403
+        if request.headers.get("X-Template-Upload-Intent") != "local-dev":
+            return jsonify({"error": "缺少 Python 模板上传意图 header"}), 403
+        if "file" not in request.files:
+            return jsonify({"error": "缺少 file"}), 400
+        f = request.files["file"]
+        if not f.filename:
+            return jsonify({"error": "文件名为空"}), 400
+        content = f.read()
+        meta = upload_template(f.filename, content)
+        return jsonify({"meta": meta})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _is_local_request() -> bool:
+    remote_addr = request.remote_addr or ""
+    return remote_addr == "::1" or remote_addr == "localhost" or remote_addr.startswith("127.")
+
+
+@app.route("/api/svg-templates/<template_id>", methods=["DELETE"])
+def delete_svg_template(template_id: str):
+    """删除用户上传的模板（内置模板不可删）"""
+    try:
+        ok = delete_template(template_id)
+        if not ok:
+            return jsonify({"error": "模板不存在或为内置模板不可删除"}), 400
+        return jsonify({"deleted": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/svg-templates/preview", methods=["POST"])
+def preview_svg_template():
+    """用指定模板+参数+数据渲染纯 SVG（不截图），返回 SVG 字符串供前端实时预览"""
+    try:
+        body = request.get_json()
+        template_id = body.get("template_id", "")
+        params = body.get("params", {})
+        data = body.get("data", {})
+
+        if not template_id:
+            return jsonify({"error": "缺少 template_id"}), 400
+
+        m = get_template(template_id)
+        if not m:
+            return jsonify({"error": f"模板 {template_id!r} 不存在"}), 404
+
+        svg = m.build(data, params)
+        return app.response_class(svg, mimetype="image/svg+xml")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── 编辑器页面 ─────────────────────────────────────────────────
 
 @app.route("/editor")
@@ -500,6 +697,22 @@ def check_company_status(company: str):
 @app.route("/editor/<company>")
 def editor_page(company: str = None):
     return render_template("editor.html")
+
+
+@app.route("/api/research/<company>", methods=["DELETE"])
+def delete_company(company: str):
+    """真删除某公司全部研究数据"""
+    try:
+        counts = database.delete_company(
+            config.DB_PATH_RESEARCH,
+            config.DB_PATH_FINAL,
+            config.DB_PATH_ASSETS,
+            config.IMAGES_DIR,
+            company,
+        )
+        return jsonify({"company_name": company, "deleted": counts})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/canvas/")
@@ -519,9 +732,513 @@ def canvas_assets(filename):
     return send_from_directory("../canvas", filename)
 
 
+# ── 图片定稿台 (image-studio v2) ─────────────────────────────────
+
+@app.route("/image-studio/")
+def image_studio_page():
+    return send_from_directory("../image-studio", "index.html")
+
+
+@app.route("/image-studio/<path:filename>")
+def image_studio_assets(filename):
+    return send_from_directory("../image-studio", filename)
+
+
+# ── API：图片定稿台 ─────────────────────────────────────────────
+
+@app.route("/api/image-studio/<company>")
+def get_image_studio_overview(company: str):
+    """返回全部槽位概览"""
+    try:
+        init_assets_db(config.DB_PATH_ASSETS)
+        ensure_assets_rows(config.DB_PATH_ASSETS, company)
+        assets = get_assets(config.DB_PATH_ASSETS, company)
+
+        slots = []
+        for asset_key in ["logo", "office", "timeline", "product_main",
+                          "products_other", "flywheel", "competitors"]:
+            asset = assets.get(asset_key, {})
+            variants = list_variants(config.DB_PATH_ASSETS, company, asset_key)
+            selected = next((v for v in variants if v.get("is_selected")), None)
+            slots.append({
+                "asset_key": asset_key,
+                "card_index": asset.get("card_index", 0),
+                "status": asset.get("status", "missing"),
+                "local_path": asset.get("local_path", ""),
+                "source_type": asset.get("source_type", ""),
+                "variant_count": len(variants),
+                "selected_variant": selected,
+            })
+        return jsonify({"company_name": company, "slots": slots})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image-studio/<company>/<asset_key>")
+def get_slot_variants(company: str, asset_key: str):
+    """返回单个槽位的变体库"""
+    try:
+        init_assets_db(config.DB_PATH_ASSETS)
+        variants = list_variants(config.DB_PATH_ASSETS, company, asset_key)
+        return jsonify({
+            "company_name": company,
+            "asset_key": asset_key,
+            "variants": variants,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/search", methods=["POST"])
+def search_slot_images(company: str, asset_key: str):
+    """图库搜索"""
+    try:
+        data = request.get_json()
+        query = data.get("query", "")
+        source = data.get("source", "pexels")
+        lang = data.get("lang", "en")
+        page = data.get("page", 1)
+        per_page = data.get("per_page", 9)
+
+        if not query:
+            return jsonify({"error": "缺少 query"}), 400
+
+        result = search_images(query, source=source, lang=lang,
+                               page=page, per_page=per_page)
+        result["query_used"] = query
+        result["page"] = page
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/fetch", methods=["POST"])
+def fetch_slot_image(company: str, asset_key: str):
+    """下载候选图片到本地，写入变体库"""
+    try:
+        data = request.get_json()
+        full_url = data.get("full_url", "")
+        thumbnail_url = data.get("thumbnail_url", "")
+        source = data.get("source", "web_pexels")
+        source_page = data.get("source_page", "")
+        author = data.get("author", "")
+        license_text = data.get("license", "")
+        attribution = data.get("attribution", False)
+
+        if not full_url:
+            return jsonify({"error": "缺少 full_url"}), 400
+
+        # 确定 source_type 前缀
+        source_type_map = {
+            "pexels": "web_pexels",
+            "unsplash": "web_unsplash",
+            "tavily": "web_tavily",
+        }
+        source_type = source_type_map.get(source, source)
+
+        # 下载到本地
+        ext = ".jpg"
+        if full_url.lower().endswith(".png"):
+            ext = ".png"
+        elif full_url.lower().endswith(".webp"):
+            ext = ".webp"
+
+        variant_dir = _company_image_dir(config.IMAGES_DIR, company, "variants")
+        os.makedirs(variant_dir, exist_ok=True)
+
+        # 用 source id 做文件名
+        img_id = data.get("id", str(int(time.time())))
+        filename = f"{img_id}{ext}"
+        dest = os.path.join(variant_dir, filename)
+
+        if not _download(full_url, dest, timeout=30):
+            return jsonify({"error": "下载图片失败"}), 500
+
+        local_path = _variant_url_path(company, filename)
+
+        # 写入变体库
+        init_assets_db(config.DB_PATH_ASSETS)
+        variant_id = insert_variant(
+            config.DB_PATH_ASSETS, company, asset_key,
+            local_path=local_path,
+            source_type=source_type,
+            source_url=full_url,
+            source_page=source_page,
+            author=author,
+            license=license_text,
+            attribution_req=1 if attribution else 0,
+        )
+
+        # 自动设为选中
+        select_variant(config.DB_PATH_ASSETS, company, asset_key, variant_id)
+
+        return jsonify({
+            "id": variant_id,
+            "local_path": local_path,
+            "source_type": source_type,
+            "source_page": source_page,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/query", methods=["POST"])
+def generate_search_queries(company: str, asset_key: str):
+    """调用 DeepSeek Flash 生成智能搜索词"""
+    try:
+        data = request.get_json()
+        card_markdown = data.get("card_markdown", "")
+
+        if not card_markdown:
+            return jsonify({"error": "缺少 card_markdown"}), 400
+
+        # 截取 markdown 摘要（前 1500 字符足够）
+        summary = card_markdown[:1500]
+
+        card_topics = {
+            "office": "公司办公室/办公场景",
+            "product_main": "主产品界面/使用场景",
+            "products_other": "其他产品/功能截图",
+            "competitors": "竞品分析/行业格局",
+        }
+        topic = card_topics.get(asset_key, "产品配图")
+
+        prompt = f"""根据以下知识卡片的 Markdown 内容，为该卡片的配图生成搜索词。
+
+卡片主题：{topic}
+公司名：{company}
+Markdown 摘要：{summary}
+
+要求：
+1. 生成 3 组搜索词，每组包含：英文关键词（适合 Unsplash）、中文关键词（适合 Pexels）
+2. 聚焦图片视觉内容，不要包含公司名（通用场景图效果更好）
+3. 不要生成涉及人脸识别的词，不要生成版权敏感词
+4. 返回 JSON 格式：[{{"en": "...", "zh": "..."}}, ...]"""
+
+        result = call_deepseek(
+            config.DEEPSEEK_API_KEY,
+            prompt,
+            "",
+            model=config.DEEPSEEK_FLASH_MODEL,
+            temperature=0.3,
+            max_tokens=1024,
+            timeout=30,
+        )
+
+        # 解析 JSON
+        import re as _re
+        match = _re.search(r'\[[\s\S]*\]', result)
+        if match:
+            queries = json.loads(match.group(0))
+        else:
+            queries = json.loads(result)
+
+        return jsonify({"queries": queries})
+    except Exception as e:
+        # fallback: 返回默认查询词
+        fallbacks = {
+            "office": [
+                {"en": "modern office workspace technology", "zh": "科技公司 办公室 团队"},
+                {"en": "startup office interior", "zh": "创业公司 办公环境"},
+                {"en": "tech company headquarters building", "zh": "科技 总部 大楼"},
+            ],
+            "product_main": [
+                {"en": "software application interface", "zh": "软件 产品 界面"},
+                {"en": "technology product screenshot", "zh": "科技 产品 手机"},
+                {"en": "app dashboard technology", "zh": "应用 仪表盘 科技"},
+            ],
+            "products_other": [
+                {"en": "software product feature", "zh": "软件 功能 科技"},
+                {"en": "technology tool dashboard", "zh": "科技 工具 界面"},
+                {"en": "digital product showcase", "zh": "数字 产品 展示"},
+            ],
+            "competitors": [
+                {"en": "technology startup competition", "zh": "科技 创业公司 行业"},
+                {"en": "market landscape comparison", "zh": "市场 格局 对比"},
+                {"en": "business competition analysis", "zh": "商业 竞争 分析"},
+            ],
+        }
+        return jsonify({"queries": fallbacks.get(asset_key, [
+            {"en": f"{company} product", "zh": f"科技 产品"},
+        ])})
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/import", methods=["POST"])
+def import_slot_image(company: str, asset_key: str):
+    """手动导入图片（URL 或本地上传）"""
+    try:
+        if request.content_type and "multipart" in request.content_type:
+            return _import_upload(company, asset_key)
+        else:
+            return _import_url(company, asset_key)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _import_url(company: str, asset_key: str):
+    data = request.get_json()
+    url = data.get("url", "")
+    if not url:
+        return jsonify({"error": "缺少 url"}), 400
+
+    variant_dir = _company_image_dir(config.IMAGES_DIR, company, "variants")
+    os.makedirs(variant_dir, exist_ok=True)
+
+    ext = ".jpg"
+    if url.lower().endswith(".png"):
+        ext = ".png"
+    filename = f"import_{int(time.time())}{ext}"
+    dest = os.path.join(variant_dir, filename)
+
+    if not _download(url, dest, timeout=30):
+        return jsonify({"error": "下载图片失败"}), 500
+
+    local_path = _variant_url_path(company, filename)
+    init_assets_db(config.DB_PATH_ASSETS)
+    variant_id = insert_variant(
+        config.DB_PATH_ASSETS, company, asset_key,
+        local_path=local_path,
+        source_type="import_url",
+        source_url=url,
+    )
+    select_variant(config.DB_PATH_ASSETS, company, asset_key, variant_id)
+
+    return jsonify({"id": variant_id, "local_path": local_path})
+
+
+def _import_upload(company: str, asset_key: str):
+    if "file" not in request.files:
+        return jsonify({"error": "缺少 file"}), 400
+
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "文件名为空"}), 400
+
+    variant_dir = _company_image_dir(config.IMAGES_DIR, company, "variants")
+    os.makedirs(variant_dir, exist_ok=True)
+
+    ext = os.path.splitext(f.filename)[1] or ".jpg"
+    filename = f"upload_{int(time.time())}{ext}"
+    dest = os.path.join(variant_dir, filename)
+    f.save(dest)
+
+    local_path = _variant_url_path(company, filename)
+    init_assets_db(config.DB_PATH_ASSETS)
+    variant_id = insert_variant(
+        config.DB_PATH_ASSETS, company, asset_key,
+        local_path=local_path,
+        source_type="import_upload",
+    )
+    select_variant(config.DB_PATH_ASSETS, company, asset_key, variant_id)
+
+    return jsonify({"id": variant_id, "local_path": local_path})
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/generate-map", methods=["POST"])
+def generate_slot_map(company: str, asset_key: str):
+    """为槽位生成 OSM 地图变体（先尝试 staticmap，失败则用 Playwright 截图）"""
+    if asset_key != "office":
+        return jsonify({"error": "地图仅用于卡片2公司位置槽位"}), 400
+    try:
+        research = database.get_research(config.DB_PATH_RESEARCH, company, "standard")
+        location = ""
+        if research:
+            location = (research.get("location") or "").strip()
+
+        if not location:
+            return jsonify({"error": "未找到公司位置信息，请先完成研究"}), 400
+
+        # 先验证 geocode 可达性
+        import requests as _requests
+        geo_url = f"https://nominatim.openstreetmap.org/search?q={location}&format=json&limit=1"
+        try:
+            geo_resp = _requests.get(geo_url, headers={"User-Agent": "aistartups-cn/1.0"}, timeout=10)
+            geo_data = geo_resp.json()
+        except Exception as geo_err:
+            return jsonify({"error": f"地理编码失败（OSM 服务不可达，请检查 HTTPS_PROXY）: {geo_err}"}), 500
+
+        if not geo_data:
+            return jsonify({"error": f"无法定位「{location}」，请检查位置名称是否准确"}), 400
+
+        suffix = f"osm_{int(time.time())}"
+        dest = _variant_path(config.IMAGES_DIR, company, asset_key, suffix)
+        filename = os.path.basename(dest)
+        url_path = _variant_url_path(company, filename)
+
+        if not _render_osm_map(location, dest):
+            return jsonify({"error": "地图渲染失败（staticmap 和 Playwright 均不可用）"}), 500
+
+        init_assets_db(config.DB_PATH_ASSETS)
+        variant_id = insert_variant(
+            config.DB_PATH_ASSETS, company, asset_key,
+            local_path=url_path,
+            source_type="osm_map",
+        )
+        select_variant(config.DB_PATH_ASSETS, company, asset_key, variant_id)
+
+        return jsonify({"variant_id": variant_id, "local_path": url_path, "location": location})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/extract-data", methods=["POST"])
+def extract_svg_data(company: str, asset_key: str):
+    """从定稿 Markdown 提取飞轮/时间线结构化 JSON，供前端预览用"""
+    if asset_key not in ("flywheel", "timeline"):
+        return jsonify({"error": "仅支持 flywheel / timeline"}), 400
+
+    try:
+        card_index = 6 if asset_key == "flywheel" else 3
+        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+        if not markdown:
+            return jsonify({"error": f"未找到卡片 {card_index} 的定稿内容"}), 404
+
+        data, cached = _load_svg_data(company, asset_key, markdown)
+        if not data:
+            return jsonify({"error": "结构化数据提取失败"}), 500
+
+        return jsonify({"data": data, "cached": cached})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/render-svg", methods=["POST"])
+def render_svg_variant(company: str, asset_key: str):
+    """使用指定模板渲染 SVG → PNG 变体"""
+    if asset_key not in ("flywheel", "timeline"):
+        return jsonify({"error": "仅支持 flywheel / timeline"}), 400
+
+    try:
+        body = request.get_json()
+        template_id = body.get("template_id")
+        params = body.get("params", {})
+
+        if not template_id:
+            return jsonify({"error": "缺少 template_id"}), 400
+
+        # 获取对应卡片的定稿 markdown
+        card_index = 6 if asset_key == "flywheel" else 3
+        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+        if not markdown:
+            return jsonify({"error": f"未找到卡片 {card_index} 的定稿内容"}), 404
+
+        data, _cached = _load_svg_data(company, asset_key, markdown)
+        if not data:
+            return jsonify({"error": "结构化数据提取失败"}), 500
+
+        # 渲染
+        suffix = f"{template_id}_{int(time.time())}"
+        variant_dir = _company_image_dir(config.IMAGES_DIR, company, "variants")
+        os.makedirs(variant_dir, exist_ok=True)
+        dest = os.path.join(variant_dir, f"{asset_key}__{suffix}.png")
+
+        try:
+            ok = render_with_template(data, params, template_id, dest)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+        if not ok:
+            return jsonify({"error": "SVG 渲染失败"}), 500
+
+        init_assets_db(config.DB_PATH_ASSETS)
+        vid = insert_variant(
+            config.DB_PATH_ASSETS, company, asset_key,
+            local_path=_variant_url_path(company, f"{asset_key}__{suffix}.png"),
+            source_type="svg_render",
+            prompt=f"template={template_id} params={json.dumps(params)}",
+        )
+        select_variant(config.DB_PATH_ASSETS, company, asset_key, vid)
+
+        return jsonify({
+            "variant_id": vid,
+            "local_path": _variant_url_path(company, f"{asset_key}__{suffix}.png"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/select", methods=["PATCH"])
+def select_slot_variant(company: str, asset_key: str):
+    """选定变体"""
+    try:
+        data = request.get_json()
+        variant_id = data.get("variant_id")
+        if not variant_id:
+            return jsonify({"error": "缺少 variant_id"}), 400
+
+        ok = select_variant(config.DB_PATH_ASSETS, company, asset_key, variant_id)
+        if not ok:
+            return jsonify({"error": "变体不存在"}), 404
+
+        return jsonify({"status": "ok", "variant_id": variant_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/variants/<int:variant_id>",
+           methods=["DELETE"])
+def delete_slot_variant(company: str, asset_key: str, variant_id: int):
+    """删除变体"""
+    try:
+        ok = delete_variant(config.DB_PATH_ASSETS, company, asset_key, variant_id)
+        if not ok:
+            return jsonify({"error": "变体不存在"}), 404
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+# ── API：全量 Markdown 摘要 ──────────────────────────────────
+
+@app.route("/api/final/abstract/<company>", methods=["POST"])
+def generate_abstract(company: str):
+    """生成三版本全量 Markdown 摘要"""
+    try:
+        abstracts = {}
+        for version in ("standard", "business", "spread"):
+            parts = []
+            for card_index in range(1, 9):
+                markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+                if markdown and markdown.strip():
+                    parts.append(markdown.strip())
+            full_text = "\n\n".join(parts)
+            if not full_text.strip():
+                abstracts[version] = "暂无内容"
+                continue
+
+            if len(full_text) < 300:
+                abstracts[version] = full_text[:200]
+                continue
+
+            prompt = f"""你是专业编辑。以下是一家AI创业公司的8张知识卡片全部内容（{version}版）。
+请用2-3句话概括核心内容（中文，150字以内），聚焦：公司做什么、核心产品、商业模式、竞争地位。
+只输出摘要文本，不要标题、不要markdown格式。
+
+全文：
+{full_text[:3000]}"""
+
+            try:
+                result = call_deepseek(
+                    config.DEEPSEEK_API_KEY,
+                    prompt,
+                    "",
+                    model=config.DEEPSEEK_FLASH_MODEL,
+                    temperature=0.2,
+                    max_tokens=512,
+                    timeout=30,
+                )
+                abstracts[version] = result.strip()
+            except Exception:
+                abstracts[version] = full_text[:200] + "..."
+
+        return jsonify({"company_name": company, "abstracts": abstracts})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── 启动 ──────────────────────────────────────────────────────

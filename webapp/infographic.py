@@ -339,6 +339,27 @@ def _svg_to_png(svg_content: str, dest: str, width: int = 800, height: int = 800
 # 公开 API
 # ═══════════════════════════════════════════════════════════════
 
+def render_with_template(
+    data: dict, params: dict,
+    template_id: str,
+    dest: str,
+) -> bool:
+    """用指定模板 + 参数渲染 SVG → PNG"""
+    from infographic_templates import get as get_template
+    m = get_template(template_id)
+    if not m:
+        raise ValueError(f"模板 {template_id!r} 不存在")
+    svg = m.build(data, params)
+    card_w, card_h = 800, 800
+    if "viewBox" in svg:
+        import re
+        m2 = re.search(r'viewBox="\d+\s+\d+\s+(\d+)\s+(\d+)"', svg)
+        if m2:
+            card_w, card_h = int(m2.group(1)), int(m2.group(2))
+    _svg_to_png(svg, dest, width=card_w, height=card_h)
+    return os.path.getsize(dest) > 512
+
+
 def render_flywheel(data: dict, dest: str) -> bool:
     """从 JSON 渲染飞轮 SVG → PNG，返回是否成功"""
     try:

@@ -16,3 +16,24 @@ CREATE TABLE IF NOT EXISTS company_assets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_assets_company ON company_assets(company_name);
+
+-- image_variants: 图片变体库（每张卡片可有多个候选版本）
+CREATE TABLE IF NOT EXISTS image_variants (
+  id              INTEGER  PRIMARY KEY AUTOINCREMENT,
+  company_name    TEXT     NOT NULL,
+  asset_key       TEXT     NOT NULL,
+  local_path      TEXT     NOT NULL,
+  source_type     TEXT     NOT NULL,  -- web_pexels|web_unsplash|web_tavily|
+                                       -- import_upload|import_url|api_generate
+  source_url      TEXT,               -- 原始图片 URL
+  source_page     TEXT,               -- 图片所在网页（用于标注）
+  author          TEXT,               -- 图片作者
+  license         TEXT,               -- 版权说明
+  attribution_req INTEGER DEFAULT 0,  -- 1=用户选择标注来源
+  prompt          TEXT,               -- AI 生图时使用的 prompt
+  is_selected     INTEGER DEFAULT 0,  -- 1=当前选定版本
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_variants_company_asset
+  ON image_variants(company_name, asset_key);

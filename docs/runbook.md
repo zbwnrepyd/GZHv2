@@ -31,6 +31,9 @@ Optional:
 
 ```bash
 YOUTUBE_API_KEY=...
+GOOGLE_MAPS_API_KEY=...     # Optional Street View supplements for card 2; https://console.cloud.google.com/apis/library/street-view-image.googleapis.com
+PEXELS_API_KEY=...          # https://www.pexels.com/api/ — 200 req/h, supports Chinese keywords
+UNSPLASH_ACCESS_KEY=...     # https://unsplash.com/developers — 50 req/h, English keywords
 IMAGE_API_KEY=sk-...
 IMAGE_API_URL=https://api.openai.com/v1/images/generations
 FLASK_PORT=5050
@@ -124,6 +127,14 @@ Open finalization desk:
 http://127.0.0.1:5050/editor?company=Anthropic
 ```
 
+Open image studio directly (standalone):
+
+```text
+http://127.0.0.1:5050/image-studio/?company=Anthropic
+```
+
+The image studio is also embedded in the editor via the left-side "图片定稿" accordion section; in embed mode it hides its top bar and slot overview panel. Standalone layout is slot overview on the left, candidate variants plus search results in the middle, and actions/import/current selected image on the right.
+
 In the finalization desk, each card is edited row by row across four columns: standard version, business version, spread version, and final input. Confirm cards 1-8. Card 7 is the competition landscape; card 8 is the summary and contains the market opportunity. The spread hook paragraphs are available from the left-side `传播钩子文案` entry; they are copy options for the article opening and are not written into cards.
 
 The research desk company table shows finalization progress as `confirmed/8`. The card workbench `返回定稿台` button should return to `/editor?company=<company>` for the currently loaded company.
@@ -145,14 +156,7 @@ open "http://127.0.0.1:5050/canvas/card/Anthropic/1"
 
 The card workbench is an HTML/CSS renderer, not the legacy fabric.js canvas. The left pane shows the current project name as read-only state from `?company=<company>`; use the finalization desk link or URL parameter to switch projects. “卡片每一页” and “图片夹” are mutually exclusive accordions, and each open panel scrolls internally when content is long. The image folder should show Markdown images from finalized cards plus images generated from the prompt bar, and it also contains the background-watermark upload/clear controls. The middle pane previews a scaled `900 x 1200` card. The right pane shows the current card's full `<style>...</style>` plus `<article class="knowledge-card">...</article>` source with syntax highlighting. Editing the source live-renders into the middle iframe. Use “保存当前页源码” to persist that card's source in browser `localStorage`.
 
-The bottom image bar has:
-
-- prompt input
-- optional image API URL
-- API Key password input
-- reset prompt and generate buttons
-
-The API Key input is intentionally not saved. If the browser reloads, paste it again or use `IMAGE_API_KEY` in the environment.
+Image generation is accessed through the image studio search panel (AI prompt bar) or the editor's embedded image-studio iframe. The API key is sent only with the generation request and is not persisted.
 
 Batch export:
 
@@ -161,36 +165,63 @@ Batch export:
 node canvas/screenshot.js \
   --company Anthropic \
   --base-url http://127.0.0.1:5050 \
-  --out output/cards/Anthropic
+  --out output/cards/Anthropic \
+  --shots 3 \
+  --scale 3
 
 # 带背景水印图片
 node canvas/screenshot.js \
   --company Anthropic \
   --base-url http://127.0.0.1:5050 \
   --out output/cards/Anthropic \
-  --bg-image /path/to/watermark.png
+  --bg-image /path/to/watermark.png \
+  --shots 3 \
+  --scale 3
 ```
+
+`--shots` 控制每张卡导出几张候选图；`--scale` 控制 Puppeteer 的 `deviceScaleFactor`，数值越高图片越清晰、文件越大。默认是 `--shots 3 --scale 3`。
 
 Asset collection and infographic generation:
 
 ```bash
-# Trigger auto-collection (logo, office, product, competitors, other products)
+# Trigger auto-collection (logo, card 2 map + office supplements, product, competitors, other products)
 curl -X POST http://127.0.0.1:5050/api/assets/collect/Anthropic
 
 # View all assets
 curl http://127.0.0.1:5050/api/assets/Anthropic | python3 -m json.tool
 
-# Generate flywheel infographic from card 6 markdown
-curl -X POST http://127.0.0.1:5050/api/assets/generate/Anthropic/flywheel
+# Regenerate and select the card 2 company location map
+curl -X POST http://127.0.0.1:5050/api/image-studio/Anthropic/office/generate-map
 
-# Generate timeline infographic from card 3 markdown
-curl -X POST http://127.0.0.1:5050/api/assets/generate/Anthropic/timeline
+# Flywheel and timeline infographics are auto-generated on card confirm (card 3/6).
+# Manual generation via API:
+curl -X POST http://127.0.0.1:5050/api/image-studio/Anthropic/flywheel/render-svg \
+  -H "Content-Type: application/json" \
+  -d '{"template_id":"flywheel_circular","params":{"radius":200,"accent_color":"#29B8D4","label_size":16}}'
+
+# Upload a local Python SVG template (localhost only)
+curl -X POST http://127.0.0.1:5050/api/svg-templates/upload \
+  -H "X-Template-Upload-Intent: local-dev" \
+  -F "file=@/absolute/path/to/template.py"
+
+# Preview a template without selecting it
+curl -X POST http://127.0.0.1:5050/api/svg-templates/preview \
+  -H "Content-Type: application/json" \
+  -d '{"template_id":"flywheel_circular","params":{"radius":200}}'
 
 # Generate a card image and register it in company_assets
 curl -X POST http://127.0.0.1:5050/api/generate-image \
   -H "Content-Type: application/json" \
   -d '{"company_name":"Anthropic","field_name":"card_1_image","prompt":"...","asset_key":"logo"}'
 ```
+
+Delete a company and all its data (irreversible):
+
+```bash
+curl -X DELETE http://127.0.0.1:5050/api/research/Anthropic
+```
+
+Response lists deleted row counts per table plus images directory status.
 
 Check job persistence across restarts:
 
@@ -204,8 +235,8 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
 - If Tavily returns a plan usage limit or quota error, put multiple keys in project `.env` as `TAVILY_API_KEYS=key1,key2,key3` and restart Flask. The pipeline tries the next key for Tavily 429/432 quota responses.
 - If a research job fails at L3, no partial all-missing record should be written.
 - If hook copy is missing in the finalization desk, open the left-side `传播钩子文案` entry and confirm `hook_paragraph_1/2/3` exist in `GET /api/research/<company>/<version>`.
-- If generated images do not display, confirm `/images/<filename>` returns 200 and `IMAGES_DIR` points to the saved image directory.
-- If the image folder is empty, click "采集公司图片" to trigger automatic collection, or check that finalized Markdown contains `![alt](url)` image syntax. Both Markdown images and server-tracked assets appear in the image folder. Asset images from `company_assets` with `status=ready` are displayed first.
+- If generated images do not display, confirm `/images/<filename>` returns 200 and `IMAGES_DIR` points to the saved image directory. Asset APIs normalize absolute local image paths to `/images/...`; stale DB rows with raw absolute paths can be fixed by reselecting or reimporting the variant.
+- If the image folder is empty, check that assets have been auto-collected (triggered after research completes) or manually recollected via the editor's image-studio "重新采集图片" button. Asset images from `company_assets` with `status=ready` are displayed first.
 - If the background watermark is missing, open “图片夹”, upload a local image again, and confirm browser `localStorage` is available for `aistartups_bg_image`.
 - If image generation fails from the card workbench, check the bottom-bar API URL/API Key first, then the environment `IMAGE_API_URL` and `IMAGE_API_KEY`.
 - If flywheel or timeline infographic generation fails, confirm card 6 or card 3 has been finalized with Markdown content in `final_db`. The infographic pipeline needs the card's markdown to extract structured JSON for SVG rendering.
@@ -215,3 +246,5 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
 - If imports fail in a new environment, reinstall with `pip install -r requirements.txt`.
 - `urllib3` may warn about LibreSSL on the system Python. The warning is noisy but was not a blocker in local verification.
 - If Playwright fails with "找不到 Chromium 可执行文件", run `playwright install chromium` or set `PLAYWRIGHT_CHROMIUM_PATH` to the chromium binary path. In Docker, install `chromium` via apt and add `--no-sandbox` etc. The pipeline auto-detects macOS/Linux Playwright caches and system chromium.
+- If the card 2 map fails, confirm outbound access to Nominatim/OpenStreetMap tile hosts and Playwright Chromium. In domestic networks, set `HTTPS_PROXY` in project `.env`; `config.py` does not set proxy automatically.
+- If Google Street View images are missing from the office slot, verify the Google Cloud project has the Street View Static API enabled at https://console.cloud.google.com/apis/library/street-view-image.googleapis.com. The API key is configured as `GOOGLE_MAPS_API_KEY` in `.env`. Street View is only a supplemental candidate after the default map.

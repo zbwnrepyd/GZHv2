@@ -73,7 +73,7 @@ def _tavily_error_text(resp) -> str:
     return f"HTTP {resp.status_code}"
 
 
-def _search_tavily_query(query: str):
+def _search_tavily_query(query: str, include_images: bool = False):
     keys = _tavily_keys()
     if not keys:
         return {"error": "TAVILY_API_KEYS not configured", "results": []}
@@ -81,16 +81,20 @@ def _search_tavily_query(query: str):
     last_error = ""
     for index, api_key in enumerate(keys):
         try:
+            body = {
+                "api_key": api_key,
+                "query": query,
+                "search_depth": "advanced",
+                "include_answer": True,
+                "include_raw_content": True,
+                "max_results": 8,
+            }
+            if include_images:
+                body["include_images"] = True
+                body["max_results"] = 10
             resp = requests.post(
                 "https://api.tavily.com/search",
-                json={
-                    "api_key": api_key,
-                    "query": query,
-                    "search_depth": "advanced",
-                    "include_answer": True,
-                    "include_raw_content": True,
-                    "max_results": 8,
-                },
+                json=body,
                 timeout=(10, 60),
             )
             if resp.status_code >= 400:
@@ -325,6 +329,24 @@ def llm_analysis(company_name: str, company_url: str, raw_data: dict,
                     break
 
         if parsed is not None:
+            missing_founder_fields = _missing_founder_fields(parsed)
+            if missing_founder_fields and _has_founder_detail_signal(l0_result):
+                _report(
+                    progress_callback,
+                    f"L3-{ver_name}",
+                    f"创始人字段缺失，重试 {', '.join(missing_founder_fields)}...",
+                    job_id=job_id,
+                )
+                retry_prompt = _founder_retry_prompt(prompt, missing_founder_fields)
+                try:
+                    retry_result = call_deepseek(
+                        api_key, retry_prompt, all_context,
+                        temperature=0.1, max_tokens=16384, timeout=120,
+                    )
+                    retry_parsed = _extract_json(retry_result)
+                    parsed = _merge_founder_retry(parsed, retry_parsed, missing_founder_fields)
+                except ValueError:
+                    pass
             parsed["company_name"] = company_name
             parsed["version"] = ver_name
             all_records.append(parsed)
@@ -361,6 +383,50 @@ def _extract_json(text: str) -> dict:
         pass
 
     raise ValueError(f"Cannot parse JSON from: {text[:200]}...")
+
+
+def _is_missing_value(value) -> bool:
+    return str(value or "").strip() in ("", "暂缺", "unknown", "Unknown", "N/A", "n/a")
+
+
+def _missing_founder_fields(record: dict) -> list[str]:
+    fields = ["founder_edu", "founder_achievement"]
+    return [field for field in fields if _is_missing_value(record.get(field))]
+
+
+def _has_founder_detail_signal(text: str) -> bool:
+    lowered = str(text or "").lower()
+    keywords = [
+        "founder", "founded", "university", "college", "school", "degree",
+        "phd", "mit", "stanford", "harvard", "berkeley", "alumni",
+        "创始", "大学", "学院", "学位", "博士", "硕士", "本科",
+        "毕业", "获奖", "奖项", "创业", "前公司", "曾任",
+    ]
+    return any(keyword in lowered for keyword in keywords)
+
+
+def _founder_retry_prompt(prompt: str, missing_fields: list[str]) -> str:
+    fields = ", ".join(missing_fields)
+    return prompt + f"""
+
+上一轮输出遗漏了以下创始人字段：{fields}。
+请重新输出完整 JSON，保持原有字段结构不变，并优先从 Layer 0 的创始人信息中提取：
+- founder_edu：只写学校、专业、学位等教育信息，不要混入工作履历。
+- founder_achievement：只写获奖、创业经历、前公司重要成果等，不要与教育信息混淆。
+如果 Layer 0 已有相关线索，不允许填“暂缺”。
+"""
+
+
+def _merge_founder_retry(original: dict, retry: dict, missing_fields: list[str]) -> dict:
+    merged = dict(original)
+    for field in missing_fields:
+        value = retry.get(field)
+        if not _is_missing_value(value):
+            merged[field] = value
+    for key, value in retry.items():
+        if key not in merged or _is_missing_value(merged.get(key)):
+            merged[key] = value
+    return merged
 
 
 def _find_json_object(text: str) -> str | None:
@@ -431,6 +497,7 @@ def run_pipeline(company_name: str, company_url: str,
         details = ", ".join(f"{r.get('version', '?')}: {r.get('_error')}" for r in errors)
         raise RuntimeError(f"L3 字段提取失败: {details}")
     records = _validate_records(records)
+
     t2 = time.time()
     _report(progress_callback, "分析完成", f"({t2 - t1:.1f}s)", job_id=job_id)
 
@@ -438,5 +505,37 @@ def run_pipeline(company_name: str, company_url: str,
     _report(progress_callback, "写库", "写入数据库...", job_id=job_id)
     ids = database.save_research_records(config.DB_PATH_RESEARCH, records)
     t3 = time.time()
-    _report(progress_callback, "完成", f"总耗时 {t3 - t0:.1f}s, IDs: {ids}", job_id=job_id)
+
+    # Step 4: 图片采集
+    standard_record = records[0] if records else {}
+    company_data = {
+        "company_name": company_name,
+        "company_url": company_url,
+        "website_url": company_url,
+        "location": standard_record.get("location", ""),
+        "other_products": standard_record.get("other_products", ""),
+        "competitors": standard_record.get("competitors", ""),
+        "main_product_name": standard_record.get("main_product_name", ""),
+        "main_product_img_src": standard_record.get("main_product_img_src", ""),
+        "office_photo_hints": standard_record.get("office_photo_hints", ""),
+    }
+    try:
+        from asset_pipeline import collect_image_variants_pipeline
+        image_results = collect_image_variants_pipeline(
+            config.DB_PATH_ASSETS, config.IMAGES_DIR, company_name, company_data,
+            progress_callback=progress_callback, job_id=job_id,
+        )
+    except Exception as e:
+        _report(progress_callback, "图片采集",
+                {"message": f"图片采集异常：{e}", "card": 0, "total": 4},
+                job_id=job_id)
+        image_results = {}
+
+    total_images = sum(image_results.values())
+    _report(progress_callback, "图片采集完成",
+            {"message": f"共 {total_images} 张候选图"},
+            job_id=job_id)
+
+    t4 = time.time()
+    _report(progress_callback, "完成", f"总耗时 {t4 - t0:.1f}s, IDs: {ids}", job_id=job_id)
     return ids
