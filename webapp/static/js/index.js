@@ -9,6 +9,8 @@ const SOURCE_ORDER = ['tavily', 'github', 'youtube', 'website'];
 
 const ResearchDesk = {
   pollTimer: null,
+  activeJobId: null,
+  pollInFlight: false,
   companies: [],
   expandedCompany: '',
   detailsByCompany: {},
@@ -118,7 +120,9 @@ const ResearchDesk = {
       ['类型', standard.company_type],
       ['地点', standard.location],
       ['创始人', standard.founder_name],
-      ['学历', standard.founder_edu],
+      ['学历背景', standard.founder_edu],
+      ['工作背景', standard.founder_bg],
+      ['过往成就', standard.founder_achievement],
       ['团队', standard.team_size],
       ['融资', standard.funding_info],
       ['主产品', standard.main_product_name],
@@ -172,8 +176,12 @@ const ResearchDesk = {
       this.setProgress('failed', '研究失败', '请填写公司名和官网 URL');
       return;
     }
+    if (btn.disabled || this.activeJobId) return;
 
     clearInterval(this.pollTimer);
+    this.pollTimer = null;
+    this.activeJobId = 'starting';
+    this.pollInFlight = false;
     btn.disabled = true;
     document.getElementById('research-complete').classList.add('hidden');
     document.getElementById('research-complete').innerHTML = '';
@@ -181,19 +189,26 @@ const ResearchDesk = {
 
     try {
       const job = await API.startResearch(companyName, companyUrl);
+      this.activeJobId = job.job_id;
       this.pollJob(job.job_id, companyName, btn);
     } catch (e) {
+      this.activeJobId = null;
       btn.disabled = false;
       this.setProgress('failed', '研究失败', e.message);
     }
   },
 
   pollJob(jobId, companyName, btn) {
+    clearInterval(this.pollTimer);
     const poll = async () => {
+      if (this.activeJobId !== jobId || this.pollInFlight) return;
+      this.pollInFlight = true;
       try {
         const job = await API.getResearchStatus(jobId);
         if (job.status === 'done') {
           clearInterval(this.pollTimer);
+          this.pollTimer = null;
+          this.activeJobId = null;
           btn.disabled = false;
           this.setProgress('done', '研究完成', job.detail || '已写入数据库', job.sources || {});
           document.getElementById('research-complete').classList.remove('hidden');
@@ -202,6 +217,8 @@ const ResearchDesk = {
           await this.loadCompanies();
         } else if (job.status === 'failed') {
           clearInterval(this.pollTimer);
+          this.pollTimer = null;
+          this.activeJobId = null;
           btn.disabled = false;
           this.setProgress('failed', '研究失败', job.error || job.detail || '未知错误', job.sources || {});
         } else {
@@ -209,8 +226,12 @@ const ResearchDesk = {
         }
       } catch (e) {
         clearInterval(this.pollTimer);
+        this.pollTimer = null;
+        this.activeJobId = null;
         btn.disabled = false;
         this.setProgress('failed', '研究失败', e.message, {});
+      } finally {
+        this.pollInFlight = false;
       }
     };
     poll();

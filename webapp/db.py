@@ -1,5 +1,8 @@
 from __future__ import annotations
 import json
+import os
+import re
+import shutil
 import sqlite3
 from contextlib import contextmanager
 
@@ -280,6 +283,58 @@ def export_json(db_path: str, company_name: str) -> dict | None:
         "cards": result,
         "confirmed_count": len(result),
     }
+
+
+def _safe_image_dir_name(company_name: str) -> str:
+    name = str(company_name or "company").strip()
+    name = name.replace("/", "_").replace("\\", "_")
+    name = re.sub(r"\s+", "_", name)
+    name = re.sub(r"[\x00-\x1f\x7f?%*:|\"<>]", "_", name)
+    while ".." in name:
+        name = name.replace("..", "_")
+    return name.strip("._ ") or "company"
+
+
+def delete_company(research_db_path: str, final_db_path: str, assets_db_path: str,
+                  images_dir: str, company_name: str) -> dict:
+    """真删除某公司全部数据：3个DB的5张表 + images目录。返回删除计数。"""
+    counts = {}
+
+    # research_db: research + research_jobs
+    with get_db(research_db_path) as conn:
+        cur = conn.execute("DELETE FROM research WHERE company_name=?", (company_name,))
+        counts["research"] = cur.rowcount
+        cur = conn.execute("DELETE FROM research_jobs WHERE company_name=?", (company_name,))
+        counts["research_jobs"] = cur.rowcount
+        conn.commit()
+
+    # final_db: final_content
+    with get_db(final_db_path) as conn:
+        cur = conn.execute("DELETE FROM final_content WHERE company_name=?", (company_name,))
+        counts["final_content"] = cur.rowcount
+        conn.commit()
+
+    # assets_db: image_variants + company_assets
+    with get_db(assets_db_path) as conn:
+        cur = conn.execute("DELETE FROM image_variants WHERE company_name=?", (company_name,))
+        counts["image_variants"] = cur.rowcount
+        cur = conn.execute("DELETE FROM company_assets WHERE company_name=?", (company_name,))
+        counts["company_assets"] = cur.rowcount
+        conn.commit()
+
+    # images 目录
+    base_dir = os.path.abspath(images_dir)
+    img_dir = os.path.abspath(os.path.join(base_dir, _safe_image_dir_name(company_name)))
+    if os.path.commonpath([base_dir, img_dir]) != base_dir:
+        counts["images_dir"] = "路径越界，已跳过"
+        return counts
+    if os.path.exists(img_dir):
+        shutil.rmtree(img_dir)
+        counts["images_dir"] = "已删除"
+    else:
+        counts["images_dir"] = "不存在"
+
+    return counts
 
 
 def export_markdown(db_path: str, company_name: str) -> str:

@@ -56,6 +56,41 @@ class PipelineFailureTests(unittest.TestCase):
 
         save_records.assert_not_called()
 
+    def test_l3_retries_missing_founder_fields_inside_main_flow(self):
+        def record(founder_edu="暂缺", founder_achievement="暂缺"):
+            return {
+                "company_type": "AI工具",
+                "founder_name": "Ada Demo",
+                "founder_edu": founder_edu,
+                "founder_bg": "前研究员",
+                "founder_achievement": founder_achievement,
+                "data_confidence": "中",
+            }
+
+        responses = [
+            "创始人 Ada Demo 毕业于 MIT，曾创办 Demo Labs 并获行业奖项。",
+            "layer1",
+            "layer2",
+            str(record()).replace("'", '"'),
+            str(record("MIT", "创办 Demo Labs，获行业奖项")).replace("'", '"'),
+            str(record("MIT", "创办 Demo Labs")).replace("'", '"'),
+            str(record("MIT", "创办 Demo Labs")).replace("'", '"'),
+        ]
+        events = []
+
+        with patch.object(pipeline, "call_deepseek", side_effect=responses) as call:
+            records = pipeline.llm_analysis(
+                "DemoCo",
+                "https://demo.example",
+                {"website": {"text": "demo"}},
+                lambda stage, detail: events.append((stage, detail)),
+            )
+
+        self.assertEqual(call.call_count, 7)
+        self.assertEqual(records[0]["founder_edu"], "MIT")
+        self.assertEqual(records[0]["founder_achievement"], "创办 Demo Labs，获行业奖项")
+        self.assertFalse(any(stage == "补抓" for stage, _ in events))
+
     def test_collection_source_summary_counts_success_and_failures(self):
         tavily = pipeline._summarize_collection_source(
             "tavily",

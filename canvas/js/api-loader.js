@@ -79,7 +79,9 @@ async function loadFromAPI(company) {
 
 async function loadSingleCardFromAPI(company, cardIndex) {
   const result = await loadFromAPI(company);
-  return result.allCardData[cardIndex] || {};
+  const cardData = result.allCardData[cardIndex] || {};
+  cardData._assets = await loadAssetsFromAPI(company);
+  return cardData;
 }
 
 // ─── 资产加载 ──────────────────────────────────────────────────

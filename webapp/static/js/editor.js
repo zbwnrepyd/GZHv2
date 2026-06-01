@@ -19,15 +19,31 @@ const VERSION_LABELS = {
 
 const VERSIONS = ['standard', 'business', 'spread'];
 
+const SLOT_LABELS = {
+  logo: '卡片1 — Logo',
+  office: '卡片2 — 公司形象',
+  timeline: '卡片3 — 时间线',
+  product_main: '卡片4 — 主产品',
+  products_other: '卡片5 — 其他产品',
+  flywheel: '卡片6 — 增长飞轮',
+  competitors: '卡片7 — 竞争格局',
+};
+
+const SLOT_ORDER = ['logo', 'office', 'timeline', 'product_main', 'products_other', 'flywheel', 'competitors'];
+
 const EditorApp = {
   companyName: '',
   currentCard: null,
-  currentMode: 'card',
+  currentSection: 'content',
   versionChoices: {},
   hookChoices: {},
   finalLinesByCard: {},
   dirtyCards: new Set(),
   previewTimer: null,
+  _previewMode: 'preview',
+  _imageIframeLoaded: false,
+  _slots: null,
+  _activeSlot: null,
 
   async init() {
     this.companyName = new URLSearchParams(window.location.search).get('company') || '';
@@ -40,17 +56,39 @@ const EditorApp = {
 
     document.getElementById('editor-company-label').textContent = `定稿台 · ${this.companyName}`;
     document.getElementById('btn-go-canvas').href = `/canvas/?company=${encodeURIComponent(this.companyName)}`;
+
+    // 显示删除按钮
+    const delBtn = document.getElementById('btn-delete-company');
+    if (delBtn) {
+      delBtn.classList.remove('hidden');
+      delBtn.addEventListener('click', () => this.deleteCompany());
+    }
+
     await this.loadStatus();
     await this.loadHookChoices();
+    this.switchSection('content');
+    await this.loadCard(1);
   },
 
   bindEvents() {
+    document.querySelectorAll('.accordion-header').forEach(header => {
+      header.addEventListener('click', () => {
+        this.switchSection(header.dataset.section);
+      });
+    });
+
+    document.getElementById('btn-recollect-editor')?.addEventListener('click', () => this.recollectAssets());
+
     document.querySelectorAll('.editor-card-btn').forEach((button) => {
       button.addEventListener('click', async () => {
         const card = button.dataset.card;
         if (card === 'hook') {
+          this.switchSection('hook');
           await this.showHooks();
+        } else if (card === 'image') {
+          this.switchSection('image');
         } else {
+          this.switchSection('content');
           await this.loadCard(Number(card));
         }
       });
@@ -80,7 +118,168 @@ const EditorApp = {
       if (this.currentCard < CARD_COUNT) this.loadCard(this.currentCard + 1);
     });
     document.getElementById('btn-confirm').addEventListener('click', () => this.confirmCurrentCard());
+
   },
+
+  /* ── 手风琴切换 ── */
+
+  switchSection(section) {
+    this.currentSection = section;
+
+    document.querySelectorAll('.accordion-header').forEach(h => {
+      h.classList.toggle('open', h.dataset.section === section);
+    });
+    document.querySelectorAll('.accordion-body').forEach(b => {
+      b.classList.toggle('open', b.dataset.section === section);
+    });
+
+    document.querySelectorAll('#editor-card-nav .editor-card-btn').forEach(b => {
+      b.classList.toggle('active', section === 'content' && Number(b.dataset.card) === this.currentCard);
+    });
+    const hookBtn = document.querySelector('#editor-hook-nav .editor-card-btn');
+    if (hookBtn) hookBtn.classList.toggle('active', section === 'hook');
+
+    if (section === 'image') {
+      this.showImageMode();
+    } else if (section === 'hook') {
+      this.showHookMode();
+      this.showHooks();
+    } else {
+      this.showContentMode();
+    }
+  },
+
+  /* ── 模式切换 ── */
+
+  showContentMode() {
+    document.getElementById('editor-middle-pane').style.display = '';
+    document.getElementById('editor-right-pane').style.display = '';
+    document.getElementById('image-studio-frame').classList.remove('open');
+    document.getElementById('version-compare').classList.remove('hidden');
+    document.querySelector('.markdown-toolbar').classList.remove('hidden');
+    document.querySelector('.markdown-footer').classList.remove('hidden');
+    document.getElementById('preview-render').classList.remove('hidden');
+    document.getElementById('preview-status').classList.remove('hidden');
+    document.getElementById('btn-confirm').classList.remove('hidden');
+    document.getElementById('hook-content').classList.add('hidden');
+    document.getElementById('hook-render').classList.add('hidden');
+    this.updateButtons();
+  },
+
+  showHookMode() {
+    document.getElementById('editor-middle-pane').style.display = '';
+    document.getElementById('editor-right-pane').style.display = '';
+    document.getElementById('image-studio-frame').classList.remove('open');
+    document.getElementById('version-compare').classList.add('hidden');
+    document.querySelector('.markdown-toolbar').classList.add('hidden');
+    document.querySelector('.markdown-footer').classList.add('hidden');
+    document.getElementById('preview-render').classList.add('hidden');
+    document.getElementById('preview-status').classList.add('hidden');
+    document.getElementById('btn-confirm').classList.add('hidden');
+    document.getElementById('hook-content').classList.add('hidden');
+    document.getElementById('hook-render').classList.remove('hidden');
+    this.updateButtons();
+  },
+
+  showImageMode() {
+    document.getElementById('editor-middle-pane').style.display = 'none';
+    document.getElementById('editor-right-pane').style.display = 'none';
+    document.getElementById('image-studio-frame').classList.add('open');
+    this.updateButtons();
+
+    if (!this._imageIframeLoaded && this.companyName) {
+      const iframe = document.getElementById('image-studio-iframe');
+      const slot = this._activeSlot || '';
+      iframe.src = `/image-studio/?company=${encodeURIComponent(this.companyName)}&embed=1&slot=${encodeURIComponent(slot)}`;
+      this._imageIframeLoaded = true;
+    }
+
+    this.loadImageSlots();
+  },
+
+  /* ── 图片槽位列表 ── */
+
+  async loadImageSlots() {
+    if (this._slots) {
+      this.renderImageSlots();
+      return;
+    }
+    try {
+      const resp = await fetch(`/api/image-studio/${encodeURIComponent(this.companyName)}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        this._slots = data.slots || [];
+        this.renderImageSlots();
+      }
+    } catch {
+      // 静默
+    }
+  },
+
+  renderImageSlots() {
+    const container = document.getElementById('image-slot-list');
+    if (!container || !this._slots) return;
+
+    container.innerHTML = this._slots.map(s => {
+      const isSvgSlot = s.asset_key === 'flywheel' || s.asset_key === 'timeline';
+      const thumbHtml = s.local_path
+        ? `<img src="${this._esc(s.local_path)}" alt="">`
+        : `<div class="slot-thumb-small">${isSvgSlot ? '&#9881;' : '&#128247;'}</div>`;
+
+      let meta;
+      if (isSvgSlot) {
+        meta = s.status === 'ready' ? 'SVG信息图 · 已就绪' : 'SVG信息图 · 待生成';
+      } else {
+        meta = s.status === 'ready' ? '已就绪' : '待配图';
+        if (s.variant_count > 0) meta += ` · ${s.variant_count}变体`;
+      }
+
+      const activeCls = this._activeSlot === s.asset_key ? ' active' : '';
+
+      return `
+        <div class="image-slot-item${activeCls}" data-slot="${s.asset_key}">
+          <div class="slot-thumb-small">${thumbHtml}</div>
+          <div class="slot-info-small">
+            <span class="slot-label-small">${SLOT_LABELS[s.asset_key] || s.asset_key}</span>
+            <span class="slot-meta-small">${meta}</span>
+          </div>
+          <span class="slot-dot ${s.status}"></span>
+        </div>
+      `;
+    }).join('');
+
+    container.querySelectorAll('.image-slot-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const slot = item.dataset.slot;
+        this._activeSlot = slot;
+        this.renderImageSlots();
+        // 通知 iframe 切换槽位
+        const iframe = document.getElementById('image-studio-iframe');
+        iframe.src = `/image-studio/?company=${encodeURIComponent(this.companyName)}&embed=1&slot=${encodeURIComponent(slot)}`;
+      });
+    });
+  },
+
+  async recollectAssets() {
+    const btn = document.getElementById('btn-recollect-editor');
+    if (btn) { btn.disabled = true; btn.textContent = '采集中...'; }
+    try {
+      const r = await fetch(`/api/assets/collect/${encodeURIComponent(this.companyName)}`, { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      this._slots = null;
+      await this.loadImageSlots();
+      // 刷新 iframe 中的 image-studio
+      const iframe = document.getElementById('image-studio-iframe');
+      if (iframe) iframe.src = iframe.src;
+    } catch (e) {
+      alert('采集失败: ' + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '重新采集图片'; }
+    }
+  },
+
+  /* ── 状态 ── */
 
   async loadStatus() {
     try {
@@ -94,10 +293,8 @@ const EditorApp = {
 
   async loadCard(cardIndex) {
     if (!this.companyName) return;
-    this.currentMode = 'card';
     this.currentCard = cardIndex;
     this.updateNav();
-    this.showCardMode();
     await this.loadVersionChoices(cardIndex);
     this.ensureFinalLines();
     await this.restoreFinalLines(cardIndex);
@@ -120,41 +317,18 @@ const EditorApp = {
         }
       }
     } catch {
-      // 加载失败静默忽略
+      // 静默
     }
   },
 
   async showHooks() {
     if (!this.companyName) return;
-    this.currentMode = 'hook';
     this.updateNav();
-    this.showHookMode();
     await this.loadHookChoices();
     this.renderHookContent();
-    this.updateButtons();
   },
 
-  showCardMode() {
-    document.getElementById('preview-toolbar-label').textContent = '实时预览';
-    document.getElementById('preview-status').classList.remove('hidden');
-    document.getElementById('btn-confirm').classList.remove('hidden');
-    document.getElementById('version-compare').classList.remove('hidden');
-    document.querySelector('.markdown-toolbar').classList.remove('hidden');
-    document.querySelector('.markdown-footer').classList.remove('hidden');
-    document.getElementById('preview-render').classList.remove('hidden');
-    document.getElementById('hook-render').classList.add('hidden');
-  },
-
-  showHookMode() {
-    document.getElementById('version-compare').classList.add('hidden');
-    document.querySelector('.markdown-toolbar').classList.add('hidden');
-    document.querySelector('.markdown-footer').classList.add('hidden');
-    document.getElementById('preview-render').classList.add('hidden');
-    document.getElementById('preview-status').classList.add('hidden');
-    document.getElementById('btn-confirm').classList.add('hidden');
-    document.getElementById('hook-render').classList.remove('hidden');
-    document.getElementById('preview-toolbar-label').textContent = '传播钩子文案';
-  },
+  /* ── 钩子内容 ── */
 
   renderHookContent() {
     const container = document.getElementById('hook-render');
@@ -178,10 +352,11 @@ const EditorApp = {
       }
     }
     parts.push('</div>');
-
     container.innerHTML = parts.join('');
     container.classList.remove('confirmed-preview');
   },
+
+  /* ── 版本选择 ── */
 
   async loadVersionChoices(cardIndex) {
     this.versionChoices[cardIndex] = this.versionChoices[cardIndex] || {};
@@ -211,6 +386,8 @@ const EditorApp = {
       }
     }));
   },
+
+  /* ── 行选择 ── */
 
   renderLineChoices() {
     const grid = document.getElementById('line-choice-grid');
@@ -320,6 +497,8 @@ const EditorApp = {
     return String(markdown || '').replace(/\r\n/g, '\n').split('\n');
   },
 
+  /* ── Dirty & Save ── */
+
   markDirty() {
     this.dirtyCards.add(this.currentCard);
     this.updateMeta();
@@ -339,10 +518,35 @@ const EditorApp = {
     this.updateMeta();
     this.updateGoCanvas();
 
+    // 自动生成 SVG 信息图
+    this._autoGenerateSvg(this.currentCard);
+
     if (!ConfirmManager.allConfirmed()) {
       const next = this.nextUnconfirmed();
       if (next) await this.loadCard(next);
     }
+  },
+
+  _autoGenerateSvg(cardIndex) {
+    const svgConfig = { 3: 'timeline', 6: 'flywheel' };
+    const assetKey = svgConfig[cardIndex];
+    if (!assetKey) return;
+
+    const defaultTemplates = {
+      timeline: { template_id: 'timeline_horizontal', params: { node_w: 180, accent_color: '#29B8D4', title_size: 16 } },
+      flywheel: { template_id: 'flywheel_circular', params: { radius: 200, accent_color: '#29B8D4', label_size: 16 } },
+    };
+    const cfg = defaultTemplates[assetKey];
+
+    fetch(`/api/image-studio/${encodeURIComponent(this.companyName)}/${encodeURIComponent(assetKey)}/render-svg`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    }).then(r => r.json()).then(data => {
+      if (data.error) console.error('SVG 自动生成失败:', data.error);
+    }).catch(e => {
+      console.error('SVG 自动生成失败:', e);
+    });
   },
 
   nextUnconfirmed() {
@@ -355,11 +559,15 @@ const EditorApp = {
     return null;
   },
 
+  /* ── UI 更新 ── */
+
   updateNav() {
     document.querySelectorAll('.editor-card-btn').forEach((button) => {
       const card = button.dataset.card;
-      if (this.currentMode === 'hook') {
+      if (this.currentSection === 'hook') {
         button.classList.toggle('active', card === 'hook');
+      } else if (this.currentSection === 'image') {
+        // 图片区不激活卡片按钮
       } else if (this.currentCard === null) {
         button.classList.remove('active');
       } else {
@@ -369,13 +577,43 @@ const EditorApp = {
   },
 
   updateButtons() {
-    if (this.currentMode === 'hook' || this.currentCard === null) {
+    if (this.currentSection === 'hook' || this.currentSection === 'image' || this.currentCard === null) {
       document.getElementById('btn-prev').disabled = true;
       document.getElementById('btn-next').disabled = true;
       return;
     }
     document.getElementById('btn-prev').disabled = this.currentCard <= 1;
     document.getElementById('btn-next').disabled = this.currentCard >= CARD_COUNT;
+  },
+
+  async deleteCompany() {
+    if (!this.companyName) return;
+    const confirmed = confirm(
+      `确定删除「${this.companyName}」的全部数据？\n\n` +
+      `包括：研究记录、定稿内容、图片资产、图片变体\n` +
+      `此操作不可恢复。`
+    );
+    if (!confirmed) return;
+
+    const doubleConfirm = confirm('再次确认：输入"删除"或点确定继续，点取消放弃。');
+    if (!doubleConfirm) return;
+
+    try {
+      const r = await fetch(`/api/research/${encodeURIComponent(this.companyName)}`, { method: 'DELETE' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      alert(`已删除「${this.companyName}」。\n\n` +
+        `研究记录: ${data.deleted.research} 条\n` +
+        `研究任务: ${data.deleted.research_jobs} 条\n` +
+        `定稿内容: ${data.deleted.final_content} 条\n` +
+        `图片变体: ${data.deleted.image_variants} 条\n` +
+        `资产记录: ${data.deleted.company_assets} 条\n` +
+        `图片目录: ${data.deleted.images_dir}`
+      );
+      window.location.href = '/';
+    } catch (e) {
+      alert('删除失败: ' + e.message);
+    }
   },
 
   updateGoCanvas() {
@@ -392,10 +630,15 @@ const EditorApp = {
   },
 
   updateMeta() {
-    if (this.currentMode === 'hook') {
+    if (this.currentSection === 'hook') {
       this.setMeta('传播钩子文案 | 不生成卡片，只供正文开头使用');
       document.getElementById('dirty-indicator').classList.add('hidden');
       document.getElementById('preview-status').textContent = '';
+      return;
+    }
+    if (this.currentSection === 'image') {
+      this.setMeta('图片定稿 | 为卡片搜索和定稿配图');
+      document.getElementById('dirty-indicator').classList.add('hidden');
       return;
     }
     const markdown = this.getFinalMarkdown();
@@ -422,6 +665,12 @@ const EditorApp = {
   autoGrow(textarea) {
     textarea.style.height = 'auto';
     textarea.style.height = `${Math.max(36, textarea.scrollHeight)}px`;
+  },
+
+  _esc(s) {
+    return String(s || '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+    }[ch]));
   },
 
   esc(value) {

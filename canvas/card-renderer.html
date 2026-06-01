@@ -259,7 +259,7 @@
     min-height: 0;
     overflow: hidden;
     display: grid;
-    grid-template-rows: 44px minmax(0, 1fr) 126px 24px;
+    grid-template-rows: 44px minmax(0, 1fr) 24px;
   }
   #canvas-toolbar {
     background: var(--panel);
@@ -303,39 +303,6 @@
     box-shadow: 0 22px 54px rgba(15, 23, 42, .14);
     transform-origin: center center;
   }
-  #prompt-bar {
-    background: var(--panel);
-    border-top: 1px solid var(--border);
-    padding: 10px 12px;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(140px, 180px) 84px;
-    grid-template-rows: 44px 44px;
-    gap: 8px;
-    align-items: center;
-    min-width: 0;
-    box-sizing: border-box;
-  }
-  #prompt-input, #image-api-url, #image-api-key {
-    width: 100%;
-    min-width: 0;
-    height: 44px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    padding: 8px 10px;
-    font-size: 12px;
-    line-height: 1.35;
-    font-family: inherit;
-    box-sizing: border-box;
-  }
-  #prompt-input {
-    grid-row: 1 / span 2;
-    resize: none;
-    height: 96px;
-  }
-  #image-api-url { grid-column: 2; grid-row: 1; }
-  #image-api-key { grid-column: 2; grid-row: 2; }
-  #btn-reset-prompt { grid-column: 3; grid-row: 1; }
-  #btn-generate-image { grid-column: 3; grid-row: 2; }
   #status-msg {
     padding: 4px 12px;
     background: var(--panel);
@@ -454,39 +421,6 @@
     #canvas-stage {
       padding: 8px;
     }
-    #prompt-bar {
-      grid-template-columns: minmax(0, 1fr) 80px;
-      grid-template-rows: 36px 36px 36px;
-      height: 124px;
-      padding: 8px;
-      gap: 6px;
-    }
-    #prompt-input {
-      grid-column: 1;
-      grid-row: 1 / span 3;
-      height: 100%;
-    }
-    #image-api-url {
-      grid-column: 2;
-      grid-row: 1;
-    }
-    #image-api-key {
-      grid-column: 2;
-      grid-row: 2;
-    }
-    #btn-reset-prompt {
-      display: none;
-    }
-    #btn-generate-image {
-      grid-column: 2;
-      grid-row: 3;
-      padding: 0 6px;
-    }
-    #prompt-input, #image-api-url, #image-api-key {
-      height: 36px;
-      padding: 6px 8px;
-      font-size: 11px;
-    }
   }
 </style>
 </head>
@@ -523,8 +457,7 @@
               </label>
               <button class="btn full-width bg-clear-btn" type="button" onclick="BgLoader.clear();window.reloadCurrentCard&&window.reloadCurrentCard()">清除背景</button>
               <p class="hint">上传图片作为卡片水印背景，保存在本机浏览器。</p>
-              <button class="btn full-width" id="btn-collect-assets" style="margin-top:8px">采集公司图片</button>
-              <p class="hint">自动采集 Logo、办公室、产品截图、竞品 Logo 等。</p>
+              <p class="hint">图片在研究完成后自动采集，手动管理请前往图片定稿台。</p>
             </div>
             <div id="image-folder">
               <p class="image-folder-empty">暂无图片。</p>
@@ -550,13 +483,6 @@
     </div>
     <div id="canvas-stage">
       <iframe id="card-frame" title="卡片预览"></iframe>
-    </div>
-    <div id="prompt-bar">
-      <textarea id="prompt-input" placeholder="当前卡片图片提示词"></textarea>
-      <input id="image-api-url" type="url" autocomplete="off" placeholder="图片 API URL（可选）">
-      <input id="image-api-key" type="password" autocomplete="off" placeholder="API Key（不保存）">
-      <button class="btn" id="btn-reset-prompt">恢复预设</button>
-      <button class="btn primary" id="btn-generate-image">生成图片</button>
     </div>
     <div id="status-msg">就绪</div>
   </section>
@@ -584,7 +510,6 @@
 <script src="/canvas/js/api-loader.js"></script>
 <script src="/canvas/js/html-card-renderer.js"></script>
 <script src="/canvas/js/source-editor.js"></script>
-<script src="/canvas/js/prompt-bar.js"></script>
 <script src="/canvas/js/export-client.js"></script>
 <script src="/canvas/js/bg-loader.js"></script>
 <script>
@@ -621,13 +546,6 @@ const Workbench = {
       refreshPreview: () => this.refreshPreview(),
       setStatus: (msg, type) => this.setStatus(msg, type),
     });
-    PromptBar.init({
-      getCompanyName: () => this.companyName,
-      getCurrentCard: () => this.currentCard,
-      getCardData: () => this.allCardData[this.currentCard] || {},
-      refreshPreview: () => this.refreshPreview(),
-      setStatus: (msg, type) => this.setStatus(msg, type),
-    });
 
     if (this.companyName) {
       await this.loadCompany();
@@ -653,35 +571,6 @@ const Workbench = {
       });
     }
     window.reloadCurrentCard = () => this.refreshPreview();
-
-    document.getElementById('btn-collect-assets')?.addEventListener('click', () => this.collectAssets());
-  },
-
-  async collectAssets() {
-    if (!this.companyName) { this.setStatus('缺少公司名。', 'error'); return; }
-    try {
-      this.setStatus('正在采集公司图片...', 'info');
-      const resp = await fetch(`/api/assets/collect/${encodeURIComponent(this.companyName)}`, {
-        method: 'POST',
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || `HTTP ${resp.status}`);
-      }
-      const result = await resp.json();
-      // 重新加载资产和预览
-      const assets = await loadAssetsFromAPI(this.companyName);
-      for (let i = 1; i <= 8; i++) {
-        if (!this.allCardData[i]) this.allCardData[i] = {};
-        this.allCardData[i]._assets = assets;
-      }
-      this.renderImageFolder();
-      await this.refreshPreview();
-      const counts = Object.values(result.results || {}).filter(Boolean).length;
-      this.setStatus(`图片采集完成，${counts} 项成功。`, 'success');
-    } catch (error) {
-      this.setStatus(`采集失败：${error.message}`, 'error');
-    }
   },
 
   bindAccordions() {
@@ -793,13 +682,6 @@ const Workbench = {
       add(Number(cardIndex), data?._image, '定稿图片');
     }
 
-    if (window.PromptBar) {
-      const generated = PromptBar.loadMap(PromptBar.imageKey());
-      for (const [cardIndex, src] of Object.entries(generated || {})) {
-        add(Number(cardIndex), src, '生成图片');
-      }
-    }
-
     return images;
   },
 
@@ -846,13 +728,10 @@ const Workbench = {
   },
 
   currentCardDataWithImage() {
-    const imagePath = PromptBar.getImageForCard(this.currentCard);
     const cardData = Object.assign({}, this.allCardData[this.currentCard] || {});
     const selectedImage = this.selectedImages[String(this.currentCard)];
     if (selectedImage) {
       cardData._selectedImage = selectedImage;
-    } else if (imagePath) {
-      cardData._image = imagePath;
     }
     return cardData;
   },
@@ -885,7 +764,6 @@ const Workbench = {
     const source = SourceEditor.loadCurrentSource(defaultSource);
     SourceEditor.setEditorValue(source);
     SourceEditor.applyToFrame(frame, source);
-    PromptBar.syncPromptInput();
     const title = cardData._title || CARD_TABS[this.currentCard] || `卡片${this.currentCard}`;
     document.getElementById('canvas-title').textContent = `卡片${this.currentCard} · ${title}`;
     this.renderImageFolder();

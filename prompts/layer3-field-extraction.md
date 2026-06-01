@@ -35,8 +35,14 @@
   "main_product_achievement": "产品成就（GitHub Star/PH投票/X大V转发/收入/流量等，选最有说服力的一项，含数据来源）",
   "main_product_img_src": "产品图片可能的来源URL（官网截图位置或产品截图描述）",
 
+  "office_photo_hints": {
+    "newsroom_url": "公司新闻/媒体页URL，如 https://anthropic.com/news（找不到填空字符串）",
+    "about_url": "公司About页URL，如 https://anthropic.com/about（找不到填空字符串）",
+    "linkedin_url": "公司LinkedIn页URL（如已知，找不到填空字符串）"
+  },
+
   "other_products": [
-    {"name": "产品名", "def": "一句话定义", "highlight": "亮点功能"}
+    {"name": "产品名", "def": "一句话定义", "highlight": "亮点功能", "url": "产品独立页面URL，找不到填空字符串"}
   ],
 
   "revenue_model": "核心盈利方式（50-100字）",
@@ -47,7 +53,7 @@
 
   "moat": "竞争壁垒分析（选出最强2-3个壁垒，各50字）",
   "competitors": [
-    {"name": "竞品名", "product": "核心产品", "data": "关键运营数据（含来源）"}
+    {"name": "竞品名", "product": "核心产品", "data": "关键运营数据（含来源）", "url": "竞品官网URL，如 https://openai.com"}
   ],
   "market_opportunity": "赛道客观条件变化带来的契机（100字内）",
 
@@ -64,6 +70,7 @@
 - 创始人/团队/融资 → Layer 0
 - 发展沿袭/时间线 → Layer 1 longitudinal
 - 产品信息/成就 → Layer 0 + Layer 1
+- office_photo_hints → Layer 0（公司官网/新闻/LinkedIn URL）
 - 商业模式/GTM/冷启动 → Layer 2
 - 竞争壁垒/赛道/机遇 → Layer 2
 - 竞品信息 → Layer 1 horizontal + Layer 2
@@ -71,5 +78,10 @@
 
 ## {{VERSION}}版特殊要求
 {{VERSION_SPECIFIC}}
+
+## 必填字段提醒
+以下字段常被遗漏，请确保从 Layer 0 创始人信息中逐项提取，不得以"暂缺"替代有数据可查的情况：
+- `founder_edu`：创始人学历背景（学校、专业、学位），区别于 `founder_bg`（工作经历）
+- `founder_achievement`：创始人过往成就（获奖、创业经历、前公司重要成果），与教育和工作经历分属不同维度
 
 输出纯 JSON，不要 Markdown 代码块包裹。

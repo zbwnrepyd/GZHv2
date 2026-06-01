@@ -6,11 +6,12 @@
 ## 目录约定
 
 ```
-prompts/      — 4层LLM Prompt文件（layer0-3）和分段Prompt
-webapp/       — Flask编辑后台 + 研究流水线（app.py入口）
-canvas/       — HTML/CSS卡片制作台、单卡页面、Puppeteer截图脚本
-db/           — SQLite建表SQL和数据库文件
-tests/        — unittest 回归测试
+prompts/        — 4层LLM Prompt文件（layer0-3）和分段Prompt
+webapp/         — Flask编辑后台 + 研究流水线（app.py入口）
+image-studio/   — 图片定稿台（三栏：槽位总览 | 中间搜索+候选变体 | 右侧操作/导入），通过 iframe 嵌入定稿台
+canvas/         — HTML/CSS卡片制作台、单卡页面、Puppeteer截图脚本
+db/             — SQLite建表SQL和数据库文件
+tests/          — unittest 回归测试
 ```
 
 ## 日常操作
@@ -71,10 +72,17 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - 定稿保存优先使用 `field_name='markdown_full'` 的整张 Markdown
 - canvas Markdown 解析必须保留远程/本地 Markdown 图片 URL，并兼容首页、公司介绍、主产品里的无标签正文
 - L3 任一版本字段提取失败时，任务应失败且不写入假成功记录
-- 图片 API Key 可通过环境变量配置，也可在卡片制作台临时输入；临时 Key 只随 `/api/generate-image` 请求发送，不写入 localStorage 或响应
+- 创始人 `founder_edu/founder_achievement` 缺失修复属于 L3 主流程内重试，不要恢复后置补抓流程
+- 图片 API Key 可通过环境变量配置，也可在图片定稿台搜索面板 AI 生图时随请求发送；临时 Key 不写入 localStorage 或响应
 - 公司图片资产通过 `company_assets` 表管理（7 种 asset_key），不用路径约定或 localStorage；资产采集走 `asset_pipeline.py`，信息图（飞轮/时间线）走 `infographic.py` 的 SVG 模板渲染管线
-- `POST /api/assets/generate/<company>/flywheel|timeline` 依赖该卡片的 Markdown 已定稿（卡片6=飞轮，卡片3=时间线）；SVG 渲染需要 Playwright
+- 卡片2 `office` 槽位默认使用公司位置地图：OSM 瓦片本地拼接 + HTML pin/legend 生成 PNG，并默认选中；Google Street View/Tavily 办公室图只作为后续候选变体，不抢默认选中
+- 图片定稿台候选变体必须展示在中间主区域；右侧栏只放操作、当前选定、导入/上传和 SVG 渲染按钮
+- 本地 Python SVG 模板上传只允许本机请求并要求 `X-Template-Upload-Intent: local-dev`；不要开放远程上传
+- 飞轮/时间线 SVG 信息图在卡片定稿确认时自动生成（卡片3=时间线，卡片6=飞轮）；也可在图片定稿台手动调参渲染；SVG 渲染需要 Playwright
 - 国内环境访问 Tavily 和 YouTube API 需配 HTTPS_PROXY（`config.py` 不自动设置代理，需在 `.env` 手动配置）
+- Pexels（200 req/h，支持中文）和 Unsplash（50 req/h，英文关键词）API Key 通过环境变量配置，用于图片定稿台手动搜索
+- 图片自动采集不再使用 Lorem Flickr / Picsum 通用图；搜不到真实图片时标记 `failed`，进入图片定稿台手动补
+- 定稿台左侧为三区手风琴：内容定稿（卡片1-8）、传播钩子文案、图片定稿（iframe 嵌入 image-studio，embed 模式隐藏顶栏和槽位面板，槽位列表在左手风琴内渲染）
 - 研究台要展示 Tavily/GitHub/YouTube/官网抓取的链路状态与数量；公司库点击一条只展开该公司研究信息，点另一条时其他行折叠
 
 ## 参考

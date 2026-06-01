@@ -5,15 +5,23 @@ const path = require('path');
 
 function usage() {
   console.log(`Usage:
-  node canvas/screenshot.js --company <name> [--base-url http://127.0.0.1:5050] [--out output/cards/<name>] [--bg-image <path>]
+  node canvas/screenshot.js --company <name> [--base-url http://127.0.0.1:5050] [--out output/cards/<name>] [--bg-image <path>] [--shots 3] [--scale 3]
 
 Options:
-  --company   Company name to export. Required.
-  --base-url  Flask base URL. Default: http://127.0.0.1:5050
-  --out       Output directory. Default: output/cards/<company>
-  --bg-image  Path to local watermark image (PNG/JPEG). Injected as base64 data URL.
-  --help      Show this help.
+  --company     Company name to export. Required.
+  --base-url    Flask base URL. Default: http://127.0.0.1:5050
+  --out         Output directory. Default: output/cards/<company>
+  --bg-image    Path to local watermark image (PNG/JPEG). Injected as base64 data URL.
+  --shots       Number of screenshots per card. Default: 3.
+  --scale       deviceScaleFactor for high-resolution PNGs. Default: 3.
+  --shot-delay  Milliseconds between repeated shots. Default: 350.
+  --help        Show this help.
 `);
+}
+
+function positiveInt(value, fallback) {
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 function parseArgs(argv) {
@@ -22,6 +30,9 @@ function parseArgs(argv) {
     company: '',
     out: '',
     bgImage: null,
+    shots: 3,
+    scale: 3,
+    shotDelay: 350,
   };
   for (let i = 2; i < argv.length; i += 1) {
     const item = argv[i];
@@ -35,6 +46,12 @@ function parseArgs(argv) {
       args.out = argv[++i] || '';
     } else if (item === '--bg-image' || item === '-b') {
       args.bgImage = argv[++i] || null;
+    } else if (item === '--shots') {
+      args.shots = positiveInt(argv[++i], args.shots);
+    } else if (item === '--scale') {
+      args.scale = positiveInt(argv[++i], args.scale);
+    } else if (item === '--shot-delay') {
+      args.shotDelay = positiveInt(argv[++i], args.shotDelay);
     }
   }
   return args;
@@ -70,6 +87,33 @@ async function waitForCard(page) {
       });
     }));
   });
+  await page.waitForFunction(() => {
+    const card = document.querySelector('.knowledge-card');
+    if (!card) return false;
+    const rect = card.getBoundingClientRect();
+    return rect.width >= 899 && rect.height >= 1199;
+  }, { timeout: 10000 });
+}
+
+async function cardClip(page) {
+  return page.evaluate(() => {
+    const card = document.querySelector('.knowledge-card');
+    const rect = card.getBoundingClientRect();
+    return {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    };
+  });
+}
+
+function shotFileName(safeCompany, cardIndex, shotIndex, shotCount) {
+  const card = String(cardIndex).padStart(2, '0');
+  if (shotCount <= 1) {
+    return `${safeCompany}_card_${card}.png`;
+  }
+  return `${safeCompany}_card_${card}_shot_${String(shotIndex).padStart(2, '0')}.png`;
 }
 
 async function run() {
@@ -104,16 +148,22 @@ async function run() {
     await page.setViewport({
       width: 900,
       height: 1200,
-      deviceScaleFactor: 2,
+      deviceScaleFactor: args.scale,
     });
 
     for (let cardIndex = 1; cardIndex <= 8; cardIndex += 1) {
       const url = buildCardUrl(args.baseUrl, company, cardIndex, args.bgImage);
       await page.goto(url, { waitUntil: 'networkidle0' });
       await waitForCard(page);
-      const filePath = path.join(outDir, `${safeCompany}_card_${String(cardIndex).padStart(2, '0')}.png`);
-      await page.screenshot({ path: filePath, fullPage: false });
-      console.log(`exported ${filePath}`);
+      const clip = await cardClip(page);
+      for (let shotIndex = 1; shotIndex <= args.shots; shotIndex += 1) {
+        if (shotIndex > 1 && args.shotDelay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, args.shotDelay));
+        }
+        const filePath = path.join(outDir, shotFileName(safeCompany, cardIndex, shotIndex, args.shots));
+        await page.screenshot({ path: filePath, clip });
+        console.log(`exported ${filePath}`);
+      }
     }
   } finally {
     await browser.close();

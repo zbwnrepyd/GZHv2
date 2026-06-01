@@ -16,28 +16,62 @@
     <span class="status-text" id="editor-company-label">定稿台</span>
   </div>
   <div class="bar-right">
+    <button id="btn-delete-company" class="btn-delete-company hidden" title="删除该公司全部数据">删除</button>
     <a class="top-link" href="/">研究台</a>
   </div>
 </header>
 
 <main id="editor-workbench">
   <aside id="editor-left-pane">
-    <section class="editor-panel card-nav-panel">
-      <div class="section-title">卡片导航</div>
-      <div id="editor-card-nav">
-        <button class="editor-card-btn" data-card="1">卡片1·首页</button>
-        <button class="editor-card-btn" data-card="2">卡片2·公司介绍</button>
-        <button class="editor-card-btn" data-card="3">卡片3·发展沿袭</button>
-        <button class="editor-card-btn" data-card="4">卡片4·主产品</button>
-        <button class="editor-card-btn" data-card="5">卡片5·其他产品</button>
-        <button class="editor-card-btn" data-card="6">卡片6·商业模式</button>
-        <button class="editor-card-btn" data-card="7">卡片7·竞争格局</button>
-        <button class="editor-card-btn" data-card="8">卡片8·总结</button>
-        <button class="editor-card-btn editor-hook-btn" data-card="hook">传播钩子文案</button>
+    <!-- 手风琴1：内容定稿 -->
+    <div class="accordion-section">
+      <div class="accordion-header open" data-section="content">
+        <span class="arrow">&#9654;</span> 内容定稿
       </div>
-    </section>
+      <div class="accordion-body open" data-section="content">
+        <div id="editor-card-nav">
+          <button class="editor-card-btn" data-card="1">卡片1·首页</button>
+          <button class="editor-card-btn" data-card="2">卡片2·公司介绍</button>
+          <button class="editor-card-btn" data-card="3">卡片3·发展沿袭</button>
+          <button class="editor-card-btn" data-card="4">卡片4·主产品</button>
+          <button class="editor-card-btn" data-card="5">卡片5·其他产品</button>
+          <button class="editor-card-btn" data-card="6">卡片6·商业模式</button>
+          <button class="editor-card-btn" data-card="7">卡片7·竞争格局</button>
+          <button class="editor-card-btn" data-card="8">卡片8·总结</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 手风琴2：传播钩子文案 -->
+    <div class="accordion-section">
+      <div class="accordion-header" data-section="hook">
+        <span class="arrow">&#9654;</span> 传播钩子文案
+      </div>
+      <div class="accordion-body" data-section="hook">
+        <div id="editor-hook-nav">
+          <button class="editor-card-btn editor-hook-btn active" data-card="hook">钩子文案</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 手风琴3：图片定稿 -->
+    <div class="accordion-section">
+      <div class="accordion-header" data-section="image">
+        <span class="arrow">&#9654;</span> 图片定稿
+      </div>
+      <div class="accordion-body" data-section="image">
+        <div id="image-slot-list">
+          <!-- 槽位列表由 editor.js 动态渲染 -->
+        </div>
+        <div id="image-slot-actions">
+          <button id="btn-recollect-editor" class="btn-recollect-editor">重新采集图片</button>
+          <p class="recollect-hint-editor">研究完成后自动采集，点此手动重试。</p>
+        </div>
+      </div>
+    </div>
   </aside>
 
+  <!-- 内容定稿/钩子模式：中间栏+右侧栏 -->
   <section id="editor-middle-pane">
     <div class="markdown-toolbar">
       <span id="markdown-meta">请选择公司</span>
@@ -56,12 +90,12 @@
       <button id="btn-prev" class="btn">← 上一张</button>
       <button id="btn-next" class="btn">下一张 →</button>
     </div>
-    <div class="preview-content hidden" id="hook-render"></div>
+    <!-- 钩子模式下的摘要区和钩子内容（与 version-compare 共享空间） -->
+    <div id="hook-content" class="preview-content hidden"></div>
   </section>
 
   <section id="editor-right-pane">
     <div class="preview-toolbar">
-      <span class="preview-label" id="preview-toolbar-label">实时预览</span>
       <span id="preview-status">只读预览</span>
     </div>
     <div class="preview-content" id="preview-render"></div>
@@ -69,7 +103,14 @@
       <button id="btn-confirm" class="btn btn-primary">确认定稿</button>
       <a id="btn-go-canvas" class="btn btn-cyan hidden" href="#">去制作卡片 →</a>
     </div>
+    <!-- 钩子模式下的预览（覆盖 preview-render） -->
+    <div class="preview-content hidden" id="hook-render"></div>
   </section>
+
+  <!-- 图片定稿模式：iframe 容器 -->
+  <div id="image-studio-frame">
+    <iframe id="image-studio-iframe" src="" title="图片定稿台"></iframe>
+  </div>
 </main>
 
 <script src="/static/js/api.js"></script>

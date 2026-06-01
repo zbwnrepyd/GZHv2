@@ -100,6 +100,7 @@ def build_card_markdown(db_path: str, company_name: str, card_index: int, versio
             f"**团队规模**：{_value(record, 'team_size')}",
             f"**团队亮点**：{_value(record, 'team_highlight')}",
             f"**融资**：{_value(record, 'funding_info')}",
+            f"**客户群体**：{_value(record, 'customer_segment')}",
             f"**官网**：{_value(record, 'website_url')}",
         ]
     elif card_index == 3:
@@ -123,7 +124,6 @@ def build_card_markdown(db_path: str, company_name: str, card_index: int, versio
             f"**盈利**：{_value(record, 'revenue_model')}",
             f"**冷启动**：{_value(record, 'cold_start')}",
             f"**GTM**：{_value(record, 'gtm_strategy')}",
-            f"**客户群体**：{_value(record, 'customer_segment')}",
             f"**飞轮**：{_value(record, 'growth_flywheel')}",
         ]
     elif card_index == 7:

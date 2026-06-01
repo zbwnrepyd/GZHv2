@@ -75,11 +75,11 @@ const DEFAULT_CARD_CSS = `
   z-index: 1;
 }
 
-/* ── 边缘晕影 ── */
+/* ── 边缘晕影（CSS 变量控制，卡片1关闭）── */
 .knowledge-card::after {
   content: "";
   position: absolute; inset: 0;
-  background: radial-gradient(ellipse 70% 65% at 50% 50%, transparent 48%, rgba(0,0,0,0.04) 78%, rgba(0,0,0,0.10) 100%);
+  background: var(--vignette, radial-gradient(ellipse 70% 65% at 50% 50%, transparent 48%, rgba(0,0,0,0.04) 78%, rgba(0,0,0,0.10) 100%));
   pointer-events: none;
   z-index: 2;
 }
@@ -221,12 +221,11 @@ const DEFAULT_CARD_CSS = `
   font-size: var(--fs-body);
 }
 
-/* ── 图片框（卡片2-8底部，2:1，5%侧边距，微圆角微阴影）── */
+/* ── 图片框（卡片2-8，从上往下1/3处，4:3，居中）── */
 .img-box {
-  margin-top: 10%;
-  margin-left: 5%;
-  width: 90%;
-  aspect-ratio: 2 / 1;
+  margin: 30% auto 0;
+  width: 58%;
+  aspect-ratio: 16 / 9;
   border-radius: 6px;
   box-shadow: 0 2px 16px rgba(0,0,0,0.10);
   overflow: hidden;
@@ -239,45 +238,52 @@ const DEFAULT_CARD_CSS = `
   display: block;
 }
 
-/* ── 卡片1 — Magazine Poster 封面 ── */
+/* ── 卡片1 — 封面 ── */
 .p1-hero {
   height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding-bottom: 60px;
+  align-items: flex-start;
+  padding-top: 50px;
+  position: relative;
 }
 .p1-tagline {
-  margin: 0 0 20px;
-  color: rgba(255,255,255,0.55);
-  font: 500 var(--fs-label)/1.2 var(--font-mono);
-  letter-spacing: 0.14em;
+  margin: 0 0 16px;
+  color: #000;
+  font: 300 20px/1.3 var(--font-serif);
+  letter-spacing: 0.08em;
 }
 .p1-title {
   margin: 0;
   max-width: 700px;
   font-family: var(--font-serif);
-  font-size: var(--fs-hero);
-  font-weight: 400;
-  line-height: 0.94;
+  font-size: 120px;
+  font-weight: 700;
+  line-height: 0.92;
   letter-spacing: -0.015em;
-  color: #FFFFFF;
+  color: #000;
   word-break: break-word;
 }
-.p1-type {
-  display: inline-block;
-  margin-top: 24px;
-  padding: 5px 14px;
-  border: 1px solid rgba(255,255,255,0.18);
-  color: var(--accent);
-  font: 500 var(--fs-label)/1.2 var(--font-mono);
-  letter-spacing: 0.10em;
+.p1-logo-area {
+  position: absolute;
+  top: 61.8%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
 }
-.p1-rule {
-  margin-top: 32px;
-  width: 100px;
-  height: 1px;
-  background: var(--accent);
+.p1-logo-area img {
+  max-width: 200px;
+  max-height: 130px;
+  display: block;
+}
+.p1-type-section {
+  font: 500 18px/1.3 var(--font-body);
+  color: #000;
+  letter-spacing: 0.06em;
+  text-align: center;
 }
 
 /* ── 空卡片 ── */
@@ -289,6 +295,16 @@ const DEFAULT_CARD_CSS = `
   font-size: 28px;
 }
 `.trim();
+
+const RENDERER_CARD_ASSET_MAP = {
+  1: "logo",
+  2: "office",
+  3: "timeline",
+  4: "product_main",
+  5: "products_other",
+  6: "flywheel",
+  7: "competitors",
+};
 
 // ─── 工具函数 ────────────────────────────────────────────────
 function escapeHTML(value) {
@@ -420,6 +436,23 @@ function fullMarkdownToHTML(markdown) {
   return { html: parts.join(''), image };
 }
 
+function cardDataToMarkdown(cardData) {
+  if (!cardData || typeof cardData !== 'object') return '';
+  if (cardData._body && String(cardData._body).trim()) {
+    return String(cardData._body).trim();
+  }
+
+  const lines = [];
+  for (const [key, value] of Object.entries(cardData)) {
+    if (key.startsWith('_')) continue;
+    if (key === '产品图片' || key === 'main_product_img_src') continue;
+    const text = textMetricsValue(value).trim();
+    if (!text || text === '暂缺') continue;
+    lines.push(`**${key}**：${text}`);
+  }
+  return lines.join('\n\n');
+}
+
 // ─── 卡片 Chrome（噪点 + 变质线 + SVG 滤镜）─────────────────
 function cardChrome() {
   return `
@@ -446,7 +479,7 @@ function textMetricsValue(value) {
 
 function cardContentMetrics(cardData) {
   const entries = Object.entries(cardData || {}).filter(([key, value]) => {
-    if (key === '_image' || key === '_markdown' || key === '_title') return false;
+    if (key.startsWith('_')) return false;
     const text = textMetricsValue(value).trim();
     return text && text !== '暂缺';
   });
@@ -508,22 +541,23 @@ function fitVarsForCard(cardIndex, cardData) {
   return pxVars;
 }
 
-function articleOpen(cardIndex, cardData) {
+function articleOpen(cardIndex, cardData, extraStyle = '') {
   const vars = fitVarsForCard(cardIndex, cardData);
-  const style = Object.entries(vars).map(([k, v]) => `${k}: ${v}`).join('; ');
+  const fitStyle = Object.entries(vars).map(([k, v]) => `${k}: ${v}`).join('; ');
+  const style = [fitStyle, extraStyle].filter(Boolean).join('; ');
   return `<article class="knowledge-card" style="${style}">`;
 }
 
 // ─── 卡片2-8 通用渲染（Markdown 驱动 + 底部图框）───────────
 function renderPageGeneric(cardIndex, cardData) {
-  const md = cardData?._markdown || '';
+  const md = cardData?._markdown || cardDataToMarkdown(cardData);
   const { html, image } = fullMarkdownToHTML(md);
 
   // 优先级：_selectedImage（图片夹选中） > 资产图片 > markdown 图片
   let displayImage = cardData?._selectedImage || '';
   if (!displayImage) {
     const assets = cardData?._assets || {};
-    const assetKey = CARD_ASSET_MAP[cardIndex];
+    const assetKey = RENDERER_CARD_ASSET_MAP[cardIndex];
     const asset = assetKey ? assets[assetKey] : null;
     if (asset && asset.local_path && asset.status === 'ready') {
       displayImage = asset.local_path;
@@ -534,25 +568,34 @@ function renderPageGeneric(cardIndex, cardData) {
   return `
 ${articleOpen(cardIndex, cardData)}
   ${cardChrome()}
+  ${bgOverlay()}
   <div class="card-content">
+    ${displayImage ? imageBox(displayImage) : ''}
     <div class="card-body">${html || '<p class="md-empty">暂无内容</p>'}</div>
-    ${imageBox(displayImage)}
   </div>
 </article>`;
 }
 
-// ─── 卡片1 — 封面 Hero ──────────────────────────────────────
+function bgOverlay() {
+  return '<div style="position:absolute;inset:0;background:rgba(255,255,255,0.5);pointer-events:none;z-index:0"></div>';
+}
+
+// ─── 卡片1 — 封面 ────────────────────────────────────────────
 function renderPage1({ companyName, cardData }) {
   const name = val(cardData, '公司名', '') || companyName || '暂缺';
   const type = val(cardData, '类型', '');
+  const assets = cardData?._assets || {};
+  const logoUrl = assets.logo?.local_path || '';
   return `
-${articleOpen(1, cardData)}
+${articleOpen(1, cardData, 'background:#FFFFFF;--vignette:none')}
   ${cardChrome()}
   <div class="p1-hero">
     <p class="p1-tagline">三分钟认识一家AI初创公司</p>
     <h1 class="p1-title">${escapeHTML(name)}</h1>
-    ${type ? `<span class="p1-type">${escapeHTML(type)}</span>` : ''}
-    <div class="p1-rule"></div>
+    <div class="p1-logo-area">
+      ${logoUrl ? `<img src="${escapeHTML(logoUrl)}" alt="${escapeHTML(name)} logo">` : ''}
+      ${type ? `<span class="p1-type-section">${escapeHTML(type)}</span>` : ''}
+    </div>
   </div>
 </article>`;
 }

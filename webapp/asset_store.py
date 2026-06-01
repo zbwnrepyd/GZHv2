@@ -75,13 +75,13 @@ def upsert_asset(db_path: str, company_name: str, asset_key: str,
                    (company_name, asset_key, card_index, local_path, source_type, source_url, prompt, status, meta_json)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (company_name, asset_key, card_index,
-                 local_path, source_type, source_url, prompt,
+                 normalize_browser_image_path(local_path), source_type, source_url, prompt,
                  status or "missing", json.dumps(meta, ensure_ascii=False) if meta else None),
             )
         else:
             updates = {}
             if local_path is not None:
-                updates["local_path"] = local_path
+                updates["local_path"] = normalize_browser_image_path(local_path)
             if source_type is not None:
                 updates["source_type"] = source_type
             if source_url is not None:
@@ -139,10 +139,99 @@ def get_all_assets_grouped(db_path: str) -> dict[str, dict[str, dict]]:
     return result
 
 
+# ═══════════════════════════════════════════════════════════════
+# image_variants 变体库 CRUD
+# ═══════════════════════════════════════════════════════════════
+
+def list_variants(db_path: str, company_name: str, asset_key: str) -> list[dict]:
+    """返回某公司某 asset_key 的全部变体，按创建时间倒序"""
+    with _get_db(db_path) as conn:
+        rows = conn.execute(
+            """SELECT * FROM image_variants
+               WHERE company_name=? AND asset_key=?
+               ORDER BY is_selected DESC, created_at DESC""",
+            (company_name, asset_key),
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def insert_variant(db_path: str, company_name: str, asset_key: str,
+                   local_path: str, source_type: str,
+                   source_url: str = "", source_page: str = "",
+                   author: str = "", license: str = "",
+                   attribution_req: int = 0, prompt: str = "") -> int:
+    """插入一条变体记录，返回 id"""
+    with _get_db(db_path) as conn:
+        cur = conn.execute(
+            """INSERT INTO image_variants
+               (company_name, asset_key, local_path, source_type,
+                source_url, source_page, author, license,
+                attribution_req, prompt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (company_name, asset_key, normalize_browser_image_path(local_path), source_type,
+             source_url, source_page, author, license,
+             attribution_req, prompt),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def select_variant(db_path: str, company_name: str, asset_key: str,
+                   variant_id: int) -> bool:
+    """将指定变体设为选中，其他取消选中；同时写回 company_assets"""
+    with _get_db(db_path) as conn:
+        row = conn.execute(
+            """SELECT local_path, source_type, source_url, prompt
+               FROM image_variants
+               WHERE id=? AND company_name=? AND asset_key=?""",
+            (variant_id, company_name, asset_key),
+        ).fetchone()
+        if not row:
+            return False
+
+        # 取消该 asset_key 下所有变体的选中
+        conn.execute(
+            """UPDATE image_variants SET is_selected=0
+               WHERE company_name=? AND asset_key=?""",
+            (company_name, asset_key),
+        )
+        # 选中目标变体
+        conn.execute(
+            """UPDATE image_variants SET is_selected=1
+               WHERE id=? AND company_name=? AND asset_key=?""",
+            (variant_id, company_name, asset_key),
+        )
+
+        conn.commit()
+
+    # 写回 company_assets
+    upsert_asset(db_path, company_name, asset_key,
+                 local_path=normalize_browser_image_path(row["local_path"]),
+                 source_type=row["source_type"],
+                 source_url=row["source_url"],
+                 prompt=row["prompt"],
+                 status="ready")
+    return True
+
+
+def delete_variant(db_path: str, company_name: str, asset_key: str,
+                   variant_id: int) -> bool:
+    """删除变体记录（不删本地文件）"""
+    with _get_db(db_path) as conn:
+        cur = conn.execute(
+            """DELETE FROM image_variants
+               WHERE id=? AND company_name=? AND asset_key=?""",
+            (variant_id, company_name, asset_key),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
 def _row_to_dict(row) -> dict | None:
     if not row:
         return None
     d = dict(row)
+    d["local_path"] = normalize_browser_image_path(d.get("local_path"))
     if d.get("meta_json"):
         try:
             d["meta"] = json.loads(d["meta_json"])
@@ -151,3 +240,16 @@ def _row_to_dict(row) -> dict | None:
     else:
         d["meta"] = {}
     return d
+
+
+def normalize_browser_image_path(path: str | None) -> str | None:
+    """Normalize image paths stored before browser-safe URLs were introduced."""
+    if not path:
+        return path
+    if path.startswith(("/images/", "http://", "https://", "data:")):
+        return path
+    marker = "/images/"
+    idx = path.find(marker)
+    if idx >= 0:
+        return path[idx:]
+    return path
