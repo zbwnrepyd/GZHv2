@@ -397,97 +397,155 @@ def generate_timeline_from_markdown(markdown: str, dest: str, deepseek_call) -> 
 
 
 # ═══════════════════════════════════════════════════════════════
-# Frappe Charts 散点图（竞争格局 + 生态位）
+# ECharts 散点图 + ZRender 信息图
 # ═══════════════════════════════════════════════════════════════
 
-_FRAPPE_CDN_CSS = "https://unpkg.com/frappe-charts@1.6.2/dist/frappe-charts.min.css"
-_FRAPPE_CDN_JS = "https://unpkg.com/frappe-charts@1.6.2/dist/frappe-charts.min.iife.js"
+_ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
+_ZRENDER_CDN = "https://cdn.jsdelivr.net/npm/zrender@5.6.1/dist/zrender.js"
 
 _STACK_LABELS = ["Infrastructure", "Foundation Model", "Middleware", "Vertical App", "Distribution"]
 
 
-def _build_scatter_html(title: str, x_label: str, y_label: str,
-                        datasets: list[dict], height: int = 560,
-                        params: dict | None = None) -> str:
-    """生成 Frappe Charts 散点图 HTML"""
+def _build_echarts_scatter(title: str, x_label: str, y_label: str,
+                           datasets: list[dict], height: int = 560,
+                           params: dict | None = None) -> str:
+    """ECharts 散点图 HTML"""
     p = params or {}
     accent = p.get("accent_color", "#29B8D4")
-    point_size = p.get("point_size", 5)
-    title_size = p.get("title_size", 14)
-    axis_size = p.get("axis_size", 11)
-    data_json = json.dumps({"datasets": datasets}, ensure_ascii=False)
+    pt_size = p.get("point_size", 10)
+    t_size = p.get("title_size", 16)
+    a_size = p.get("axis_size", 12)
+    theme = p.get("theme", "dark")
+    show_label = p.get("show_label", "true")
+
+    series_json = json.dumps(datasets, ensure_ascii=False)
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
-<link rel="stylesheet" href="{_FRAPPE_CDN_CSS}">
 <style>
-  body {{ margin: 0; width: 780px; height: 580px; overflow: hidden;
-         background: #0B1629; display: flex; align-items: center; justify-content: center; }}
-  #chart {{ width: 760px; height: {height}px; }}
-  .frappe-chart .title {{ fill: {accent} !important; font-size: {title_size}px !important; font-weight: 700 !important; }}
-  .frappe-chart text {{ fill: rgba(255,255,255,0.55) !important; font-size: {axis_size}px !important; }}
-  .frappe-chart .line-vertical, .frappe-chart .line-horizontal {{ stroke: rgba(255,255,255,0.08) !important; }}
-  .frappe-chart .dataset-units {{ display: none; }}
-  .frappe-chart circle {{ r: {point_size}px; }}
+  body{{margin:0;width:800px;height:600px;overflow:hidden;background:{'#0B1629' if theme=='dark' else '#fff'}}}
+  #chart{{width:800px;height:600px}}
 </style></head><body>
 <div id="chart"></div>
-<script src="{_FRAPPE_CDN_JS}"></script>
+<script src="{_ECHARTS_CDN}"></script>
 <script>
-  var data = {data_json};
-  data.datasets.forEach(function(ds) {{
-    ds.values = ds.values.filter(function(v) {{ return v.x != null && v.y != null; }});
-  }});
-  new frappe.Chart("#chart", {{
-    title: "{title}",
-    type: "scatter",
-    height: {height},
-    data: data,
-    axisOptions: {{ xAxisMode: "tick", yAxisMode: "tick", xIsSeries: true }},
-    colors: ["{accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF",
-             "rgba(255,255,255,0.25)","rgba(255,255,255,0.20)","rgba(255,255,255,0.18)","rgba(255,255,255,0.15)"],
-    maxSlices: 20
-  }});
+var ds={series_json};
+var series=ds.map(function(d){{return{{name:d.name,type:'scatter',data:d.values.map(function(v){{return[v.x,v.y,v.name]}}),
+  symbolSize:{pt_size},
+  label:{{show:{show_label},formatter:function(p){{return p.value[2]||''}},fontSize:10,color:'{"rgba(255,255,255,0.6)" if theme=="dark" else "#666"}'}},
+  emphasis:{{focus:'series'}}
+}}}});
+var opt={{
+  title:{{text:'{title}',left:'center',textStyle:{{color:'{"#fff" if theme=="dark" else "#333"}',fontSize:{t_size},fontWeight:700}}}},
+  tooltip:{{formatter:function(p){{return p.value[2]+'<br/>'+p.seriesName+'<br/>('+p.value[0]+', '+p.value[1]+')'}}}},
+  legend:{{bottom:10,textStyle:{{color:'{"rgba(255,255,255,0.5)" if theme=="dark" else "#999"}',fontSize:11}}}},
+  grid:{{left:70,right:40,top:60,bottom:50}},
+  xAxis:{{name:'{x_label}',nameTextStyle:{{color:'{"rgba(255,255,255,0.5)" if theme=="dark" else "#999"}',fontSize:{a_size}}},axisLine:{{lineStyle:{{color:'{"rgba(255,255,255,0.15)" if theme=="dark" else "#ddd"}'}}}},splitLine:{{lineStyle:{{color:'{"rgba(255,255,255,0.06)" if theme=="dark" else "#f0f0f0"}'}}}}}},
+  yAxis:{{name:'{y_label}',nameTextStyle:{{color:'{"rgba(255,255,255,0.5)" if theme=="dark" else "#999"}',fontSize:{a_size}}},axisLine:{{lineStyle:{{color:'{"rgba(255,255,255,0.15)" if theme=="dark" else "#ddd"}'}}}},splitLine:{{lineStyle:{{color:'{"rgba(255,255,255,0.06)" if theme=="dark" else "#f0f0f0"}'}}}}}},
+  color:["{accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF"]
+}};if({str(theme=='dark').lower()})opt.backgroundColor='#0B1629';
+echarts.init(document.getElementById('chart')).setOption(opt);
+</script></body></html>"""
+
+
+def _build_zrender_flywheel(data: dict, params: dict | None = None) -> str:
+    """ZRender 增长飞轮 HTML"""
+    p = params or {}
+    accent = p.get("accent_color", "#29B8D4")
+    stages = data.get("stages", [])
+    center_label = data.get("center", "增长飞轮")
+    n = len(stages)
+    if n < 2: n = 2
+    import math
+    nodes_json = json.dumps([{"label": s.get("label", f"S{i}"), "desc": s.get("desc", "")} for i, s in enumerate(stages)], ensure_ascii=False)
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>body{{margin:0;width:800px;height:800px;overflow:hidden;background:#0B1629}}</style></head><body>
+<div id="zr" style="width:800px;height:800px"></div>
+<script src="{_ZRENDER_CDN}"></script>
+<script>
+var zr=zrender.init(document.getElementById('zr'));
+var cx=400,cy=380,r=220,nodes={nodes_json},accent="{accent}";
+// 外圈虚线
+zr.add(new zrender.Circle({{shape:{{cx:cx,cy:cy,r:r}}}},style:{{fill:'none',stroke:'rgba(41,184,212,0.18)',lineWidth:1.5,lineDash:[8,6]}}}}));
+// 节点
+nodes.forEach(function(s,i){{
+  var a=(-90+i*360/nodes.length)*Math.PI/180;
+  var sx=cx+r*Math.cos(a),sy=cy+r*Math.sin(a);
+  zr.add(new zrender.Circle({{shape:{{cx:sx,cy:sy,r:48}},style:{{fill:'#162440',stroke:accent,lineWidth:2}}}}));
+  var tl=new zrender.Text({{style:{{text:s.label,fontSize:16,fontWeight:'bold',fill:'#fff',textAlign:'center',textVerticalAlign:'middle'}},position:[sx,sy]}});zr.add(tl);
+}});
+// 中心
+zr.add(new zrender.Circle({{shape:{{cx:cx,cy:cy,r:56}},style:{{fill:'#0B1629',stroke:'rgba(41,184,212,0.35)',lineWidth:1.5}}}}));
+zr.add(new zrender.Text({{style:{{text:'{center_label}',fontSize:24,fontWeight:'bold',fill:accent,textAlign:'center',textVerticalAlign:'middle'}},position:[cx,cy-8]}}));
+</script></body></html>"""
+
+
+def _build_zrender_timeline(data: dict, params: dict | None = None) -> str:
+    """ZRender 时间线 HTML"""
+    events = data.get("events", [])
+    if not events: events = [{"year": "2020", "title": "暂无数据", "desc": ""}]
+    p = params or {}
+    accent = p.get("accent_color", "#29B8D4")
+    row_h = 90
+    total_h = 60 + len(events) * row_h + 40
+    ev_json = json.dumps(events, ensure_ascii=False)
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>body{{margin:0;width:800px;height:{total_h}px;overflow:hidden;background:#0B1629}}</style></head><body>
+<div id="zr" style="width:800px;height:{total_h}px"></div>
+<script src="{_ZRENDER_CDN}"></script>
+<script>
+var zr=zrender.init(document.getElementById('zr'));
+var evs={ev_json},accent="{accent}",row_h={row_h},top_pad=60;
+// 中线
+zr.add(new zrender.Line({{shape:{{x1:160,y1:60,x2:160,y2:{total_h-20}}},style:{{stroke:accent,lineWidth:2}}}}));
+evs.forEach(function(e,i){{
+  var y=top_pad+i*row_h+45;
+  zr.add(new zrender.Circle({{shape:{{cx:160,cy:y,r:6}},style:{{fill:accent}}}}));
+  zr.add(new zrender.Circle({{shape:{{cx:160,cy:y,r:14}},style:{{fill:'none',stroke:'rgba(41,184,212,0.25)',lineWidth:1}}}}));
+  zr.add(new zrender.Text({{style:{{text:e.year||'',fontSize:15,fontWeight:'bold',fill:accent,textAlign:'right'}},position:[110,y+5]}}));
+  zr.add(new zrender.Text({{style:{{text:e.title||'',fontSize:18,fontWeight:'bold',fill:'#fff'}},position:[200,y-8]}}));
+  zr.add(new zrender.Text({{style:{{text:(e.desc||'').substring(0,60),fontSize:13,fill:'rgba(255,255,255,0.55)'}},position:[200,y+18]}}));
+}});
 </script></body></html>"""
 
 
 def build_competitive_landscape_svg(companies: list[dict], highlight: str,
                                      params: dict | None = None) -> str:
-    """竞争格局散点图 HTML：Defensibility × Incumbent Attention"""
-    highlight_data, other_data = [], []
+    hi, ot = [], []
     for c in companies:
-        name = str(c.get("company_name", ""))
+        n = str(c.get("company_name", ""))
         dx = float(c.get("score_defensibility") or 0)
         dy = float(c.get("score_incumbent_attention") or 0)
         if dx == 0 and dy == 0: continue
-        (highlight_data if name == highlight else other_data).append({"x": dx, "y": dy, "name": name})
-    datasets = []
-    if highlight_data: datasets.append({"name": highlight, "values": highlight_data})
-    if other_data: datasets.append({"name": "其他公司", "values": other_data})
-    return _build_scatter_html("竞争格局矩阵", "Defensibility", "Incumbent Attention", datasets, params=params)
+        (hi if n == highlight else ot).append({"name": n, "values": [{"x": dx, "y": dy, "name": n}]})
+    ds = []
+    if hi: ds.append({"name": highlight, "values": [v["values"][0] for v in hi]})
+    if ot: ds.append({"name": "其他公司", "values": [v["values"][0] for v in ot]})
+    return _build_echarts_scatter("竞争格局矩阵", "Defensibility", "Incumbent Attention", ds, params=params)
 
 
 def build_stack_positioning_svg(companies: list[dict], highlight: str,
                                  params: dict | None = None) -> str:
-    """生态位散点图 HTML：Stack Layer × Value Capture"""
-    highlight_data, other_data = [], []
-    st_map = {"infrastructure": 1, "foundation_model": 2, "middleware": 3,
-              "vertical_app": 4, "distribution": 5}
+    st_map = {"infrastructure": 1, "foundation_model": 2, "middleware": 3, "vertical_app": 4, "distribution": 5}
+    hi, ot = [], []
     for c in companies:
-        name = str(c.get("company_name", ""))
+        n = str(c.get("company_name", ""))
         sx = st_map.get(str(c.get("stack_layer") or "vertical_app"), 3)
         dy = float(c.get("score_value_capture") or 0)
         if dy == 0: continue
-        (highlight_data if name == highlight else other_data).append({"x": sx, "y": dy, "name": name})
-    datasets = []
-    if highlight_data: datasets.append({"name": highlight, "values": highlight_data})
-    if other_data: datasets.append({"name": "其他公司", "values": other_data})
-    return _build_scatter_html("AI Stack 定位图", "Stack Layer", "Value Capture", datasets, params=params)
+        (hi if n == highlight else ot).append({"name": n, "values": [{"x": sx, "y": dy, "name": n}]})
+    ds = []
+    if hi: ds.append({"name": highlight, "values": [v["values"][0] for v in hi]})
+    if ot: ds.append({"name": "其他公司", "values": [v["values"][0] for v in ot]})
+    return _build_echarts_scatter("AI Stack 定位图", "Stack Layer", "Value Capture", ds, params=params)
 
 
 def render_competitive_landscape(companies: list[dict], highlight: str, dest: str,
                                   params: dict | None = None) -> bool:
     try:
         html = build_competitive_landscape_svg(companies, highlight, params)
-        _html_to_png(html, dest, width=780, height=580, scale=2)
+        _html_to_png(html, dest, width=800, height=600, scale=2)
         return os.path.getsize(dest) > 1024
     except Exception:
         return False
@@ -497,7 +555,31 @@ def render_stack_positioning(companies: list[dict], highlight: str, dest: str,
                               params: dict | None = None) -> bool:
     try:
         html = build_stack_positioning_svg(companies, highlight, params)
-        _html_to_png(html, dest, width=780, height=580, scale=2)
+        _html_to_png(html, dest, width=800, height=600, scale=2)
         return os.path.getsize(dest) > 1024
+    except Exception:
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════
+# ZRender 飞轮 / 时间线（替换原 SVG 模板渲染）
+# ═══════════════════════════════════════════════════════════════
+
+def render_flywheel(data: dict, dest: str) -> bool:
+    try:
+        html = _build_zrender_flywheel(data)
+        _html_to_png(html, dest, width=800, height=800, scale=2)
+        return os.path.getsize(dest) > 512
+    except Exception:
+        return False
+
+
+def render_timeline(data: dict, dest: str) -> bool:
+    try:
+        html = _build_zrender_timeline(data)
+        n = len(data.get("events", []))
+        total_h = 60 + n * 90 + 40
+        _html_to_png(html, dest, width=800, height=total_h, scale=2)
+        return os.path.getsize(dest) > 512
     except Exception:
         return False

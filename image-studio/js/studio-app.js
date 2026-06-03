@@ -169,11 +169,10 @@ const StudioApp = {
       return;
     }
 
-    // 可编辑槽位：显示全部 UI
+    // 可编辑槽位：显示全部 UI，预填搜索词但不自动搜索
     SearchPanel.showAll();
     SearchPanel.setSlotImage(slot.local_path || '');
 
-    // 可编辑槽位：加载查询词并搜索
     let queries = QueryGen.get(this._company, slot.asset_key);
     if (!queries) {
       const markdown = await this._loadCardMarkdown(slot.card_index);
@@ -185,7 +184,7 @@ const StudioApp = {
       }
     }
     SearchPanel.setQueries(queries);
-    SearchPanel.search();
+    // 不自动搜索——用户点搜索按钮或按回车才搜
   },
 
   /* ── SVG 槽位 ── */
@@ -305,7 +304,9 @@ const StudioApp = {
   _buildScatterPreview(chartType, companies, params) {
     const p = params || {};
     const accent = p.accent_color || '#29B8D4';
-    const pt = p.point_size || 5, ts = p.title_size || 14, as = p.axis_size || 11;
+    const pt = p.point_size || 10, ts = p.title_size || 16, as = p.axis_size || 12;
+    const theme = p.theme || 'dark';
+    const showLabel = p.show_label !== false;
     const title = chartType === 'competitive_landscape' ? '竞争格局矩阵' : 'AI Stack 定位图';
     const hi = this._company, hiData = [], otData = [];
     const stMap = { infrastructure:1, foundation_model:2, middleware:3, vertical_app:4, distribution:5 };
@@ -314,35 +315,45 @@ const StudioApp = {
       if (chartType === 'competitive_landscape') {
         const dx = parseFloat(c.score_defensibility||0), dy = parseFloat(c.score_incumbent_attention||0);
         if (!dx&&!dy) continue;
-        (n===hi?hiData:otData).push({x:dx,y:dy,name:n});
+        (n===hi?hiData:otData).push([dx,dy,n]);
       } else {
         const sx = stMap[c.stack_layer||'vertical_app']||3, dy = parseFloat(c.score_value_capture||0);
         if (!dy) continue;
-        (n===hi?hiData:otData).push({x:sx,y:dy,name:n});
+        (n===hi?hiData:otData).push([sx,dy,n]);
       }
     }
     const ds = [];
-    if (hiData.length) ds.push({name:hi,values:hiData});
-    if (otData.length) ds.push({name:'其他公司',values:otData});
-    const dj = JSON.stringify({datasets:ds});
+    if (hiData.length) ds.push({name:hi,data:hiData});
+    if (otData.length) ds.push({name:'其他公司',data:otData});
+    const dsj = JSON.stringify(ds);
     return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<link rel="stylesheet" href="https://unpkg.com/frappe-charts@1.6.2/dist/frappe-charts.min.css">
-<style>body{margin:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#fff}
-#chart{width:95%;height:95%}
-.frappe-chart .title{fill:${accent}!important;font-size:${ts}px!important;font-weight:700!important}
-.frappe-chart text{font-size:${as}px!important}
-.frappe-chart circle{r:${pt}px}</style></head><body>
+<style>body{margin:0;width:100%;height:100%;overflow:hidden;background:${theme==='dark'?'#0B1629':'#fff'}}
+#chart{width:100%;height:100%}</style></head><body>
 <div id="chart"></div>
-<script src="https://unpkg.com/frappe-charts@1.6.2/dist/frappe-charts.min.iife.js"></script>
-<script>var d=${dj};d.datasets.forEach(function(s){s.values=s.values.filter(function(v){return v.x!=null&&v.y!=null})});
-new frappe.Chart("#chart",{title:"${title}",type:"scatter",height:500,data:d,
-axisOptions:{xAxisMode:"tick",yAxisMode:"tick",xIsSeries:true},
-colors:["${accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF"],maxSlices:20});</script></body></html>`;
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+<script>
+var ds=${dsj};
+var series=ds.map(function(d){return{name:d.name,type:'scatter',data:d.data,
+  symbolSize:${pt},
+  label:{show:${showLabel},formatter:function(p){return p.value[2]||''},fontSize:10,color:'${theme==="dark"?"rgba(255,255,255,0.6)":"#666"}'},
+  emphasis:{focus:'series'}
+}});
+echarts.init(document.getElementById('chart')).setOption({
+  title:{text:'${title}',left:'center',textStyle:{color:'${theme==="dark"?"#fff":"#333"}',fontSize:${ts},fontWeight:700}},
+  tooltip:{formatter:function(p){return p.value[2]+'<br/>('+p.value[0]+', '+p.value[1]+')'}},
+  legend:{bottom:10,textStyle:{color:'${theme==="dark"?"rgba(255,255,255,0.5)":"#999"}',fontSize:11}},
+  grid:{left:70,right:40,top:60,bottom:50},
+  xAxis:{name:'${chartType==='competitive_landscape'?'Defensibility':'Stack Layer'}',nameTextStyle:{color:'${theme==="dark"?"rgba(255,255,255,0.5)":"#999"}',fontSize:${as}}},
+  yAxis:{name:'${chartType==='competitive_landscape'?'Incumbent Attention':'Value Capture'}',nameTextStyle:{color:'${theme==="dark"?"rgba(255,255,255,0.5)":"#999"}',fontSize:${as}}},
+  backgroundColor:'${theme==="dark"?"#0B1629":"#fff"}',
+  color:["${accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF"]
+});
+</script></body></html>`;
   },
 
   _positioningChartBar() {
     const p = this._svParams || {};
-    if (!('accent_color' in p)) { p.accent_color = '#29B8D4'; p.point_size = 5; p.title_size = 14; p.axis_size = 11; }
+    if (!('accent_color' in p)) { p.accent_color = '#29B8D4'; p.point_size = 10; p.title_size = 16; p.axis_size = 12; p.theme = 'dark'; p.show_label = true; }
     if (!('_chartType' in p)) p._chartType = 'competitive_landscape';
     this._svParams = p;
     const sel = (t) => p._chartType === t ? 'style="background:#29B8D4;color:#fff;border-color:#29B8D4"' : '';
@@ -352,14 +363,22 @@ colors:["${accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF"],maxSlices
           <span class="bar-label">颜色</span>
           <input type="color" value="${p.accent_color}" data-chart-param="accent_color" onchange="StudioApp._onChartParamChange(this)">
           <span class="bar-label">点大小</span>
-          <input type="range" min="1" max="8" value="${p.point_size}" data-chart-param="point_size" oninput="StudioApp._onChartParamChange(this)">
+          <input type="range" min="3" max="24" value="${p.point_size}" data-chart-param="point_size" oninput="StudioApp._onChartParamChange(this)">
           <span class="bar-val">${p.point_size}</span>
-          <span class="bar-label">标题</span>
-          <input type="range" min="10" max="24" value="${p.title_size}" data-chart-param="title_size" oninput="StudioApp._onChartParamChange(this)">
+          <span class="bar-label">标题字</span>
+          <input type="range" min="10" max="28" value="${p.title_size}" data-chart-param="title_size" oninput="StudioApp._onChartParamChange(this)">
           <span class="bar-val">${p.title_size}</span>
           <span class="bar-label">轴字</span>
-          <input type="range" min="8" max="16" value="${p.axis_size}" data-chart-param="axis_size" oninput="StudioApp._onChartParamChange(this)">
+          <input type="range" min="8" max="18" value="${p.axis_size}" data-chart-param="axis_size" oninput="StudioApp._onChartParamChange(this)">
           <span class="bar-val">${p.axis_size}</span>
+          <span class="bar-label">主题</span>
+          <select data-chart-param="theme" onchange="StudioApp._onChartParamChange(this)" style="font-size:11px">
+            <option value="dark" ${p.theme==='dark'?'selected':''}>深色</option>
+            <option value="light" ${p.theme==='light'?'selected':''}>浅色</option>
+          </select>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;cursor:pointer">
+            <input type="checkbox" data-chart-param="show_label" ${p.show_label?'checked':''} onchange="StudioApp._onChartParamChangeB(this)"> 标签
+          </label>
         </div>
         <div class="bar-actions">
           <button class="bar-chart-type-btn" data-chart="competitive_landscape" ${sel('competitive_landscape')}>竞争格局矩阵</button>
@@ -371,8 +390,15 @@ colors:["${accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF"],maxSlices
       </div>`;
   },
 
+  _onChartParamChangeB(el) {
+    const key = el.dataset.chartParam;
+    if (!this._svParams) this._svParams = {};
+    this._svParams[key] = el.checked;
+    this._updateChartPreview();
+  },
+
   _resetChartParams() {
-    this._svParams = { accent_color: '#29B8D4', point_size: 5, title_size: 14, axis_size: 11, _chartType: this._svParams?._chartType || 'competitive_landscape' };
+    this._svParams = { accent_color:'#29B8D4', point_size:10, title_size:16, axis_size:12, theme:'dark', show_label:true, _chartType: this._svParams?._chartType||'competitive_landscape' };
     this._renderChartUI(this._activeSlot, null);
     this._updateChartPreview();
   },
