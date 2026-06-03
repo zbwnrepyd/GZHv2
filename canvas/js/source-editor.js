@@ -5,18 +5,20 @@ const SourceEditor = {
   getDefaultSource: () => '',
   refreshPreview: () => {},
   setStatus: () => {},
+  onTemplateSaved: null,
   previewTimer: null,
   fullSource: '',
   viewMode: 'all',
   inspectMode: false,
 
-  init({ getCompanyName, getCurrentCard, getCurrentSource, getDefaultSource, refreshPreview, setStatus }) {
+  init({ getCompanyName, getCurrentCard, getCurrentSource, getDefaultSource, refreshPreview, setStatus, onTemplateSaved }) {
     this.getCompanyName = getCompanyName;
     this.getCurrentCard = getCurrentCard;
     this.getCurrentSource = getCurrentSource;
     this.getDefaultSource = getDefaultSource || (() => '');
     this.refreshPreview = refreshPreview;
     this.setStatus = setStatus;
+    this.onTemplateSaved = onTemplateSaved || null;
 
     const editor = document.getElementById('source-editor');
     editor?.addEventListener('input', () => {
@@ -26,7 +28,7 @@ const SourceEditor = {
       this.previewTimer = setTimeout(() => this.previewEditorSource(), 160);
     });
     editor?.addEventListener('scroll', () => this.syncHighlightScroll());
-    document.getElementById('btn-save-source')?.addEventListener('click', () => this.saveCurrent());
+    document.getElementById('btn-save-template')?.addEventListener('click', () => this.saveCurrent());
     document.getElementById('btn-reset-source')?.addEventListener('click', () => this.resetCurrent());
     document.getElementById('btn-source-all')?.addEventListener('click', () => this.showSection('all'));
     document.getElementById('btn-source-css')?.addEventListener('click', () => this.showSection('css'));
@@ -68,6 +70,32 @@ const SourceEditor = {
       return saved.source || defaultSource || '';
     }
     return defaultSource || '';
+  },
+
+  /* 自动保存当前卡片源码（静默，不弹窗） */
+  autoSaveCurrentCard(cardIndex) {
+    const map = this.loadMap();
+    const idx = cardIndex != null ? cardIndex : this.getCurrentCard();
+    const source = this.getFullSource();
+    if (!source) return;
+    const defaultSource = this.getDefaultSource();
+    map[idx] = {
+      source,
+      signature: this.signature(defaultSource),
+    };
+    this.saveMap(map);
+  },
+
+  /* 外部保存指定卡片的 source（如 inline 编辑后） */
+  saveCurrentCard(cardIndex, source) {
+    if (!source) return;
+    const map = this.loadMap();
+    const defaultSource = (typeof this.getDefaultSource === 'function') ? this.getDefaultSource() : '';
+    map[cardIndex] = {
+      source,
+      signature: this.signature(defaultSource),
+    };
+    this.saveMap(map);
   },
 
   getFullSource() {
@@ -156,14 +184,38 @@ const SourceEditor = {
   },
 
   saveCurrent() {
-    const map = this.loadMap();
-    const defaultSource = this.getDefaultSource();
-    map[this.getCurrentCard()] = {
-      source: this.getFullSource(),
-      signature: this.signature(defaultSource),
-    };
-    this.saveMap(map);
-    this.setStatus(`卡片 ${this.getCurrentCard()} 源码已保存到本机浏览器。`, 'success');
+    // 委托给外部 saveAllCards 处理
+    if (this._saveAllCardsCallback) {
+      this._saveAllCardsCallback();
+    } else {
+      // 兜底：只保存当前卡片
+      this._saveSingleCard();
+    }
+  },
+
+  _saveSingleCard() {
+    const cardIndex = this.getCurrentCard();
+    const templateKey = 'aistartups.templates';
+    const source = this.getFullSource();
+    let map;
+    try { map = JSON.parse(localStorage.getItem(templateKey) || '{}'); } catch { map = {}; }
+    const cardKey = String(cardIndex);
+    if (!map[cardKey]) map[cardKey] = [];
+
+    const name = prompt('模板名称：', `卡片${cardIndex}-模板${map[cardKey].length + 1}`);
+    if (!name) return;
+
+    const now = new Date();
+    const createdAt = `${now.getMonth()+1}/${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    map[cardKey].push({ name: name.trim(), source, createdAt, cardIndex });
+
+    localStorage.setItem(templateKey, JSON.stringify(map));
+    this.setStatus(`模板"${name.trim()}"已保存。`, 'success');
+    if (this.onTemplateSaved) this.onTemplateSaved();
+  },
+
+  setSaveAllCardsCallback(cb) {
+    this._saveAllCardsCallback = cb;
   },
 
   resetCurrent() {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>图片定稿台 — Image Studio v2</title>
+<title>图片定稿台 — Image Studio v3</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=Instrument+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
@@ -17,21 +17,17 @@
 </header>
 
 <div class="main-layout">
-  <!-- 左：总览面板 -->
+  <!-- 左：槽位总览 -->
   <nav class="overview-panel">
     <h3>图片槽位</h3>
     <ul class="slot-list" id="slot-list"></ul>
-    <div class="overview-actions">
-      <button class="btn-recollect" id="btn-recollect" title="重新触发自动采集（研究完成后通常已自动执行）">重新采集图片</button>
-      <p class="recollect-hint">研究完成后自动采集，点此手动重试。</p>
-    </div>
   </nav>
 
-  <!-- 中：候选变体 + 搜索图片网格 -->
-  <main class="editor-area" id="search-panel"></main>
+  <!-- 中：预览/搜索切换 + 工具栏 -->
+  <main class="editor-area" id="editor-area"></main>
 
-  <!-- 右：操作按钮 + 当前选定 + 导入 -->
-  <aside class="action-sidebar" id="action-sidebar"></aside>
+  <!-- 右：候选缩略图 + 确定 -->
+  <aside class="candidate-panel" id="candidate-panel"></aside>
 </div>
 
 <script src="/image-studio/js/studio-api.js"></script>
@@ -43,8 +39,8 @@
 (function() {
   if (new URLSearchParams(window.location.search).get('embed') === '1') {
     document.getElementById('top-bar').classList.add('hidden');
-	    document.querySelector('.overview-panel').classList.add('hidden');
-	    document.querySelector('.main-layout').style.height = '100vh';
+    document.querySelector('.overview-panel').classList.add('hidden');
+    document.querySelector('.main-layout').style.height = '100vh';
   }
 })();
 </script>

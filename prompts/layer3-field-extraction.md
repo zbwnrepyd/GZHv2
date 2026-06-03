@@ -51,7 +51,19 @@
   "customer_segment": "客户群体描述（50-100字）",
   "growth_flywheel": "增长飞轮描述（100字内，[A]→[B]→[C]→强化[A]格式）",
 
-  "moat": "竞争壁垒分析（选出最强2-3个壁垒，各50字）",
+  "ai_model_dependency": "严格枚举：proprietary_model | fine_tuned | multi_model | openai_only | no_ai_core",
+  "workflow_integration_level": "严格枚举：system_of_record | workflow_embedded | plugin_addon | standalone_tool",
+  "data_flywheel": "严格枚举：yes | partial | no",
+  "proprietary_data_asset": "严格枚举：yes_core | yes_supplementary | no",
+  "incumbent_direct_competitor": "严格枚举：openai | google | multiple | microsoft | other | none",
+  "customer_segment_type": "严格枚举：b2b_enterprise | developer_api | b2b2c | b2b_smb | b2c。注意：这是公式字段，不替代上面的 customer_segment 文案字段。",
+  "funding_stage": "严格枚举：series_c_plus | series_b | series_a | seed | pre_seed。根据 funding_info 判断。",
+  "pricing_model": "严格枚举：outcome_based | enterprise_contract | subscription | usage_based | freemium | free",
+  "inference_cost_exposure": "严格枚举：none | low | medium | high",
+  "stack_layer": "严格枚举：infrastructure | foundation_model | middleware | vertical_app | distribution",
+
+  "moat": "竞争壁垒（100-200字）。仅写最强2-3个壁垒，每项用- 起头。不要在这段写生态位分析。",
+  "ecosystem_niche": "生态位分析（100-200字）。产业链位置、价值网络、生态位宽度与重叠度、错位竞争策略、生态演化趋势。每项用- 起头。",
   "competitors": [
     {"name": "竞品名", "product": "核心产品", "data": "关键运营数据（含来源）", "url": "竞品官网URL，如 https://openai.com"}
   ],
@@ -72,6 +84,7 @@
 - 产品信息/成就 → Layer 0 + Layer 1
 - office_photo_hints → Layer 0（公司官网/新闻/LinkedIn URL）
 - 商业模式/GTM/冷启动 → Layer 2
+- 竞争/生态位评分枚举字段 → Layer 0 + Layer 1 + Layer 2。信息不足时选择最接近枚举，不输出自由文本。
 - 竞争壁垒/赛道/机遇 → Layer 2
 - 竞品信息 → Layer 1 horizontal + Layer 2
 - 钩子段落 → 综合所有层，{{VERSION}}版风格

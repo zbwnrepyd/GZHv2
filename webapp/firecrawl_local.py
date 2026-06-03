@@ -22,7 +22,7 @@ def scrape_url(url: str, timeout: int = 30) -> dict:
                     "Chrome/120.0.0.0 Safari/537.36"
                 )
             },
-            timeout=(5, timeout),
+            timeout=(20, timeout),
             allow_redirects=True,
         )
         resp.raise_for_status()

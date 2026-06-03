@@ -1,4 +1,4 @@
-"""七图自动采集管道 — logo / office / product / competitors / other_products"""
+"""自动图片采集管道 — logo / office / product / competitors / other_products"""
 from __future__ import annotations
 import hashlib
 import json
@@ -20,6 +20,10 @@ from asset_store import (
     list_variants, select_variant,
 )
 from image_query import build_image_queries
+from image_candidate import ImageCandidate
+from image_quality import inspect_local_image, validate_candidate
+from image_scorer import score_candidate
+from pipeline import _search_tavily_query
 
 # 忽略 SSL 警告（部分图片源证书可能有问题）
 import urllib3
@@ -141,6 +145,99 @@ def _download(url: str, dest: str, timeout: int = 15) -> bool:
         return False
 
 
+def _persist_local_candidate(
+    db_path: str,
+    company_name: str,
+    asset_key: str,
+    dest: str,
+    source_type: str,
+    source_url: str = "",
+    source_page: str = "",
+    title: str = "",
+    alt_text: str = "",
+    author: str = "",
+    license_text: str = "",
+    prompt: str = "",
+    meta: dict | None = None,
+) -> bool:
+    """Inspect, validate, score, and persist a downloaded candidate variant."""
+    from asset_store import insert_variant
+
+    candidate = ImageCandidate(
+        company_name=company_name,
+        asset_key=asset_key,
+        image_url=source_url or _variant_browser_path(company_name, dest),
+        source_page=source_page or "",
+        source_type=source_type,
+        title=title or prompt,
+        alt_text=alt_text,
+        author=author,
+        license=license_text,
+        local_path=dest,
+        meta=meta or {},
+    )
+    inspect_local_image(candidate)
+    passed, reason = validate_candidate(candidate)
+    if passed:
+        score_candidate(candidate, product_names=[company_name])
+    else:
+        candidate.reject_reason = reason
+
+    insert_variant(
+        db_path,
+        company_name,
+        asset_key,
+        local_path=_variant_browser_path(company_name, dest),
+        source_type=source_type,
+        source_url=source_url,
+        source_page=source_page,
+        author=author,
+        license=license_text,
+        prompt=prompt,
+        width=candidate.width,
+        height=candidate.height,
+        file_size=candidate.file_size,
+        aspect_ratio=candidate.aspect_ratio,
+        quality_score=candidate.quality_score,
+        relevance_score=candidate.relevance_score,
+        source_score=candidate.source_score,
+        final_score=candidate.final_score,
+        reject_reason=candidate.reject_reason,
+        meta=candidate.meta,
+    )
+    return passed
+
+
+def _collect_downloaded_candidate(
+    db_path: str,
+    images_root: str,
+    company_name: str,
+    asset_key: str,
+    image_url: str,
+    source_type: str,
+    suffix: str,
+    source_page: str = "",
+    title: str = "",
+    alt_text: str = "",
+    prompt: str = "",
+) -> bool:
+    dest = _variant_path(images_root, company_name, asset_key, suffix)
+    if not _download(image_url, dest, timeout=30):
+        return False
+    return _persist_local_candidate(
+        db_path,
+        company_name,
+        asset_key,
+        dest,
+        source_type,
+        source_url=image_url,
+        source_page=source_page,
+        title=title,
+        alt_text=alt_text,
+        prompt=prompt,
+    )
+
+
 def _domain_from_url(url: str) -> str:
     if not url:
         return ""
@@ -215,6 +312,34 @@ def _scrape_page_hero_image(page_url: str, company_name: str = "") -> str | None
             return None
         candidates.sort(reverse=True)
         return candidates[0][1]
+    except Exception:
+        return None
+
+
+def _extract_og_image(page_url: str) -> str | None:
+    """Extract og:image/twitter:image from an official page."""
+    from bs4 import BeautifulSoup
+    try:
+        resp = requests.get(page_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
+        soup = BeautifulSoup(resp.text, "lxml")
+        selectors = [
+            ("meta", {"property": "og:image"}),
+            ("meta", {"name": "og:image"}),
+            ("meta", {"name": "twitter:image"}),
+            ("meta", {"property": "twitter:image"}),
+        ]
+        for tag_name, attrs in selectors:
+            tag = soup.find(tag_name, attrs=attrs)
+            src = tag.get("content") if tag else ""
+            if src:
+                if src.startswith("//"):
+                    return f"{urlparse(page_url).scheme}:{src}"
+                if src.startswith("/"):
+                    base = urlparse(page_url)
+                    return f"{base.scheme}://{base.netloc}{src}"
+                if src.startswith("http"):
+                    return src
+        return None
     except Exception:
         return None
 
@@ -677,9 +802,20 @@ def _is_tavily_quota_response(resp) -> bool:
 def _try_tavily_images(query: str, dest: str) -> str | None:
     """通过 Tavily Search API 搜索图片（include_images=True）"""
     try:
+        for img_url in _tavily_image_urls(query, limit=10):
+            if _download(img_url, dest):
+                return img_url
+        return None
+    except Exception:
+        return None
+
+
+def _tavily_image_urls(query: str, limit: int = 10) -> list[str]:
+    """Return up to ``limit`` Tavily image URLs without downloading them."""
+    try:
         api_keys = _get_tavily_keys()
         if not api_keys:
-            return None
+            return []
 
         data = None
         for index, api_key in enumerate(api_keys):
@@ -689,37 +825,59 @@ def _try_tavily_images(query: str, dest: str) -> str | None:
                     "api_key": api_key,
                     "query": query,
                     "include_images": True,
-                    "max_results": 5,
+                    "max_results": min(max(limit, 1), 10),
                 },
                 timeout=15,
             )
             if resp.status_code >= 400:
                 if _is_tavily_quota_response(resp) and index < len(api_keys) - 1:
                     continue
-                return None
+                return []
             data = resp.json()
             break
 
         if not data:
-            return None
-        images = data.get("images", [])
-        for img in images:
+            return []
+        urls = []
+        for img in data.get("images", [])[:limit]:
             img_url = img.get("url", "") if isinstance(img, dict) else str(img)
-            if not img_url:
-                continue
-            if _download(img_url, dest):
-                return img_url
-        return None
+            if img_url and img_url.startswith("http") and img_url not in urls:
+                urls.append(img_url)
+        return urls
     except Exception:
-        return None
+        return []
 
 
-def _render_osm_map(location: str, dest: str) -> bool:
+def _collect_tavily_candidates(db_path: str, images_root: str, company_name: str,
+                               asset_key: str, query: str, limit: int = 10) -> int:
+    """Download, inspect, score, and persist up to 10 Tavily image candidates."""
+    accepted = 0
+    for i, img_url in enumerate(_tavily_image_urls(query, limit=limit)[:limit]):
+        dest = _variant_path(images_root, company_name, asset_key, f"tv_{int(time.time())}_{i}")
+        if not _download(img_url, dest, timeout=30):
+            continue
+        if _persist_local_candidate(
+            db_path,
+            company_name,
+            asset_key,
+            dest,
+            "web_tavily",
+            source_url=img_url,
+            source_page=img_url,
+            prompt=query,
+            meta={"query": query},
+        ):
+            accepted += 1
+    return accepted
+
+
+def _render_osm_map(location: str, dest: str, label: str = "", legend: str = "") -> bool:
     """用 OSM 静态图 + HTML pin overlay 生成地图，失败再回退 Leaflet 截图。"""
     tmp_map = None
     try:
         # Geocode
-        geo_url = f"https://nominatim.openstreetmap.org/search?q={location}&format=json&limit=1"
+        geo_query = _geocode_search_text(location)
+        geo_url = f"https://nominatim.openstreetmap.org/search?q={geo_query}&format=json&limit=1"
         resp = requests.get(geo_url, headers={"User-Agent": "aistartups-cn/1.0"}, timeout=10)
         data = resp.json()
         if not data:
@@ -727,7 +885,8 @@ def _render_osm_map(location: str, dest: str) -> bool:
 
         lat = float(data[0]["lat"])
         lon = float(data[0]["lon"])
-        display_name = data[0].get("display_name", location)
+        display_name = label or data[0].get("display_name", location)
+        legend_text = legend or location
 
         # Guizang map component: static map raster + HTML pin/legend overlay.
         map_url = (f"https://staticmap.openstreetmap.de/staticmap.php"
@@ -736,7 +895,7 @@ def _render_osm_map(location: str, dest: str) -> bool:
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             tmp_map = f.name
         if _render_osm_tile_composite(lat, lon, tmp_map) or _download(map_url, tmp_map):
-            if _render_static_map_card(f"file://{tmp_map}", location, display_name, dest):
+            if _render_static_map_card(f"file://{tmp_map}", legend_text, display_name, dest):
                 return True
 
         # 回退：Leaflet HTML + Playwright
@@ -1058,31 +1217,15 @@ def _find_chromium() -> str:
     return ""
 
 
-def _playwright_screenshot(url: str, dest: str, width: int = 900, height: int = 600):
-    """Playwright 截网页全页或首屏"""
-    from playwright.sync_api import sync_playwright
-    with sync_playwright() as p:
-        exe = _find_chromium()
-        if not exe:
-            raise RuntimeError(
-                "找不到 Chromium 可执行文件。请执行 'playwright install chromium' 或设置 "
-                "PLAYWRIGHT_CHROMIUM_PATH 环境变量指向 chromium 可执行文件路径。"
-            )
-        browser = p.chromium.launch(
-            headless=True,
-            executable_path=exe,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-            ],
-        )
-        page = browser.new_page(viewport={"width": width, "height": height})
-        page.goto(url, wait_until="networkidle", timeout=30000)
-        page.wait_for_timeout(2000)
-        page.screenshot(path=dest, full_page=False)
-        browser.close()
+def _playwright_screenshot(url: str, dest: str, width: int = 900, height: int = 600,
+                           hide_selectors=None, full_viewport: bool = False):
+    """Playwright screenshot with login/captcha/empty-page validation."""
+    from screenshot_client import capture
+    result = capture(url, dest, provider=getattr(config, "SCREENSHOT_PROVIDER", "local"),
+                     viewport=(width, height), full_page=False,
+                     hide_selectors=hide_selectors, full_viewport=full_viewport)
+    if not result.ok:
+        raise RuntimeError(result.fail_reason or "截图失败")
 
 
 def _composite_horizontal(image_paths: list[str], dest: str, max_height: int = 400):
@@ -1138,7 +1281,8 @@ def _composite_grid(image_paths: list[str], dest: str, tile_size: int = 200,
 def _geocode_location(location: str) -> tuple | None:
     """Geocode location string via OSM Nominatim. Returns (lat, lon) or None."""
     try:
-        geo_url = f"https://nominatim.openstreetmap.org/search?q={location}&format=json&limit=1"
+        geo_query = _geocode_search_text(location)
+        geo_url = f"https://nominatim.openstreetmap.org/search?q={geo_query}&format=json&limit=1"
         resp = requests.get(geo_url, headers={"User-Agent": "aistartups-cn/1.0"}, timeout=10)
         data = resp.json()
         if not data:
@@ -1146,6 +1290,17 @@ def _geocode_location(location: str) -> tuple | None:
         return float(data[0]["lat"]), float(data[0]["lon"])
     except Exception:
         return None
+
+
+def _geocode_search_text(location: str) -> str:
+    """Remove suite/legal-notice fragments that make Nominatim miss exact addresses."""
+    text = re.sub(r"\s+", " ", str(location or "")).strip()
+    text = re.sub(r"\b(?:Ste|Suite|Unit|#)\s*[A-Za-z0-9-]+", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(\d{5})(?:-\d{4})\b", r"\1", text)
+    text = text.replace(".", "")
+    text = text.replace(",", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 def _fetch_street_view(lat: float, lon: float, api_key: str, dest: str,
@@ -1163,27 +1318,101 @@ def _fetch_street_view(lat: float, lon: float, api_key: str, dest: str,
     return _download(url, dest, timeout=20)
 
 
+_US_ADDRESS_RE = re.compile(
+    r"\b\d{1,6}\s+[A-Za-z0-9 .'-]+?\s+"
+    r"(?:St|Street|Ave|Avenue|Blvd|Boulevard|Road|Rd|Dr|Drive|Way|Lane|Ln)"
+    r"\.?(?:\s+(?:Ste|Suite|Unit|#)\s*[A-Za-z0-9-]+)?"
+    r"(?:,\s*|\s+)[A-Za-z .'-]+,\s*[A-Z]{2},?\s*\d{5}(?:-\d{4})?",
+    re.IGNORECASE,
+)
+
+
+def _is_specific_location(location: str) -> bool:
+    text = str(location or "").strip()
+    if not text:
+        return False
+    if re.search(r"\d{1,6}\s+\w+", text):
+        return True
+    return len([p for p in re.split(r"[,，]", text) if p.strip()]) >= 4
+
+
+def _official_domain_tokens(company_url: str) -> set[str]:
+    domain = _domain_from_url(company_url)
+    parts = domain.lower().split(".") if domain else []
+    return {p for p in parts if p not in {"www", "com", "ai", "io", "app", "co"}}
+
+
+def _extract_address(text: str) -> str:
+    clean = re.sub(r"\s+", " ", str(text or "")).strip()
+    match = _US_ADDRESS_RE.search(clean)
+    if not match:
+        return ""
+    return match.group(0).strip(" ,.")
+
+
+def _resolve_office_location(company_name: str, location: str, company_url: str = "") -> dict:
+    """Prefer a precise office/legal address over city-level HQ locations."""
+    if _is_specific_location(location):
+        return {"location": location, "source_url": "", "source": "research_location"}
+
+    domain_tokens = _official_domain_tokens(company_url)
+    if not domain_tokens:
+        return {"location": location, "source_url": "", "source": "city_fallback"}
+    queries = [
+        f"{company_name} headquarters address",
+        f"{company_name} office address",
+        f"{company_name} company address",
+    ]
+    best = None
+    for query in queries:
+        result = _search_tavily_query(query, include_images=False)
+        for item in result.get("results") or []:
+            address = _extract_address(" ".join([
+                item.get("title") or "",
+                item.get("content") or "",
+                item.get("raw_content") or "",
+            ]))
+            if not address:
+                continue
+            url = item.get("url") or ""
+            host = _domain_from_url(url).lower()
+            is_official = any(token and token in host for token in domain_tokens)
+            score = 100 if is_official else 50
+            candidate = {"location": address, "source_url": url, "source": "tavily_address", "score": score}
+            if best is None or candidate["score"] > best["score"]:
+                best = candidate
+    if best:
+        best.pop("score", None)
+        return best
+    return {"location": location, "source_url": "", "source": "city_fallback"}
+
+
 def _collect_office_variants(db_path: str, images_root: str, company_name: str,
-                             location: str, query_config: dict) -> int:
+                             location: str, query_config: dict, company_url: str = "") -> int:
     """Card 2: map first, then supplemental street-view/Tavily candidates."""
     from asset_store import insert_variant
 
     count = 0
     map_variant_id = None
+    resolved = _resolve_office_location(company_name, location, company_url)
+    map_location = resolved.get("location") or location
 
-    if location:
+    if map_location:
         dest = _variant_path(images_root, company_name, "office", "osm_map")
-        if _render_osm_map(location, dest):
+        if _render_osm_map(map_location, dest, label=company_name, legend=map_location):
             map_variant_id = insert_variant(
                 db_path, company_name, "office",
                 local_path=_variant_browser_path(company_name, dest),
                 source_type="osm_map",
+                source_url=resolved.get("source_url") or "",
+                prompt=map_location,
+                meta={"location_source": resolved.get("source"), "map_location": map_location},
             )
             count += 1
 
     # Supplemental Google Street View variants.
-    if config.GOOGLE_MAPS_API_KEY and location:
-        latlon = _geocode_location(location)
+    if config.GOOGLE_MAPS_API_KEY and map_location:
+        latlon = _geocode_location(map_location)
         if latlon:
             lat, lon = latlon
             for heading in [0, 90]:
@@ -1210,6 +1439,26 @@ def _collect_office_variants(db_path: str, images_root: str, company_name: str,
             )
             count += 1
 
+    # Supplemental homepage screenshot (full viewport, hide cookie banners).
+    if company_url:
+        try:
+            from screenshot_client import DEFAULT_HIDE_SELECTORS
+            dest = _variant_path(images_root, company_name, "office", "screenshot_homepage")
+            _playwright_screenshot(company_url, dest, width=900, height=600,
+                                   hide_selectors=DEFAULT_HIDE_SELECTORS, full_viewport=True)
+            if os.path.exists(dest) and os.path.getsize(dest) > 512:
+                insert_variant(
+                    db_path, company_name, "office",
+                    local_path=_variant_browser_path(company_name, dest),
+                    source_type="playwright",
+                    source_url=company_url,
+                    source_page=company_url,
+                    prompt="官网首页截图",
+                )
+                count += 1
+        except Exception:
+            pass  # Non-blocking
+
     if map_variant_id:
         select_variant(db_path, company_name, "office", map_variant_id)
 
@@ -1218,43 +1467,55 @@ def _collect_office_variants(db_path: str, images_root: str, company_name: str,
 
 def _collect_product_main_variants(db_path: str, images_root: str, company_name: str,
                                    query_config: dict) -> int:
-    """Card 4: Playwright + Tavily -> variants."""
-    from asset_store import insert_variant
+    """Card 4: official OG + Playwright + Tavily -> scored variants."""
 
     count = 0
 
-    # Playwright screenshots
+    # Official/product page OG image.
+    for url in (query_config.get("playwright_urls") or [])[:2]:
+        if not url or not url.startswith("http"):
+            continue
+        og_url = _extract_og_image(url)
+        if og_url:
+            if _collect_downloaded_candidate(
+                db_path, images_root, company_name, "product_main", og_url,
+                "official_og_image", f"og_{count}", source_page=url, prompt="official product og:image",
+            ):
+                count += 1
+
+    # Playwright screenshots.
     for url in (query_config.get("playwright_urls") or [])[:2]:
         if not url or not url.startswith("http"):
             continue
         dest = _variant_path(images_root, company_name, "product_main", f"pw_{count}")
         try:
             _playwright_screenshot(url, dest)
-            if os.path.exists(dest) and os.path.getsize(dest) > 512:
-                insert_variant(db_path, company_name, "product_main",
-                               local_path=_variant_browser_path(company_name, dest), source_type="playwright", source_url=url)
-                count += 1
+            if os.path.exists(dest):
+                if _persist_local_candidate(
+                    db_path, company_name, "product_main", dest, "playwright",
+                    source_url=url, source_page=url, prompt="product page screenshot",
+                ):
+                    count += 1
+                else:
+                    # rejected candidates are still saved for explainability.
+                    pass
         except Exception:
             pass
 
-    # Tavily
+    # Tavily: up to 10 images per query, persisted as accepted/rejected candidates.
     for q in (query_config.get("tavily_queries") or [])[:4]:
         if count >= 6:
             break
-        dest = _variant_path(images_root, company_name, "product_main", f"tv_{count}")
-        src_url = _try_tavily_images(q, dest)
-        if src_url:
-            insert_variant(db_path, company_name, "product_main",
-                           local_path=_variant_browser_path(company_name, dest), source_type="web_tavily", source_url=src_url)
-            count += 1
+        count += _collect_tavily_candidates(
+            db_path, images_root, company_name, "product_main", q, limit=10,
+        )
 
     return count
 
 
 def _collect_products_other_variants(db_path: str, images_root: str, company_name: str,
                                      query_config: dict) -> int:
-    """Card 5: Per product Playwright + Tavily -> variants."""
-    from asset_store import insert_variant
+    """Card 5: Per product OG + Playwright + Tavily -> scored variants."""
 
     count = 0
     for i, item in enumerate((query_config.get("per_product") or [])[:4]):
@@ -1265,14 +1526,22 @@ def _collect_products_other_variants(db_path: str, images_root: str, company_nam
         # Playwright
         pw_url = item.get("playwright_url", "")
         if pw_url and pw_url.startswith("http"):
+            og_url = _extract_og_image(pw_url)
+            if og_url and count < 6:
+                if _collect_downloaded_candidate(
+                    db_path, images_root, company_name, "products_other", og_url,
+                    "official_og_image", f"prod{i}_og", source_page=pw_url, prompt=name,
+                ):
+                    count += 1
             dest = _variant_path(images_root, company_name, "products_other", f"prod{i}_pw")
             try:
                 _playwright_screenshot(pw_url, dest)
-                if os.path.exists(dest) and os.path.getsize(dest) > 512:
-                    insert_variant(db_path, company_name, "products_other",
-                                   local_path=_variant_browser_path(company_name, dest), source_type="playwright",
-                                   source_url=pw_url, prompt=name)
-                    count += 1
+                if os.path.exists(dest):
+                    if _persist_local_candidate(
+                        db_path, company_name, "products_other", dest, "playwright",
+                        source_url=pw_url, source_page=pw_url, prompt=name,
+                    ):
+                        count += 1
             except Exception:
                 pass
 
@@ -1280,21 +1549,16 @@ def _collect_products_other_variants(db_path: str, images_root: str, company_nam
         for q in (item.get("tavily_queries") or [])[:2]:
             if count >= 6:
                 break
-            dest = _variant_path(images_root, company_name, "products_other", f"prod{i}_tv_{count}")
-            src_url = _try_tavily_images(q, dest)
-            if src_url:
-                insert_variant(db_path, company_name, "products_other",
-                               local_path=_variant_browser_path(company_name, dest), source_type="web_tavily",
-                               source_url=src_url, prompt=name)
-                count += 1
+            count += _collect_tavily_candidates(
+                db_path, images_root, company_name, "products_other", q, limit=10,
+            )
 
     return count
 
 
 def _collect_competitors_variants(db_path: str, images_root: str, company_name: str,
                                   query_config: dict) -> int:
-    """Card 7: Per competitor Playwright + Tavily + Clearbit fallback -> variants."""
-    from asset_store import insert_variant
+    """Card 7: Per competitor OG + Playwright + Tavily + Clearbit fallback."""
 
     count = 0
     for i, item in enumerate((query_config.get("per_comp") or [])[:3]):
@@ -1305,14 +1569,22 @@ def _collect_competitors_variants(db_path: str, images_root: str, company_name: 
         # Playwright
         pw_url = item.get("playwright_url", "")
         if pw_url and pw_url.startswith("http"):
+            og_url = _extract_og_image(pw_url)
+            if og_url and count < 6:
+                if _collect_downloaded_candidate(
+                    db_path, images_root, company_name, "competitors", og_url,
+                    "official_og_image", f"comp{i}_og", source_page=pw_url, prompt=name,
+                ):
+                    count += 1
             dest = _variant_path(images_root, company_name, "competitors", f"comp{i}_pw")
             try:
                 _playwright_screenshot(pw_url, dest)
-                if os.path.exists(dest) and os.path.getsize(dest) > 512:
-                    insert_variant(db_path, company_name, "competitors",
-                                   local_path=_variant_browser_path(company_name, dest), source_type="playwright",
-                                   source_url=pw_url, prompt=name)
-                    count += 1
+                if os.path.exists(dest):
+                    if _persist_local_candidate(
+                        db_path, company_name, "competitors", dest, "playwright",
+                        source_url=pw_url, source_page=pw_url, prompt=name,
+                    ):
+                        count += 1
             except Exception:
                 pass
 
@@ -1320,22 +1592,20 @@ def _collect_competitors_variants(db_path: str, images_root: str, company_name: 
         for q in (item.get("tavily_queries") or [])[:2]:
             if count >= 6:
                 break
-            dest = _variant_path(images_root, company_name, "competitors", f"comp{i}_tv_{count}")
-            src_url = _try_tavily_images(q, dest)
-            if src_url:
-                insert_variant(db_path, company_name, "competitors",
-                               local_path=_variant_browser_path(company_name, dest), source_type="web_tavily",
-                               source_url=src_url, prompt=name)
-                count += 1
+            count += _collect_tavily_candidates(
+                db_path, images_root, company_name, "competitors", q, limit=10,
+            )
 
         # Clearbit logo fallback
         domain = _guess_domain(name)
         if domain:
             dest = _variant_path(images_root, company_name, "competitors", f"comp{i}_cb")
             if _download(f"https://logo.clearbit.com/{domain}", dest):
-                insert_variant(db_path, company_name, "competitors",
-                               local_path=_variant_browser_path(company_name, dest), source_type="clearbit", prompt=name)
-                count += 1
+                if _persist_local_candidate(
+                    db_path, company_name, "competitors", dest, "clearbit",
+                    source_url=f"https://logo.clearbit.com/{domain}", prompt=name,
+                ):
+                    count += 1
 
     return count
 
@@ -1345,16 +1615,19 @@ def collect_image_variants_pipeline(
     db_path: str, images_root: str, company_name: str,
     company_data: dict,
     progress_callback=None, job_id: str = None,
+    asset_key: str = "",
 ) -> dict[str, int]:
-    """研究流水线图片采集阶段入口。逐一采集 4 个卡片的变体并报告进度。"""
+    """研究流水线图片采集阶段入口。逐一采集 4 个卡片的变体并报告进度。
+    如果指定 asset_key，只采集该槽位。"""
     query_config = build_image_queries(company_data)
     location = company_data.get("location", "")
+    company_url = company_data.get("company_url") or company_data.get("website_url") or ""
 
     ensure_assets_rows(db_path, company_name)
 
     stages = [
         ("office", "卡片2：公司位置地图", lambda: _collect_office_variants(
-            db_path, images_root, company_name, location, query_config.get("office", {}))),
+            db_path, images_root, company_name, location, query_config.get("office", {}), company_url)),
         ("product_main", "卡片4：主产品截图", lambda: _collect_product_main_variants(
             db_path, images_root, company_name, query_config.get("product_main", {}))),
         ("products_other", "卡片5：其他产品截图", lambda: _collect_products_other_variants(
@@ -1362,6 +1635,10 @@ def collect_image_variants_pipeline(
         ("competitors", "卡片7：竞争格局截图", lambda: _collect_competitors_variants(
             db_path, images_root, company_name, query_config.get("competitors", {}))),
     ]
+
+    # 如果指定了 asset_key，只跑对应阶段
+    if asset_key:
+        stages = [(k, l, c) for k, l, c in stages if k == asset_key]
 
     results = {}
     for i, (asset_key, label, collector) in enumerate(stages):
@@ -1377,7 +1654,9 @@ def collect_image_variants_pipeline(
             if n > 0:
                 variants = list_variants(db_path, company_name, asset_key)
                 if variants and not any(v.get("is_selected") for v in variants):
-                    select_variant(db_path, company_name, asset_key, variants[0]["id"])
+                    ready = [v for v in variants if not v.get("reject_reason")]
+                    if ready:
+                        select_variant(db_path, company_name, asset_key, ready[0]["id"], auto_selected=True)
             upsert_asset(db_path, company_name, asset_key,
                         status="ready" if n > 0 else "failed")
             if progress_callback:

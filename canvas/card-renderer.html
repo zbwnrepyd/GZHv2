@@ -259,7 +259,7 @@
     min-height: 0;
     overflow: hidden;
     display: grid;
-    grid-template-rows: 44px minmax(0, 1fr) 24px;
+    grid-template-rows: 44px minmax(0, 1fr) auto 24px;
   }
   #canvas-toolbar {
     background: var(--panel);
@@ -398,6 +398,110 @@
     font-size: 12px;
     line-height: 1.45;
   }
+  /* ── 参数调节 Bar ── */
+  #param-bar {
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    max-height: 36px;
+    overflow: hidden;
+    transition: max-height .2s ease;
+  }
+  #param-bar.is-open {
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .param-bar-header {
+    height: 36px;
+    padding: 0 12px;
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+    background: #F8FAFC;
+  }
+  .param-bar-header:hover { background: #F1F5F9; }
+  #param-bar-toggle {
+    border: 0; background: none; padding: 0;
+    font-size: 12px; font-weight: 700; color: #475569;
+    cursor: pointer; display: flex; align-items: center; gap: 4px;
+  }
+  #param-bar-toggle .arrow { transition: transform .16s; display: inline-block; }
+  #param-bar.is-open #param-bar-toggle .arrow { transform: rotate(180deg); }
+  #param-bar-saved { font-size: 11px; color: var(--cyan); font-weight: 600; }
+  .param-bar-body { padding: 0 12px 10px; }
+  #param-bar:not(.is-open) .param-bar-body { display: none; }
+
+  /* 2 列，每列可独立纵向滚动 */
+  .param-sections {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  }
+
+  .param-section {
+    border: 1px solid var(--border); border-radius: 6px;
+    background: #fff; overflow: hidden;
+  }
+  .param-section-header {
+    width: 100%; border: 0; background: #FAFBFC;
+    padding: 6px 10px; font-size: 11px; font-weight: 700; color: #475569;
+    cursor: pointer; text-align: left; user-select: none;
+  }
+  .param-section-header::before {
+    content: '▾'; font-size: 9px; margin-right: 4px; transition: transform .15s;
+  }
+  .param-section-header.collapsed::before { transform: rotate(-90deg); }
+  .param-section-content { padding: 8px 10px; }
+  .param-section-header.collapsed + .param-section-content { display: none; }
+
+  .param-row {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 5px;
+  }
+  .param-row label {
+    width: 80px; min-width: 80px; font-size: 11px; color: var(--muted);
+    text-align: right;
+  }
+  .param-row input[type="range"] {
+    flex: 1; min-width: 60px; accent-color: var(--cyan);
+    height: 18px; cursor: pointer;
+  }
+  .param-row .param-val {
+    width: 36px; font-size: 11px; color: #1a1a2e; text-align: left;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .param-colors {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .param-color-item {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .param-color-item label {
+    width: 56px; font-size: 11px; color: var(--muted); text-align: right;
+  }
+  .param-color-hex {
+    width: 32px; height: 22px; border: 1px solid #CBD5E1; border-radius: 4px;
+    padding: 0; cursor: pointer; background: none;
+  }
+  .param-color-text {
+    width: 130px; height: 22px; border: 1px solid var(--border); border-radius: 4px;
+    font-size: 11px; padding: 0 6px; color: var(--text);
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  .param-color-swatch {
+    width: 18px; height: 18px; border-radius: 3px;
+    border: 1px solid rgba(0,0,0,.12); flex-shrink: 0;
+  }
+
+  .param-bar-actions {
+    display: flex; gap: 8px; padding-top: 8px;
+    border-top: 1px solid var(--border); margin-top: 8px;
+  }
+  .btn-sm { height: 26px; font-size: 11px; }
+
+  /* ── iframe 双击编辑 ── */
+  [contenteditable="true"] {
+    outline: 2px solid var(--cyan) !important;
+    background: rgba(41,184,212,.06);
+  }
+
   @media (max-width: 900px) {
     #card-workbench {
       grid-template-columns: 132px minmax(0, 1fr) minmax(260px, 44vw);
@@ -442,6 +546,20 @@
           </button>
           <div class="accordion-panel">
             <nav id="card-nav"></nav>
+            <div id="card3-toggle-row" style="display:none;margin-top:10px;padding:6px 0;border-top:1px solid var(--border)">
+              <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);cursor:pointer">
+                <input type="checkbox" id="card3-show-image">
+                显示图片
+              </label>
+            </div>
+          </div>
+        </section>
+        <section class="left-accordion" id="templates-accordion">
+          <button class="accordion-trigger" type="button" data-accordion-target="templates-accordion">
+            模板 <span class="accordion-count" id="template-count">0</span>
+          </button>
+          <div class="accordion-panel">
+            <nav id="template-list"></nav>
           </div>
         </section>
         <section class="left-accordion" id="image-folder-accordion">
@@ -451,12 +569,17 @@
           <div class="accordion-panel">
             <div class="image-folder-tools">
               <label class="bg-upload-label">
+                公众号 Logo
+                <input class="hidden-file-input" type="file" accept="image/*" id="gzh-logo-input">
+                <button class="btn full-width" type="button" onclick="document.getElementById('gzh-logo-input').click()">选择公众号 Logo</button>
+              </label>
+              <button class="btn full-width bg-clear-btn" style="margin-bottom:8px" type="button" onclick="Workbench.clearGzhLogo()">清除公众号 Logo</button>
+              <label class="bg-upload-label">
                 背景水印
                 <input class="hidden-file-input" type="file" accept="image/*" id="bg-file-input">
                 <button class="btn full-width" type="button" onclick="document.getElementById('bg-file-input').click()">选择本地图片</button>
               </label>
               <button class="btn full-width bg-clear-btn" type="button" onclick="BgLoader.clear();window.reloadCurrentCard&&window.reloadCurrentCard()">清除背景</button>
-              <p class="hint">上传图片作为卡片水印背景，保存在本机浏览器。</p>
               <p class="hint">图片在研究完成后自动采集，手动管理请前往图片定稿台。</p>
             </div>
             <div id="image-folder">
@@ -467,7 +590,7 @@
       </div>
       <div class="section spaced">
         <button class="btn primary full-width" id="btn-export-all">导出全部 PNG</button>
-        <p class="hint">命令行导出默认读取数据库；源码改动保存在本机浏览器。</p>
+        <p class="hint" id="export-path-hint">点击"导出全部 PNG"后，命令已复制到剪贴板，在终端粘贴执行。默认输出目录：output/cards/&lt;公司名&gt;/</p>
       </div>
     </div>
   </aside>
@@ -479,10 +602,18 @@
         <a class="btn" id="btn-back-research" href="/editor">返回定稿台</a>
         <button class="btn" id="btn-fit">适配窗口</button>
 <button class="btn primary" id="btn-export-current">导出当前</button>
+<button class="btn" id="btn-param-editor">参数编辑器</button>
       </div>
     </div>
     <div id="canvas-stage">
       <iframe id="card-frame" title="卡片预览"></iframe>
+    </div>
+    <div id="param-bar">
+      <div class="param-bar-header">
+        <button id="param-bar-toggle"><span class="arrow">▸</span> 参数调节</button>
+        <span id="param-bar-saved"></span>
+      </div>
+      <div class="param-bar-body" id="param-bar-body"></div>
     </div>
     <div id="status-msg">就绪</div>
   </section>
@@ -500,8 +631,9 @@
       <button class="btn active" id="btn-source-all">全部</button>
       <button class="btn" id="btn-source-css">CSS</button>
       <button class="btn" id="btn-source-html">HTML</button>
-      <button class="btn span-all" id="btn-inspect-source">检查画布元素</button>
-      <button class="btn primary span-all" id="btn-save-source">保存当前页源码</button>
+      <button class="btn btn-sm" id="btn-inspect-source">检查元素</button>
+      <button class="btn btn-sm" id="btn-import-template">导入模板</button>
+      <button class="btn primary btn-sm" id="btn-save-template">保存模板</button>
     </div>
   </aside>
 </main>
@@ -512,6 +644,7 @@
 <script src="/canvas/js/source-editor.js"></script>
 <script src="/canvas/js/export-client.js"></script>
 <script src="/canvas/js/bg-loader.js"></script>
+<script src="/canvas/js/param-controls.js"></script>
 <script>
 const CARD_TABS = {
   1: '首页',
@@ -529,15 +662,30 @@ const Workbench = {
   currentCard: 1,
   allCardData: {},
   selectedImages: {},
+  card3ShowImage: false,  // 卡片3默认文字排版
+  gzhLogoUrl: '',         // 公众号 logo
+  _activeTemplateIdx: -1, // 当前选中的模板索引
+  paramOverrides: null,   // 参数覆盖（来自 ParamControls）
 
   async init() {
     BgLoader.init();
     const params = new URLSearchParams(window.location.search);
     this.companyName = params.get('company') || '';
+    this.card3ShowImage = localStorage.getItem('aistartups.card3ShowImage') === 'true';
+    this.gzhLogoUrl = localStorage.getItem('aistartups.gzhLogoUrl') || '/images/gzh-logo.jpg';
     this.updateCompanyDisplay();
     this.updateBackLink();
     this.bindEvents();
     this.renderNav();
+
+    // 初始化参数控件
+    ParamControls.init({
+      onChange: (p) => this.onParamsChanged(p),
+    });
+    this.paramOverrides = ParamControls.getParams();
+
+    await this.ensureDefaultTemplates();
+    await this.renderTemplateList();
     SourceEditor.init({
       getCompanyName: () => this.companyName,
       getCurrentCard: () => this.currentCard,
@@ -545,7 +693,9 @@ const Workbench = {
       getDefaultSource: () => this.defaultSourceForCurrentCard(),
       refreshPreview: () => this.refreshPreview(),
       setStatus: (msg, type) => this.setStatus(msg, type),
+      onTemplateSaved: () => this.renderTemplateList(),
     });
+    SourceEditor.setSaveAllCardsCallback(() => this.saveAllCardsAsTemplate());
 
     if (this.companyName) {
       await this.loadCompany();
@@ -560,6 +710,15 @@ const Workbench = {
     document.getElementById('btn-fit').addEventListener('click', () => this.fitFrame());
     document.getElementById('btn-export-current').addEventListener('click', () => ExportClient.exportCurrent(this));
     document.getElementById('btn-export-all').addEventListener('click', () => ExportClient.exportAll(this));
+    document.getElementById('btn-param-editor').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.toggleParamBar();
+    });
+    // 参数 bar 折叠/展开
+    document.getElementById('param-bar-toggle')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleParamBar();
+    });
     window.addEventListener('resize', () => this.updateFrameScale());
     const bgInput = document.getElementById('bg-file-input');
     if (bgInput) {
@@ -570,6 +729,46 @@ const Workbench = {
         this.refreshPreview();
       });
     }
+    // 公众号 Logo 上传
+    const gzhInput = document.getElementById('gzh-logo-input');
+    if (gzhInput) {
+      gzhInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        this.setGzhLogoFromFile(file);
+      });
+    }
+    // 卡片3 显示图片开关
+    const card3Toggle = document.getElementById('card3-show-image');
+    if (card3Toggle) {
+      card3Toggle.checked = this.card3ShowImage;
+      card3Toggle.addEventListener('change', () => {
+        this.card3ShowImage = card3Toggle.checked;
+        localStorage.setItem('aistartups.card3ShowImage', String(this.card3ShowImage));
+        this.refreshPreview();
+      });
+    }
+    // 模板导入 — 点击按钮动态创建文件选择器
+    document.getElementById('btn-import-template')?.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const imported = JSON.parse(reader.result);
+            this.importTemplate(imported);
+          } catch (err) {
+            this.setStatus('模板文件解析失败：' + err.message, 'error');
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    });
     window.reloadCurrentCard = () => this.refreshPreview();
   },
 
@@ -644,8 +843,10 @@ const Workbench = {
       button.classList.toggle('active', i === this.currentCard);
       button.classList.toggle('empty', !this.allCardData[i]);
       button.addEventListener('click', async () => {
+        SourceEditor.autoSaveCurrentCard(this.currentCard);
         this.currentCard = i;
         this.renderNav();
+        this.renderTemplateList();
         await this.refreshPreview();
       });
       nav.appendChild(button);
@@ -653,6 +854,9 @@ const Workbench = {
     const count = Object.keys(this.allCardData).length;
     const countEl = document.getElementById('card-count');
     if (countEl) countEl.textContent = `${count}/8`;
+    // 卡片3 图片开关只在卡片3时显示
+    const toggleRow = document.getElementById('card3-toggle-row');
+    if (toggleRow) toggleRow.style.display = this.currentCard === 3 ? '' : 'none';
   },
 
   cardLabel(cardIndex) {
@@ -733,6 +937,9 @@ const Workbench = {
     if (selectedImage) {
       cardData._selectedImage = selectedImage;
     }
+    if (this.gzhLogoUrl) {
+      cardData._gzhLogo = this.gzhLogoUrl;
+    }
     return cardData;
   },
 
@@ -741,7 +948,78 @@ const Workbench = {
       companyName: this.companyName,
       cardIndex: this.currentCard,
       cardData: this.currentCardDataWithImage(),
+      showImage: this.currentCard === 3 ? this.card3ShowImage : undefined,
+      paramOverrides: this.paramOverrides,
     });
+  },
+
+  // 参数变更时：重新生成 source，直接注入 iframe（不刷新整个页面）
+  onParamsChanged(params) {
+    this.paramOverrides = params;
+    const source = this.defaultSourceForCurrentCard();
+    const frame = document.getElementById('card-frame');
+    if (frame && frame.contentDocument) {
+      try {
+        renderSourceIntoDocument(frame.contentDocument, source);
+        this._setupEditing(frame);
+        // 同步更新源码编辑器
+        if (SourceEditor && SourceEditor.setEditorValue) {
+          SourceEditor.setEditorValue(source);
+        }
+      } catch (e) {
+        // 跨域或未加载完成时走完整刷新
+        this.refreshPreview();
+      }
+    }
+  },
+
+  // 切换参数 bar 展开/折叠
+  toggleParamBar() {
+    const bar = document.getElementById('param-bar');
+    if (!bar) return;
+    bar.classList.toggle('is-open');
+  },
+
+  // ── iframe 内双击编辑文字（始终开启）──
+  _editSelectors: 'h1,h2,h3,p,.md-value,.md-label,.p1-title,.p1-tagline,.p1-type-section,.card-image-title',
+
+  _onDblClick(e) {
+    const el = e.target.closest(Workbench._editSelectors);
+    if (!el || el.isContentEditable) return;
+    e.preventDefault();
+    el.contentEditable = 'true';
+    el.focus();
+    window.getSelection().selectAllChildren(el);
+  },
+
+  _onBlur(e) {
+    if (!e.target.isContentEditable) return;
+    e.target.contentEditable = 'false';
+    Workbench._saveInlineEdit();
+  },
+
+  _onKeydown(e) {
+    if (!e.target.isContentEditable) return;
+    if (e.key === 'Escape') e.target.blur();
+    else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); }
+  },
+
+  _saveInlineEdit() {
+    const frame = document.getElementById('card-frame');
+    if (!frame || !frame.contentDocument) return;
+    const doc = frame.contentDocument;
+    const article = doc.querySelector('.knowledge-card');
+    if (!article) return;
+    article.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+    const styleEl = doc.querySelector('style.card-dynamic');
+    const css = styleEl ? styleEl.textContent : '';
+    const source = `<style>\n${css}\n</style>\n${article.outerHTML.trim()}\n`;
+    if (SourceEditor && SourceEditor.saveCurrentCard) {
+      SourceEditor.saveCurrentCard(this.currentCard, source);
+    }
+    if (SourceEditor && SourceEditor.setEditorValue) {
+      SourceEditor.setEditorValue(source);
+    }
   },
 
   async refreshPreview() {
@@ -764,10 +1042,20 @@ const Workbench = {
     const source = SourceEditor.loadCurrentSource(defaultSource);
     SourceEditor.setEditorValue(source);
     SourceEditor.applyToFrame(frame, source);
+    this._setupEditing(frame);
     const title = cardData._title || CARD_TABS[this.currentCard] || `卡片${this.currentCard}`;
     document.getElementById('canvas-title').textContent = `卡片${this.currentCard} · ${title}`;
     this.renderImageFolder();
     this.updateFrameScale();
+  },
+
+  // 内容替换后重新挂编辑钩子
+  _setupEditing(frame) {
+    const doc = frame && frame.contentDocument;
+    if (!doc) return;
+    doc.addEventListener('dblclick', this._onDblClick);
+    doc.addEventListener('blur', this._onBlur, true);
+    doc.addEventListener('keydown', this._onKeydown, true);
   },
 
   currentSource() {
@@ -783,6 +1071,160 @@ const Workbench = {
     const stage = document.getElementById('canvas-stage');
     const frame = document.getElementById('card-frame');
     fitFrameToStage(stage, frame);
+  },
+
+  // ── 公众号 Logo ──
+  async setGzhLogoFromFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      this.gzhLogoUrl = reader.result;
+      localStorage.setItem('aistartups.gzhLogoUrl', this.gzhLogoUrl);
+      this.refreshPreview();
+      this.setStatus('公众号 Logo 已设置。', 'success');
+    };
+    reader.readAsDataURL(file);
+  },
+
+  clearGzhLogo() {
+    this.gzhLogoUrl = '';
+    localStorage.removeItem('aistartups.gzhLogoUrl');
+    this.refreshPreview();
+    this.setStatus('公众号 Logo 已清除。', 'success');
+  },
+
+  // ── 模板列表（全系统共享，不区分公司）──
+  TEMPLATE_KEY: 'aistartups.templates',
+
+  async ensureDefaultTemplates() {
+    try {
+      const existing = localStorage.getItem(this.TEMPLATE_KEY);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        if (parsed._sets && parsed._sets.length > 0) return;
+      }
+      const resp = await fetch('/canvas/default-templates.json');
+      if (resp.ok) {
+        const data = await resp.json();
+        localStorage.setItem(this.TEMPLATE_KEY, JSON.stringify(data));
+      }
+    } catch { /* 加载失败则用空模板 */ }
+  },
+
+  loadTemplates() {
+    try {
+      return JSON.parse(localStorage.getItem(this.TEMPLATE_KEY) || '{}');
+    } catch { return {}; }
+  },
+
+  saveTemplates(map) {
+    localStorage.setItem(this.TEMPLATE_KEY, JSON.stringify(map));
+  },
+
+  importTemplate(imported) {
+    // 支持导入模板集（{_sets:[...]}）或单个模板集
+    const map = this.loadTemplates();
+    const sets = map._sets || [];
+    let added = 0;
+
+    const toImport = imported._sets || (imported.name && imported.cards ? [imported] : []);
+    for (const set of toImport) {
+      if (!set.name || !set.cards) continue;
+      sets.push({
+        name: set.name,
+        cards: set.cards,
+        createdAt: set.createdAt || new Date().toLocaleDateString('zh'),
+      });
+      added++;
+    }
+    map._sets = sets;
+    this.saveTemplates(map);
+    this.renderTemplateList();
+    this.setStatus(`已导入 ${added} 个模板集。`, 'success');
+  },
+
+  // 保存全部8张为模板集
+  saveAllCardsAsTemplate() {
+    const map = this.loadTemplates();
+    const sets = map._sets || [];
+    const name = prompt('模板集名称：', `模板集-${sets.length + 1}`);
+    if (!name) return;
+
+    // 收集当前8张卡的源码
+    const cards = {};
+    const savedCard = this.currentCard;
+    for (let i = 1; i <= 8; i++) {
+      this.currentCard = i;
+      const cardData = this.currentCardDataWithImage();
+      cards[i] = renderCardSource({
+        companyName: this.companyName,
+        cardIndex: i,
+        cardData,
+        showImage: i === 3 ? this.card3ShowImage : undefined,
+      });
+    }
+    this.currentCard = savedCard;
+
+    const now = new Date();
+    const createdAt = `${now.getMonth()+1}/${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    sets.push({ name: name.trim(), cards, createdAt });
+    map._sets = sets;
+    this.saveTemplates(map);
+    this.renderTemplateList();
+    this.setStatus(`模板集"${name.trim()}"已保存（8张卡片）。`, 'success');
+  },
+
+  exportAllTemplates() {
+    const map = this.loadTemplates();
+    const blob = new Blob([JSON.stringify(map, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'aistartups-templates.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  async renderTemplateList() {
+    const nav = document.getElementById('template-list');
+    const countEl = document.getElementById('template-count');
+
+    // 如果 localStorage 无模板数据，先尝试加载默认集
+    if (!localStorage.getItem(this.TEMPLATE_KEY)) {
+      await this.ensureDefaultTemplates();
+    }
+
+    const map = this.loadTemplates();
+    const sets = map._sets || [];
+    if (countEl) countEl.textContent = String(sets.length);
+
+    if (nav) {
+      if (!sets.length) {
+        nav.innerHTML = '<p style="padding:8px;font-size:12px;color:var(--muted)">暂无模板。<br>编辑源码后点"保存模板"保存全部8张。</p>';
+      } else {
+        nav.innerHTML = sets.map((s, idx) => {
+          const isActive = idx === this._activeTemplateIdx;
+          return `
+          <button class="card-tab template-tab ${isActive ? 'active' : ''}" data-idx="${idx}" style="justify-content:flex-start;gap:6px">
+            <span style="flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.esc(s.name)}</span>
+            <span style="font-size:10px;color:var(--muted)">${this.esc(s.createdAt || '')}</span>
+          </button>
+        `;}).join('');
+        nav.querySelectorAll('.template-tab').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx);
+            const allSets = (this.loadTemplates()._sets || []);
+            const set = allSets[idx];
+            if (set && set.cards && set.cards[String(this.currentCard)]) {
+              SourceEditor.setEditorValue(set.cards[String(this.currentCard)]);
+              SourceEditor.previewEditorSource();
+              this._activeTemplateIdx = idx;
+              this.renderTemplateList();
+              this.setStatus(`已加载模板集"${set.name}"的卡片${this.currentCard}。`, 'success');
+            }
+          });
+        });
+      }
+    }
   },
 
   setStatus(message, type = 'info') {

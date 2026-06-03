@@ -67,18 +67,37 @@ class PipelineFailureTests(unittest.TestCase):
                 "data_confidence": "中",
             }
 
+        # 枚举组 mock（3组各3字段）
+        enum_a = '{"ai_model_dependency":"multi_model","data_flywheel":"partial","proprietary_data_asset":"yes_supplementary"}'
+        enum_b = '{"incumbent_direct_competitor":"multiple","workflow_integration_level":"workflow_embedded","inference_cost_exposure":"medium"}'
+        enum_c = '{"pricing_model":"subscription","customer_segment_type":"b2b2c","stack_layer":"vertical_app"}'
+        vote_ai = '{"ai_model_dependency":"multi_model"}'
+        vote_inc = '{"incumbent_direct_competitor":"multiple"}'
+        vote_price = '{"pricing_model":"subscription"}'
+
+        # 每个版本：L3(1) + 枚举组ABC(3) + 投票(3) + founder retry(1) = 8 calls
+        e = [enum_a, enum_b, enum_c, vote_ai, vote_inc, vote_price]  # 6 enum calls per version
         responses = [
-            "创始人 Ada Demo 毕业于 MIT，曾创办 Demo Labs 并获行业奖项。",
-            "layer1",
-            "layer2",
-            str(record()).replace("'", '"'),
-            str(record("MIT", "创办 Demo Labs，获行业奖项")).replace("'", '"'),
-            str(record("MIT", "创办 Demo Labs")).replace("'", '"'),
-            str(record("MIT", "创办 Demo Labs")).replace("'", '"'),
+            "创始人 Ada Demo 毕业于 MIT，曾创办 Demo Labs 并获行业奖项。",  # L0
+            "layer1",                                                       # L1
+            "layer2",                                                       # L2
+            # ── standard 版本 ──
+            str(record()).replace("'", '"'),                                # L3
+            *e,
+            str(record("MIT", "创办 Demo Labs，获行业奖项")).replace("'", '"'),  # founder
+            # ── business 版本 ──
+            str(record()).replace("'", '"'),                                # L3
+            *e,
+            str(record("MIT", "创办 Demo Labs")).replace("'", '"'),         # founder
+            # ── spread 版本 ──
+            str(record()).replace("'", '"'),                                # L3
+            *e,
+            str(record("MIT", "创办 Demo Labs")).replace("'", '"'),         # founder
         ]
         events = []
 
-        with patch.object(pipeline, "call_deepseek", side_effect=responses) as call:
+        with patch.object(pipeline, "call_deepseek", side_effect=responses) as call, \
+             patch.object(pipeline, "run_rule_layer", return_value={}):
             records = pipeline.llm_analysis(
                 "DemoCo",
                 "https://demo.example",
@@ -86,7 +105,7 @@ class PipelineFailureTests(unittest.TestCase):
                 lambda stage, detail: events.append((stage, detail)),
             )
 
-        self.assertEqual(call.call_count, 7)
+        self.assertGreater(call.call_count, 7)  # 比原7次多出枚举提取调用
         self.assertEqual(records[0]["founder_edu"], "MIT")
         self.assertEqual(records[0]["founder_achievement"], "创办 Demo Labs，获行业奖项")
         self.assertFalse(any(stage == "补抓" for stage, _ in events))
@@ -137,7 +156,7 @@ class PipelineFailureTests(unittest.TestCase):
     def test_tavily_search_tries_next_key_after_quota_limit(self):
         calls = []
 
-        def fake_post(url, json, timeout):
+        def fake_post(url, json, timeout, proxies=None):
             calls.append(json["api_key"])
             if json["api_key"] == "quota-key":
                 return FakeResponse(

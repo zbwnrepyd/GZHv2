@@ -1,15 +1,19 @@
 -- company_assets: 公司图片资产追踪表
--- 每家公司固定 7 个 asset_key，按 card_index 对应卡片
+-- 每家公司固定资产槽位，按 card_index 对应卡片
 CREATE TABLE IF NOT EXISTS company_assets (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   company_name TEXT    NOT NULL,
-  asset_key    TEXT    NOT NULL,  -- logo|office|product_main|products_other|competitors|flywheel|timeline
+  asset_key    TEXT    NOT NULL,  -- logo|office|product_main|products_other|competitors|flywheel|timeline|positioning_charts
   card_index   INTEGER NOT NULL,
   local_path   TEXT,
   source_type  TEXT,              -- favicon|web_search|screenshot|composite|svg_render|api_generate
   source_url   TEXT,
   prompt       TEXT,
   status       TEXT    DEFAULT 'missing',  -- missing|ready|generating|failed
+  selected_variant_id INTEGER,
+  final_score  REAL    DEFAULT 0,
+  auto_selected INTEGER DEFAULT 0,
+  fail_reason  TEXT,
   meta_json    TEXT,
   updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(company_name, asset_key)
@@ -31,6 +35,16 @@ CREATE TABLE IF NOT EXISTS image_variants (
   license         TEXT,               -- 版权说明
   attribution_req INTEGER DEFAULT 0,  -- 1=用户选择标注来源
   prompt          TEXT,               -- AI 生图时使用的 prompt
+  width           INTEGER,
+  height          INTEGER,
+  file_size       INTEGER,
+  aspect_ratio    REAL,
+  quality_score   REAL DEFAULT 0,
+  relevance_score REAL DEFAULT 0,
+  source_score    REAL DEFAULT 0,
+  final_score     REAL DEFAULT 0,
+  reject_reason   TEXT,
+  meta_json       TEXT,
   is_selected     INTEGER DEFAULT 0,  -- 1=当前选定版本
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );

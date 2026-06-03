@@ -1,0 +1,46 @@
+[
+  {
+    "company_name": "Harvey",
+    "description": "AI legal platform for law firms, trains on firm's own case data. Proprietary models fine-tuned on legal datasets. Enterprise contracts with BigLaw firms.",
+    "funding_stage": "series_b",
+    "website": "harvey.ai",
+    "expected_scores": {
+      "score_defensibility": 8.5,
+      "score_incumbent_attention": 6.5,
+      "score_value_capture": 8.5
+    }
+  },
+  {
+    "company_name": "Perplexity",
+    "description": "AI-powered answer engine with real-time search. Ad-supported free tier and Pro subscription ($20/mo). Competes with Google search and ChatGPT.",
+    "funding_stage": "series_b",
+    "website": "perplexity.ai",
+    "expected_scores": {
+      "score_defensibility": 5.5,
+      "score_incumbent_attention": 9.0,
+      "score_value_capture": 5.0
+    }
+  },
+  {
+    "company_name": "LangChain",
+    "description": "Open-source framework for building LLM applications. Developer tools and orchestration layer. Revenue from LangSmith platform (usage-based).",
+    "funding_stage": "series_a",
+    "website": "langchain.com",
+    "expected_scores": {
+      "score_defensibility": 5.0,
+      "score_incumbent_attention": 4.5,
+      "score_value_capture": 4.0
+    }
+  },
+  {
+    "company_name": "Generic Wrapper",
+    "description": "ChatGPT wrapper with custom UI, no proprietary model or data. Thin layer over OpenAI API. No data flywheel or defensible moat.",
+    "funding_stage": "pre_seed",
+    "website": "",
+    "expected_scores": {
+      "score_defensibility": 1.5,
+      "score_incumbent_attention": 2.0,
+      "score_value_capture": 2.0
+    }
+  }
+]

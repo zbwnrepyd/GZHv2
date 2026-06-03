@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, "webapp"))
@@ -214,6 +215,63 @@ class ImageRouteTests(unittest.TestCase):
         self.assertEqual(variants[0]["source_type"], "api_generate")
         self.assertEqual(variants[0]["is_selected"], 1)
 
+    def test_variants_endpoint_returns_scored_variants(self):
+        asset_store.insert_variant(
+            self.assets_db_path,
+            "DemoCo",
+            "product_main",
+            local_path="/images/DemoCo/variants/og.png",
+            source_type="official_og_image",
+            width=1200,
+            height=630,
+            file_size=180000,
+            final_score=86.5,
+        )
+
+        response = self.client.get("/api/image-studio/DemoCo/product_main/variants")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["asset_key"], "product_main")
+        self.assertEqual(payload["variants"][0]["width"], 1200)
+        self.assertAlmostEqual(payload["variants"][0]["final_score"], 86.5)
+
+    def test_rescore_endpoint_updates_scores_and_selects_best_variant(self):
+        low_id = asset_store.insert_variant(
+            self.assets_db_path,
+            "DemoCo",
+            "product_main",
+            local_path="/images/DemoCo/variants/tavily.png",
+            source_type="web_tavily",
+            width=400,
+            height=260,
+            file_size=30000,
+            source_url="https://cdn.example/random.png",
+        )
+        high_id = asset_store.insert_variant(
+            self.assets_db_path,
+            "DemoCo",
+            "product_main",
+            local_path="/images/DemoCo/variants/official.png",
+            source_type="official_og_image",
+            width=1200,
+            height=630,
+            file_size=180000,
+            source_url="https://demo.example/product-og.png",
+            source_page="https://demo.example/product",
+            prompt="DemoCo product dashboard screenshot",
+        )
+
+        response = self.client.post("/api/image-studio/DemoCo/product_main/rescore")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["selected_variant_id"], high_id)
+        self.assertGreater(payload["variants"][0]["final_score"], payload["variants"][1]["final_score"])
+        asset = asset_store.get_asset(self.assets_db_path, "DemoCo", "product_main")
+        self.assertEqual(asset["selected_variant_id"], high_id)
+        self.assertNotEqual(asset["selected_variant_id"], low_id)
+
 
 class SvgTemplateUploadTests(unittest.TestCase):
     def setUp(self):
@@ -335,7 +393,7 @@ class AssetPathSafetyTests(unittest.TestCase):
         assets_db_path = init_sqlite("init_assets_db.sql")
         self.addCleanup(lambda: os.path.exists(assets_db_path) and os.remove(assets_db_path))
 
-        def collect_office(db_path, images_root, company_name, location, query_config):
+        def collect_office(db_path, images_root, company_name, location, query_config, company_url=""):
             asset_store.insert_variant(
                 db_path,
                 company_name,
@@ -390,6 +448,85 @@ class AssetPathSafetyTests(unittest.TestCase):
         self.assertIn("street_view", {v["source_type"] for v in variants})
         self.assertIn("web_tavily", {v["source_type"] for v in variants})
         render_map.assert_called_once()
+
+    def test_tavily_collector_scores_all_candidates_and_records_rejections(self):
+        assets_db_path = init_sqlite("init_assets_db.sql")
+        self.addCleanup(lambda: os.path.exists(assets_db_path) and os.remove(assets_db_path))
+        asset_store.ensure_assets_rows(assets_db_path, "DemoCo")
+
+        def fake_download(url, dest, timeout=15):
+            size = (120, 80) if "small" in url else (1200, 630)
+            img = Image.new("RGB", size, (30, 120, 200))
+            px = img.load()
+            for x in range(size[0]):
+                for y in range(size[1]):
+                    px[x, y] = ((x * 3 + y) % 255, (y * 5 + x) % 255, (x + y) % 255)
+            img.save(dest, "PNG")
+            return True
+
+        with tempfile.TemporaryDirectory() as images_root:
+            with patch.object(asset_pipeline, "_tavily_image_urls", return_value=[
+                "https://cdn.example/small.png",
+                "https://demo.example/product-dashboard.png",
+            ]), patch.object(asset_pipeline, "_download", side_effect=fake_download):
+                accepted = asset_pipeline._collect_tavily_candidates(
+                    assets_db_path,
+                    images_root,
+                    "DemoCo",
+                    "product_main",
+                    "DemoCo app screenshot",
+                    limit=10,
+                )
+
+        variants = asset_store.list_variants(assets_db_path, "DemoCo", "product_main")
+        rejected = [v for v in variants if v["reject_reason"]]
+        accepted_variants = [v for v in variants if not v["reject_reason"]]
+        self.assertEqual(accepted, 1)
+        self.assertEqual(len(variants), 2)
+        self.assertEqual(rejected[0]["reject_reason"], "尺寸过小")
+        self.assertGreater(accepted_variants[0]["final_score"], 0)
+        self.assertEqual(accepted_variants[0]["width"], 1200)
+
+    def test_extract_og_image_prefers_official_social_image(self):
+        class Resp:
+            text = '<html><head><meta property="og:image" content="/share/product.png"></head></html>'
+
+        with patch.object(asset_pipeline.requests, "get", return_value=Resp()):
+            url = asset_pipeline._extract_og_image("https://demo.example/product")
+
+        self.assertEqual(url, "https://demo.example/share/product.png")
+
+    def test_resolve_office_location_prefers_official_precise_address(self):
+        def fake_search(query, include_images=False):
+            return {
+                "results": [
+                    {
+                        "url": "https://random.example/midjourney",
+                        "content": "Address: 156 2nd St, San Francisco, CA 94105",
+                    },
+                    {
+                        "url": "https://docs.midjourney.com/hc/en-us/articles/terms",
+                        "content": "Midjourney, Inc. Attn: Takedowns Department 611 Gateway Blvd. Ste 120 South San Francisco, CA, 94080-7066, US",
+                    },
+                ]
+            }
+
+        with patch.object(asset_pipeline, "_search_tavily_query", side_effect=fake_search):
+            resolved = asset_pipeline._resolve_office_location(
+                "Midjourney",
+                "旧金山，美国",
+                "https://www.midjourney.com",
+            )
+
+        self.assertEqual(resolved["location"], "611 Gateway Blvd. Ste 120 South San Francisco, CA, 94080-7066")
+        self.assertEqual(resolved["source_url"], "https://docs.midjourney.com/hc/en-us/articles/terms")
+
+    def test_geocode_search_text_removes_suite_noise(self):
+        query = asset_pipeline._geocode_search_text(
+            "611 Gateway Blvd. Ste 120 South San Francisco, CA, 94080-7066"
+        )
+
+        self.assertEqual(query, "611 Gateway Blvd South San Francisco CA 94080")
 
 
 class FinalMarkdownFlowTests(unittest.TestCase):

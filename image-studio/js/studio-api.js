@@ -7,7 +7,15 @@ const StudioAPI = {
   },
 
   async variants(company, assetKey) {
-    const r = await fetch(`/api/image-studio/${encodeURIComponent(company)}/${assetKey}`);
+    const r = await fetch(`/api/image-studio/${encodeURIComponent(company)}/${assetKey}/variants`);
+    if (!r.ok) throw new Error(await _err(r));
+    return r.json();
+  },
+
+  async rescoreVariants(company, assetKey) {
+    const r = await fetch(`/api/image-studio/${encodeURIComponent(company)}/${assetKey}/rescore`, {
+      method: 'POST',
+    });
     if (!r.ok) throw new Error(await _err(r));
     return r.json();
   },

@@ -1,4 +1,4 @@
-/* studio-app.js — 图片定稿台主控制器 */
+/* studio-app.js — 图片定稿台主控制器 v3 */
 const StudioApp = {
   _company: '',
   _slots: [],
@@ -17,19 +17,26 @@ const StudioApp = {
     document.querySelector('.back-btn').addEventListener('click', () => {
       window.location.href = `/editor?company=${encodeURIComponent(this._company)}`;
     });
-    document.getElementById('btn-recollect')?.addEventListener('click', () => this._recollectAssets());
 
     QueryGen.init();
 
-    // 初始化子面板
-    SearchPanel.init(document.getElementById('search-panel'), {
-      onFetch: (imageData) => {
-        VariantSidebar._onFetchImage(imageData);
-      },
+    // 初始化中间栏
+    SearchPanel.init(document.getElementById('editor-area'), {
+      onFetch: (imageData) => this._onFetchImage(imageData),
+      onRefresh: () => this._onRefreshCandidates(),
     });
-    VariantSidebar.init(document.getElementById('action-sidebar'), {
+
+    // 初始化右栏候选面板
+    VariantSidebar.init(document.getElementById('candidate-panel'), {
       onSelect: (variant) => {
         this._refreshSlots();
+      },
+      onPreview: (imageSrc) => {
+        if (imageSrc) {
+          SearchPanel.showPreviewImage(imageSrc);
+        } else {
+          SearchPanel.showPreviewImage('');
+        }
       },
     });
 
@@ -61,23 +68,27 @@ const StudioApp = {
     await this._loadSlots();
   },
 
-  async _recollectAssets() {
-    const btn = document.getElementById('btn-recollect');
-    if (btn) { btn.disabled = true; btn.textContent = '采集中...'; }
+  async _onRefreshCandidates() {
+    await VariantSidebar.refresh();
+  },
+
+  /* 搜索点击 → 下载入库 → 刷新右栏 */
+  async _onFetchImage(imageData) {
     try {
-      const r = await fetch(`/api/assets/collect/${encodeURIComponent(this._company)}`, { method: 'POST' });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-      await this._loadSlots();
-      // 重新选中当前槽位以刷新视图
-      if (this._activeSlot) {
-        const refreshed = this._slots.find(s => s.asset_key === this._activeSlot.asset_key);
-        if (refreshed) this._selectSlot(refreshed);
+      const result = await StudioAPI.fetch(this._company, this._activeSlot.asset_key, imageData);
+      // 版权披露
+      VariantSidebar.showCopyrightModal(imageData);
+      // 刷新右栏候选
+      await VariantSidebar.refresh();
+      // 自动预览刚下载的图
+      if (result && result.id) {
+        const v = VariantSidebar._variants.find(v => v.id === result.id);
+        if (v) {
+          VariantSidebar._previewVariant(v.id);
+        }
       }
-    } catch (e) {
-      alert('采集失败: ' + e.message);
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = '重新采集图片'; }
+    } catch (err) {
+      this._toast(err.message, 'error');
     }
   },
 
@@ -92,6 +103,7 @@ const StudioApp = {
       product_main: '卡片4 — 主产品',
       products_other: '卡片5 — 其他产品',
       flywheel: '卡片6 — 增长飞轮',
+      positioning_charts: '卡片6 — 竞争/生态位图',
       competitors: '卡片7 — 竞争格局',
     };
 
@@ -143,27 +155,25 @@ const StudioApp = {
     SearchPanel.setContext(this._company, slot.asset_key);
     VariantSidebar.setContext(this._company, slot.asset_key);
 
-    // SVG 槽位特殊处理
-    if (slot.asset_key === 'flywheel' || slot.asset_key === 'timeline') {
-      SearchPanel.setSlotImage('');
-      VariantSidebar.showSvgRender(true);
-      this._showSvgSlot(slot);
+    // 图表类槽位统一处理（SVG 信息图 + 散点图）
+    const CHART_SLOTS = ['flywheel', 'timeline', 'positioning_charts'];
+    if (CHART_SLOTS.includes(slot.asset_key)) {
+      SearchPanel.hideAll();
+      this._showChartSlot(slot);
       return;
     }
-    VariantSidebar.showSvgRender(false);
 
-    // Logo 只读
+    // Logo 只读：仅显示预览，隐藏搜索和工具栏
     if (slot.asset_key === 'logo') {
-      SearchPanel.setSlotImage('');
-      this._showLogoSolt(slot);
+      SearchPanel.showPreviewOnly(slot.local_path || '');
       return;
     }
 
-    // 恢复搜索 UI 并显示当前已有图片
-    this._showSearchUI();
-    SearchPanel.setSlotImage(slot.local_path);
+    // 可编辑槽位：显示全部 UI
+    SearchPanel.showAll();
+    SearchPanel.setSlotImage(slot.local_path || '');
 
-    // 加载查询词
+    // 可编辑槽位：加载查询词并搜索
     let queries = QueryGen.get(this._company, slot.asset_key);
     if (!queries) {
       const markdown = await this._loadCardMarkdown(slot.card_index);
@@ -178,110 +188,285 @@ const StudioApp = {
     SearchPanel.search();
   },
 
+  /* ── SVG 槽位 ── */
+
   _svTemplates: [],
   _svSelectedTpl: null,
   _svParams: {},
   _svDataByKey: {},
   _svPreviewTimer: 0,
 
-  async _showSvgSlot(slot) {
-    this._hideSearchUI();
+  /* ── 图表类槽位统一入口 ── */
+  async _showChartSlot(slot) {
     this._activeSlot = slot;
+    await VariantSidebar.setContext(this._company, slot.asset_key);
 
-    // 加载模板列表
-    if (!this._svTemplates.length) {
-      try {
-        const r = await fetch('/api/svg-templates');
-        const data = await r.json();
-        this._svTemplates = data.templates || [];
-      } catch (e) {
-        this._svTemplates = [];
+    const isPositioning = slot.asset_key === 'positioning_charts';
+
+    if (isPositioning) {
+      this._renderChartUI(slot, null);
+    } else {
+      // flywheel / timeline: 加载模板
+      if (!this._svTemplates.length) {
+        try {
+          const r = await fetch('/api/svg-templates');
+          this._svTemplates = (await r.json()).templates || [];
+        } catch (e) { this._svTemplates = []; }
       }
-    }
+      const filtered = this._svTemplates.filter(t => t.asset_key === slot.asset_key);
+      if (!filtered.length) { this._renderChartEmpty('暂无可用模板'); return; }
 
-    const filtered = this._svTemplates.filter(t => t.asset_key === slot.asset_key);
-    if (!filtered.length) {
-      this._renderSvgEmpty('暂无可用模板');
-      return;
-    }
-
-    // 默认选中第一个
-    if (!this._svSelectedTpl || this._svSelectedTpl.asset_key !== slot.asset_key) {
-      this._svSelectedTpl = filtered[0];
-      this._svParams = {};
-      (this._svSelectedTpl.params || []).forEach(p => {
-        this._svParams[p.key] = p.default;
-      });
-    }
-
-    // 每个 SVG 槽位的数据结构不同，必须按 asset_key 缓存。
-    if (!this._svDataByKey[slot.asset_key]) {
-      try {
-        const r = await fetch(
-          `/api/image-studio/${encodeURIComponent(this._company)}/${encodeURIComponent(slot.asset_key)}/extract-data`,
-          { method: 'POST' }
-        );
-        const d = await r.json();
-        if (r.ok && d.data) {
-          this._svDataByKey[slot.asset_key] = d.data;
-        }
-      } catch (e) {
-        console.error('提取结构化数据失败:', e);
+      if (!this._svSelectedTpl || this._svSelectedTpl.asset_key !== slot.asset_key) {
+        this._svSelectedTpl = filtered[0];
+        this._svParams = {};
+        (this._svSelectedTpl.params || []).forEach(p => { this._svParams[p.key] = p.default; });
       }
+      if (!this._svDataByKey[slot.asset_key]) {
+        try {
+          const r = await fetch(`/api/image-studio/${encodeURIComponent(this._company)}/${encodeURIComponent(slot.asset_key)}/extract-data`, { method: 'POST' });
+          const d = await r.json();
+          if (r.ok && d.data) this._svDataByKey[slot.asset_key] = d.data;
+        } catch (e) { /* non-blocking */ }
+      }
+      this._renderChartUI(slot, filtered);
+      if (this._svDataByKey[slot.asset_key]) this._updatePreview();
     }
-
-    this._renderSvgEditor(filtered);
-    VariantSidebar.setContext(this._company, slot.asset_key);
-
-    // 首次渲染预览
-    if (this._svDataByKey[slot.asset_key]) this._updatePreview();
   },
 
-  _renderSvgEditor(templates) {
-    const grid = document.querySelector('.candidate-grid');
-    if (!grid) return;
-    const tpl = this._svSelectedTpl;
+  /* 渲染图表 UI（实时预览 iframe + 功能区 bar） */
+  _chartPreviewTimer: 0,
 
-    grid.innerHTML = `
-      <div class="svg-editor">
-        <div class="svg-tpl-tabs">
-          ${templates.map(t => `
-            <button class="svg-tpl-tab ${t.id === tpl.id ? 'active' : ''}" data-tpl-id="${t.id}">
-              <span class="tpl-badge ${t.builtin ? 'builtin' : 'custom'}">${t.builtin ? '内置' : '自定义'}</span>
-              <span class="tpl-name">${this._escape(t.name)}</span>
-            </button>
-          `).join('')}
-          <label class="svg-tpl-upload-btn" title="上传本机 Python 模板 (.py 文件)">
-            <input type="file" accept=".py" style="display:none" onchange="StudioApp._uploadTemplate(this)">
-            +<span style="font-size:10px;margin-left:2px;color:var(--ink-muted)">上传模板</span>
-          </label>
+  _renderChartUI(slot, templates) {
+    document.querySelector('.preview-toggle-bar')?.classList.add('hidden');
+    document.getElementById('search-results-area')?.classList.add('hidden');
+    const stage = document.getElementById('preview-stage');
+    stage?.classList.remove('hidden');
+    if (!stage) return;
+
+    const isPositioning = slot.asset_key === 'positioning_charts';
+    stage.innerHTML = `<iframe id="chart-preview-iframe" style="width:100%;height:100%;border:none;background:#fff"></iframe>`;
+
+    // 功能区 bar
+    const toolbar = document.getElementById('toolbar-section');
+    if (toolbar) {
+      toolbar.classList.remove('hidden');
+      toolbar.innerHTML = `<div class="chart-func-bar">
+        <div class="chart-func-bar-header">图表调节</div>
+        <div class="chart-func-bar-body">${isPositioning ? this._positioningChartBar() : this._svgTemplateBar(templates)}</div>
+      </div>`;
+    }
+
+    if (!isPositioning && templates) {
+      document.querySelectorAll('.bar-tpl-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const t = templates.find(x => x.id === btn.dataset.tplId);
+          if (t) {
+            this._svSelectedTpl = t;
+            this._svParams = {};
+            (t.params || []).forEach(p => { this._svParams[p.key] = p.default; });
+            this._renderChartUI(slot, templates);
+            if (this._svDataByKey[slot.asset_key]) this._updateChartPreview();
+          }
+        });
+      });
+    }
+    this._bindChartRenderButtons();
+    if (!isPositioning && this._svDataByKey[slot.asset_key]) this._updateChartPreview();
+    else if (isPositioning) this._updateChartPreview();
+  },
+
+  _updateChartPreview() {
+    clearTimeout(this._chartPreviewTimer);
+    this._chartPreviewTimer = setTimeout(() => this._doUpdateChartPreview(), 200);
+  },
+
+  async _doUpdateChartPreview() {
+    const iframe = document.getElementById('chart-preview-iframe');
+    if (!iframe || !this._activeSlot) return;
+    const slot = this._activeSlot;
+    try {
+      if (slot.asset_key === 'positioning_charts') {
+        const r = await fetch('/api/companies');
+        const companies = r.ok ? await r.json() : [];
+        const params = this._svParams || {};
+        iframe.srcdoc = this._buildScatterPreview('competitive_landscape', companies, params);
+      } else {
+        const svgData = this._svDataByKey[slot.asset_key];
+        if (!svgData || !this._svSelectedTpl) return;
+        const r = await fetch('/api/svg-templates/preview', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ template_id: this._svSelectedTpl.id, params: this._svParams, data: svgData }),
+        });
+        if (r.ok) iframe.srcdoc = `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#fff">${await r.text()}</body></html>`;
+      }
+    } catch (e) { /* non-blocking */ }
+  },
+
+  _buildScatterPreview(chartType, companies, params) {
+    const p = params || {};
+    const accent = p.accent_color || '#29B8D4';
+    const pt = p.point_size || 5, ts = p.title_size || 14, as = p.axis_size || 11;
+    const title = chartType === 'competitive_landscape' ? '竞争格局矩阵' : 'AI Stack 定位图';
+    const hi = this._company, hiData = [], otData = [];
+    const stMap = { infrastructure:1, foundation_model:2, middleware:3, vertical_app:4, distribution:5 };
+    for (const c of (companies||[])) {
+      const n = c.company_name || '';
+      if (chartType === 'competitive_landscape') {
+        const dx = parseFloat(c.score_defensibility||0), dy = parseFloat(c.score_incumbent_attention||0);
+        if (!dx&&!dy) continue;
+        (n===hi?hiData:otData).push({x:dx,y:dy,name:n});
+      } else {
+        const sx = stMap[c.stack_layer||'vertical_app']||3, dy = parseFloat(c.score_value_capture||0);
+        if (!dy) continue;
+        (n===hi?hiData:otData).push({x:sx,y:dy,name:n});
+      }
+    }
+    const ds = [];
+    if (hiData.length) ds.push({name:hi,values:hiData});
+    if (otData.length) ds.push({name:'其他公司',values:otData});
+    const dj = JSON.stringify({datasets:ds});
+    return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://unpkg.com/frappe-charts@1.6.2/dist/frappe-charts.min.css">
+<style>body{margin:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#fff}
+#chart{width:95%;height:95%}
+.frappe-chart .title{fill:${accent}!important;font-size:${ts}px!important;font-weight:700!important}
+.frappe-chart text{font-size:${as}px!important}
+.frappe-chart circle{r:${pt}px}</style></head><body>
+<div id="chart"></div>
+<script src="https://unpkg.com/frappe-charts@1.6.2/dist/frappe-charts.min.iife.js"></script>
+<script>var d=${dj};d.datasets.forEach(function(s){s.values=s.values.filter(function(v){return v.x!=null&&v.y!=null})});
+new frappe.Chart("#chart",{title:"${title}",type:"scatter",height:500,data:d,
+axisOptions:{xAxisMode:"tick",yAxisMode:"tick",xIsSeries:true},
+colors:["${accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF"],maxSlices:20});</script></body></html>`;
+  },
+
+  _positioningChartBar() {
+    const p = this._svParams || {};
+    if (!('accent_color' in p)) { p.accent_color = '#29B8D4'; p.point_size = 5; p.title_size = 14; p.axis_size = 11; }
+    if (!('_chartType' in p)) p._chartType = 'competitive_landscape';
+    this._svParams = p;
+    const sel = (t) => p._chartType === t ? 'style="background:#29B8D4;color:#fff;border-color:#29B8D4"' : '';
+    return `
+      <div class="bar-controls">
+        <div class="bar-control-row">
+          <span class="bar-label">颜色</span>
+          <input type="color" value="${p.accent_color}" data-chart-param="accent_color" onchange="StudioApp._onChartParamChange(this)">
+          <span class="bar-label">点大小</span>
+          <input type="range" min="1" max="8" value="${p.point_size}" data-chart-param="point_size" oninput="StudioApp._onChartParamChange(this)">
+          <span class="bar-val">${p.point_size}</span>
+          <span class="bar-label">标题</span>
+          <input type="range" min="10" max="24" value="${p.title_size}" data-chart-param="title_size" oninput="StudioApp._onChartParamChange(this)">
+          <span class="bar-val">${p.title_size}</span>
+          <span class="bar-label">轴字</span>
+          <input type="range" min="8" max="16" value="${p.axis_size}" data-chart-param="axis_size" oninput="StudioApp._onChartParamChange(this)">
+          <span class="bar-val">${p.axis_size}</span>
         </div>
-        <div class="svg-params">
-          ${this._renderParamControls(tpl.params || [])}
+        <div class="bar-actions">
+          <button class="bar-chart-type-btn" data-chart="competitive_landscape" ${sel('competitive_landscape')}>竞争格局矩阵</button>
+          <button class="bar-chart-type-btn" data-chart="stack_positioning" ${sel('stack_positioning')}>AI Stack 定位图</button>
+          <button class="bar-btn-reset" onclick="StudioApp._resetChartParams()">重置</button>
+          <button class="bar-btn-render" onclick="StudioApp._renderChart(StudioApp._svParams._chartType||'competitive_landscape')">渲染保存</button>
+          <span class="chart-status"></span>
         </div>
-        <div class="svg-preview" id="svg-preview">
-          <div class="svg-preview-label">实时预览</div>
-          <div class="svg-preview-stage" id="svg-preview-stage"></div>
+      </div>`;
+  },
+
+  _resetChartParams() {
+    this._svParams = { accent_color: '#29B8D4', point_size: 5, title_size: 14, axis_size: 11, _chartType: this._svParams?._chartType || 'competitive_landscape' };
+    this._renderChartUI(this._activeSlot, null);
+    this._updateChartPreview();
+  },
+
+  _onChartParamChange(el) {
+    const key = el.dataset.chartParam;
+    const val = el.type === 'range' ? parseInt(el.value) : el.value;
+    if (!this._svParams) this._svParams = {};
+    this._svParams[key] = val;
+    if (el.type === 'range') {
+      const span = el.nextElementSibling;
+      if (span && span.classList.contains('bar-val')) span.textContent = val;
+    }
+    this._updateChartPreview();
+  },
+
+  _svgTemplateBar(templates) {
+    const tpl = this._svSelectedTpl || templates[0];
+    return `
+      <div class="bar-controls">
+        <div class="bar-tpl-tabs">
+          ${templates.map(t => `<button class="bar-tpl-tab ${t.id===tpl.id?'active':''}" data-tpl-id="${t.id}">${t.builtin?'内置':'自'}: ${this._escape(t.name)}</button>`).join('')}
+          <label title="上传模板" style="cursor:pointer;font-size:11px;color:var(--ink-muted)"><input type="file" accept=".py" style="display:none" onchange="StudioApp._uploadTemplate(this)">+</label>
         </div>
+        <div class="bar-params">${this._renderParamControls((tpl&&tpl.params)||[])}</div>
+        <div class="bar-actions">
+          <button class="btn-chart-render" data-chart="${tpl?.id||''}">生成 SVG</button>
+        </div>
+      </div>`;
+  },
+
+  _onChartParamChange(el) {
+    const key = el.dataset.chartParam;
+    const val = el.type === 'range' ? parseInt(el.value) : el.value;
+    this._svParams[key] = val;
+    if (el.type === 'range') {
+      const span = el.nextElementSibling;
+      if (span && span.classList.contains('bar-val')) span.textContent = val;
+    }
+  },
+
+  _svgTemplateControls(templates) {
+    const tpl = this._svSelectedTpl || templates[0];
+    return `
+      <div class="svg-tpl-tabs" style="margin-bottom:8px">
+        ${templates.map(t => `
+          <button class="svg-tpl-tab ${t.id === tpl.id ? 'active' : ''}" data-tpl-id="${t.id}">
+            <span class="tpl-badge ${t.builtin ? 'builtin' : 'custom'}">${t.builtin ? '内置' : '自定义'}</span>
+            ${this._escape(t.name)}
+          </button>`).join('')}
+        <label class="svg-tpl-upload-btn" title="上传模板"><input type="file" accept=".py" style="display:none" onchange="StudioApp._uploadTemplate(this)">+</label>
       </div>
-    `;
+      <div class="svg-params">${this._renderParamControls((tpl && tpl.params) || [])}</div>
+      <div style="margin-top:8px;text-align:center">
+        <button class="btn-small accent" id="svg-render-btn" style="padding:6px 18px">生成 SVG</button>
+      </div>`;
+  },
 
-    // 模板切换事件
-    grid.querySelectorAll('.svg-tpl-tab').forEach(btn => {
+  /* 绑定图表按钮事件 */
+  _bindChartRenderButtons() {
+    // 图表类型切换
+    document.querySelectorAll('.bar-chart-type-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        const tid = btn.dataset.tplId;
-        const t = templates.find(x => x.id === tid);
-        if (t) {
-          this._svSelectedTpl = t;
-          this._svParams = {};
-          (t.params || []).forEach(p => {
-            this._svParams[p.key] = p.default;
-          });
-          this._renderSvgEditor(templates);
-        }
+        if (!this._svParams) this._svParams = {};
+        this._svParams._chartType = btn.dataset.chart;
+        document.querySelectorAll('.bar-chart-type-btn').forEach(b => {
+          b.style.background = b.dataset.chart === btn.dataset.chart ? '#29B8D4' : '#fff';
+          b.style.color = b.dataset.chart === btn.dataset.chart ? '#fff' : '';
+          b.style.borderColor = b.dataset.chart === btn.dataset.chart ? '#29B8D4' : '';
+        });
+        this._updateChartPreview();
       });
     });
   },
+
+  async _renderChart(templateId) {
+    const isSvg = templateId.startsWith('flywheel') || templateId.startsWith('timeline');
+    const params = isSvg ? this._svParams : (this._svParams || {});
+    const r = await fetch(
+      `/api/image-studio/${encodeURIComponent(this._company)}/${encodeURIComponent(this._activeSlot.asset_key)}/render-svg`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template_id: templateId, params: params }) }
+    );
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || '渲染失败');
+    await this._refreshSlots();
+    await VariantSidebar.refresh();
+  },
+
+  _renderChartEmpty(msg) {
+    const stage = document.getElementById('preview-stage');
+    if (stage) stage.innerHTML = `<div class="empty-state"><div class="empty-icon">&#9881;</div><p>${this._escape(msg)}</p></div>`;
+  },
+
 
   _renderParamControls(params) {
     return params.map(p => {
@@ -348,41 +533,6 @@ const StudioApp = {
     }
   },
 
-  async _renderSvg() {
-    const btn = document.querySelector('.svg-render-btn-sidebar');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = '渲染中...';
-    }
-
-    try {
-      const r = await fetch(
-        `/api/image-studio/${encodeURIComponent(this._company)}/${encodeURIComponent(this._activeSlot.asset_key)}/render-svg`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            template_id: this._svSelectedTpl.id,
-            params: this._svParams,
-          }),
-        }
-      );
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || '渲染失败');
-
-      // 刷新变体库和槽位列表
-      VariantSidebar.setContext(this._company, this._activeSlot.asset_key);
-      await this._refreshSlots();
-    } catch (e) {
-      alert('SVG 渲染失败: ' + e.message);
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = '生成当前参数 SVG';
-      }
-    }
-  },
-
   async _uploadTemplate(input) {
     const file = input.files[0];
     if (!file) return;
@@ -396,52 +546,14 @@ const StudioApp = {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || '上传失败');
-      // 重新加载模板列表
       const r2 = await fetch('/api/svg-templates');
       const all = await r2.json();
       this._svTemplates = all.templates || [];
-      if (this._activeSlot) this._showSvgSlot(this._activeSlot);
+      if (this._activeSlot) this._showChartSlot(this._activeSlot);
     } catch (e) {
-      alert('模板上传失败: ' + e.message);
+      this._toast('模板上传失败: ' + e.message, 'error');
     }
     input.value = '';
-  },
-
-  _renderSvgEmpty(msg) {
-    const grid = document.querySelector('.candidate-grid');
-    if (grid) {
-      grid.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">&#9881;</div>
-          <p>${this._escape(msg)}</p>
-        </div>
-      `;
-    }
-  },
-
-  _showLogoSolt(slot) {
-    this._hideSearchUI();
-    const grid = document.querySelector('.candidate-grid');
-    if (grid) {
-      grid.innerHTML = `
-        <div class="empty-state">
-          ${slot.local_path ? `<img src="${this._escape(slot.local_path)}" style="max-width:240px;max-height:120px;border-radius:8px;margin-bottom:12px" alt="">` : '<div class="empty-icon" style="font-size:48px">&#127760;</div>'}
-          <p style="font-size:14px;color:var(--ink)">Logo 自动采集</p>
-          <p style="font-size:12px;margin-top:4px">来源：Clearbit / Favicon</p>
-          ${!slot.local_path ? '<p style="font-size:12px;color:var(--ink-muted);margin-top:8px">暂未获取到 Logo</p>' : ''}
-        </div>
-      `;
-    }
-  },
-
-  _hideSearchUI() {
-    const searchSection = document.querySelector('.search-section');
-    if (searchSection) searchSection.style.display = 'none';
-  },
-
-  _showSearchUI() {
-    const searchSection = document.querySelector('.search-section');
-    if (searchSection) searchSection.style.display = '';
   },
 
   async _loadCardMarkdown(cardIndex) {
@@ -455,6 +567,22 @@ const StudioApp = {
     } catch {
       return null;
     }
+  },
+
+  /* ── Toast ── */
+
+  _toast(msg, type) {
+    const existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+    const el = document.createElement('div');
+    el.className = 'toast' + (type === 'error' ? ' error' : '');
+    el.textContent = msg;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 200);
+    }, 2500);
   },
 
   _escape(s) {
