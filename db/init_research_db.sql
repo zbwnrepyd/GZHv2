@@ -33,6 +33,21 @@ CREATE TABLE IF NOT EXISTS research (
   cold_start      TEXT,
   customer_segment TEXT,
   growth_flywheel TEXT,
+  -- 竞争/生态位评分字段 ─────────────────────────────────────────
+  ai_model_dependency TEXT,
+  workflow_integration_level TEXT,
+  data_flywheel TEXT,
+  proprietary_data_asset TEXT,
+  incumbent_direct_competitor TEXT,
+  customer_segment_type TEXT,
+  funding_stage TEXT,
+  funding_stage_score REAL,
+  pricing_model TEXT,
+  inference_cost_exposure TEXT,
+  stack_layer TEXT,
+  score_defensibility REAL,
+  score_incumbent_attention REAL,
+  score_value_capture REAL,
   -- 卡片7：竞争格局 ───────────────────────────────────────────
   moat            TEXT,
   competitors     TEXT, -- JSON数组: [{"name":"...", "product":"...", "data":"..."}]

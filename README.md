@@ -35,6 +35,7 @@ GOOGLE_MAPS_API_KEY=...  # 可选：Street View Static API，作为卡片2地图
 IMAGE_API_KEY=sk-...
 IMAGE_API_URL=https://api.openai.com/v1/images/generations
 FLASK_PORT=5050
+SCREENSHOT_PROVIDER=local
 ```
 
 `YOUTUBE_API_KEY` 和图片生成相关变量可以暂时为空；对应能力会降级或在调用时失败。卡片制作台底部也可以临时输入图片 API URL 和 API Key，API Key 只随当次请求发送，不写入浏览器本地存储，也不在响应中回显。
@@ -44,7 +45,7 @@ FLASK_PORT=5050
 ```text
 prompts/      L0-L3 研究 Prompt 和文本分段 Prompt
 webapp/       Flask 后台、编辑器 API、Python 研究流水线
-image-studio/ 图片定稿台：中间展示候选变体和搜索结果，右侧保留操作/导入
+image-studio/ 图片定稿台：中栏上下分区（预览/搜索切换 + 工具栏），右栏候选缩略图+确定
 canvas/       HTML/CSS 卡片制作台、单卡页面和 Puppeteer 截图脚本
 db/           SQLite schema 和本地数据库
 tests/        unittest 回归测试
@@ -85,7 +86,7 @@ http://127.0.0.1:5050/canvas/?company=Anthropic
 
 卡片制作台会从 `final_db` 读取已确认的 `markdown_full`。左侧只读显示当前项目名，并用互斥手风琴组织“卡片每一页”和“图片夹”；图片夹展示 Markdown 中已有的图片、底部生成过的图片和背景水印控件，导出按钮始终常驻。中间显示 3:4 HTML 画布，右侧显示当前页完整 HTML+CSS 源码并带语法高亮；编辑源码会实时渲染到中间画布。顶部“返回定稿台”会回到当前公司的 `/editor?company=<公司名>`。图片生成功能已整合至图片定稿台搜索面板。
 
-图片定稿台管理 7 个 `asset_key`。卡片2 的 `office` 槽位默认生成并选中公司位置地图；Google Street View 和 Tavily 办公室/街景图会补充为后续候选。候选变体展示在中间主区域，右侧只放生成、当前选定、导入/上传和 SVG 渲染操作。
+图片定稿台管理 8 个 `asset_key`，其中 `positioning_charts` 先挂在卡片6用于竞争格局/生态位图定稿。卡片2 的 `office` 槽位默认生成并选中公司位置地图；Google Street View 和 Tavily 办公室/街景图会补充为后续候选。候选变体展示在中间主区域，带来源、尺寸、分数和失败原因，默认按 `final_score` 排序；右侧只放生成、重新评分、当前选定、导入/上传和 SVG 渲染操作。
 
 批量导出 PNG 需要 Node 依赖：
 

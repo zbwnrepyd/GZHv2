@@ -60,6 +60,11 @@ const QueryGen = {
         { en: 'technology tool dashboard panel', zh: '科技 工具 仪表盘' },
         { en: 'digital product screen capture', zh: '数字 产品 界面 展示' },
       ],
+      positioning_charts: [
+        { en: 'competitive landscape matrix', zh: '竞争格局 矩阵 图' },
+        { en: 'market positioning bubble chart', zh: '市场定位 气泡图' },
+        { en: 'value chain ecosystem map', zh: '产业链 生态位 图' },
+      ],
       competitors: [
         { en: 'technology startup landscape competition', zh: '科技 创业公司 行业 竞争' },
         { en: 'market analysis comparison chart', zh: '市场 格局 对比 分析' },

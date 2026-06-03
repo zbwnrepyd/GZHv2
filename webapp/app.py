@@ -9,17 +9,24 @@ from pipeline import run_pipeline
 from asset_store import (
     init_assets_db, ensure_assets_rows, get_assets, upsert_asset,
     list_variants, insert_variant, select_variant, delete_variant,
+    update_variant_scores,
 )
 from asset_pipeline import (
     collect_all_assets, _download, _variant_path, _render_osm_map,
     _company_image_dir, _image_url_path, _variant_url_path,
+    _resolve_office_location, _geocode_search_text,
 )
 from infographic import (
     generate_flywheel_from_markdown, generate_timeline_from_markdown,
     render_with_template, extract_flywheel_json, extract_timeline_json,
+    build_competitive_landscape_svg, build_stack_positioning_svg,
+    render_competitive_landscape, render_stack_positioning,
 )
 from infographic_templates import get_all as get_all_templates, get as get_template, upload as upload_template, delete as delete_template
 from image_search import search_images
+from image_candidate import ImageCandidate
+from image_scorer import score_candidate
+from image_quality import inspect_local_image, validate_candidate
 import markdown_builder
 import json
 import os
@@ -37,6 +44,49 @@ Path(config.IMAGES_DIR).mkdir(parents=True, exist_ok=True)
 
 # 初始化资产数据库
 init_assets_db(config.DB_PATH_ASSETS)
+
+
+def _quality_kwargs_for_variant(company: str, asset_key: str, local_file: str,
+                                source_type: str, source_url: str = "",
+                                source_page: str = "", prompt: str = "",
+                                author: str = "", license_text: str = "") -> dict:
+    candidate = ImageCandidate(
+        company_name=company,
+        asset_key=asset_key,
+        image_url=source_url or local_file,
+        source_page=source_page,
+        source_type=source_type,
+        title=prompt,
+        alt_text=author,
+        author=author,
+        license=license_text,
+        local_path=local_file,
+    )
+    inspect_local_image(candidate)
+    passed, reason = validate_candidate(candidate)
+    if passed:
+        score_candidate(candidate, product_names=[company])
+    else:
+        candidate.reject_reason = reason
+    return {
+        "width": candidate.width,
+        "height": candidate.height,
+        "file_size": candidate.file_size,
+        "aspect_ratio": candidate.aspect_ratio,
+        "quality_score": candidate.quality_score,
+        "relevance_score": candidate.relevance_score,
+        "source_score": candidate.source_score,
+        "final_score": candidate.final_score,
+        "reject_reason": candidate.reject_reason,
+        "meta": candidate.meta,
+    }
+
+
+def _local_file_from_browser_path(path: str) -> str:
+    if not path or not path.startswith("/images/"):
+        return path or ""
+    rel = path[len("/images/"):]
+    return os.path.join(config.IMAGES_DIR, *rel.split("/"))
 
 # 后台任务状态
 _jobs: dict[str, dict] = {}
@@ -131,6 +181,10 @@ def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
                 _jobs[job_id]["detail"] = message
                 if sources is not None:
                     _jobs[job_id]["sources"] = sources
+                # 累积阶段历史
+                stages = _jobs[job_id].setdefault("stages", [])
+                if not stages or stages[-1]["stage"] != stage:
+                    stages.append({"stage": stage, "detail": message})
 
     try:
         ids = run_pipeline(company_name, company_url, progress_callback=on_progress, job_id=job_id)
@@ -238,6 +292,21 @@ def _fallback_svg_data(asset_key: str, markdown: str) -> dict | None:
         return {"center": "增长飞轮", "stages": stages} if len(stages) >= 2 else None
 
     return None
+
+
+def _load_all_scored_companies(research_db_path: str) -> list[dict]:
+    """加载所有有评分的公司数据（用于散点图）"""
+    import sqlite3
+    conn = sqlite3.connect(research_db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT DISTINCT company_name, score_defensibility, score_incumbent_attention, "
+        "score_value_capture, stack_layer "
+        "FROM research WHERE version='standard' "
+        "AND score_defensibility IS NOT NULL AND score_value_capture IS NOT NULL"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def _load_svg_data(company: str, asset_key: str, markdown: str) -> tuple[dict | None, bool]:
@@ -430,6 +499,10 @@ def generate_image_route():
                 author="AI Generated",
                 license="AI",
                 prompt=prompt,
+                **_quality_kwargs_for_variant(
+                    company_name, asset_key, path, "api_generate",
+                    prompt=prompt, author="AI Generated", license_text="AI",
+                ),
             )
             select_variant(config.DB_PATH_ASSETS, company_name, asset_key, variant_id)
 
@@ -457,12 +530,14 @@ def get_company_assets(company: str):
 
 @app.route("/api/assets/collect/<company>", methods=["POST"])
 def collect_assets(company: str):
-    """触发七图自动采集"""
+    """触发自动采集。可选 ?asset_key=office 只采集单个槽位。"""
     try:
         # 从 research DB 获取公司数据
         research = database.get_research(config.DB_PATH_RESEARCH, company, "standard")
         if not research:
             return jsonify({"error": f"未找到公司 {company} 的研究数据"}), 404
+
+        asset_key = request.args.get("asset_key", "").strip()
 
         company_data = {
             "company_url": research.get("website_url", ""),
@@ -473,7 +548,11 @@ def collect_assets(company: str):
         }
 
         images_root = config.IMAGES_DIR
-        results = collect_all_assets(config.DB_PATH_ASSETS, images_root, company, company_data)
+        from asset_pipeline import collect_image_variants_pipeline
+        results = collect_image_variants_pipeline(
+            config.DB_PATH_ASSETS, images_root, company, company_data,
+            asset_key=asset_key or "",
+        )
         return jsonify({"status": "ok", "company_name": company, "results": results})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -756,7 +835,8 @@ def get_image_studio_overview(company: str):
 
         slots = []
         for asset_key in ["logo", "office", "timeline", "product_main",
-                          "products_other", "flywheel", "competitors"]:
+                          "products_other", "flywheel", "positioning_charts",
+                          "competitors"]:
             asset = assets.get(asset_key, {})
             variants = list_variants(config.DB_PATH_ASSETS, company, asset_key)
             selected = next((v for v in variants if v.get("is_selected")), None)
@@ -784,6 +864,72 @@ def get_slot_variants(company: str, asset_key: str):
             "company_name": company,
             "asset_key": asset_key,
             "variants": variants,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/variants")
+def get_slot_variants_alias(company: str, asset_key: str):
+    return get_slot_variants(company, asset_key)
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/rescore", methods=["POST"])
+def rescore_slot_variants(company: str, asset_key: str):
+    """Recalculate rule-based scores and auto-select the highest scored variant."""
+    try:
+        init_assets_db(config.DB_PATH_ASSETS)
+        variants = list_variants(config.DB_PATH_ASSETS, company, asset_key)
+        if not variants:
+            upsert_asset(
+                config.DB_PATH_ASSETS, company, asset_key,
+                status="failed", fail_reason="没有候选图可重新评分",
+            )
+            return jsonify({"asset_key": asset_key, "variants": [], "selected_variant_id": None})
+
+        for v in variants:
+            candidate = ImageCandidate(
+                company_name=company,
+                asset_key=asset_key,
+                image_url=v.get("source_url") or v.get("local_path") or "",
+                source_page=v.get("source_page") or "",
+                source_type=v.get("source_type") or "",
+                title=v.get("prompt") or "",
+                alt_text=v.get("author") or "",
+                author=v.get("author") or "",
+                license=v.get("license") or "",
+                local_path=_local_file_from_browser_path(v.get("local_path") or ""),
+                width=v.get("width"),
+                height=v.get("height"),
+                file_size=v.get("file_size"),
+                aspect_ratio=v.get("aspect_ratio"),
+                meta=v.get("meta") or {},
+            )
+            if not candidate.width or not candidate.height or not candidate.file_size:
+                inspect_local_image(candidate)
+            score_candidate(candidate, product_names=[company])
+            update_variant_scores(
+                config.DB_PATH_ASSETS,
+                v["id"],
+                width=candidate.width,
+                height=candidate.height,
+                file_size=candidate.file_size,
+                aspect_ratio=candidate.aspect_ratio,
+                quality_score=candidate.quality_score,
+                relevance_score=candidate.relevance_score,
+                source_score=candidate.source_score,
+                final_score=candidate.final_score,
+                meta=candidate.meta,
+            )
+
+        rescored = list_variants(config.DB_PATH_ASSETS, company, asset_key)
+        best = max(rescored, key=lambda row: row.get("final_score") or 0)
+        select_variant(config.DB_PATH_ASSETS, company, asset_key, best["id"], auto_selected=True)
+        rescored = list_variants(config.DB_PATH_ASSETS, company, asset_key)
+        return jsonify({
+            "asset_key": asset_key,
+            "selected_variant_id": best["id"],
+            "variants": rescored,
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -867,6 +1013,11 @@ def fetch_slot_image(company: str, asset_key: str):
             author=author,
             license=license_text,
             attribution_req=1 if attribution else 0,
+            **_quality_kwargs_for_variant(
+                company, asset_key, dest, source_type,
+                source_url=full_url, source_page=source_page,
+                author=author, license_text=license_text,
+            ),
         )
 
         # 自动设为选中
@@ -899,6 +1050,7 @@ def generate_search_queries(company: str, asset_key: str):
             "office": "公司办公室/办公场景",
             "product_main": "主产品界面/使用场景",
             "products_other": "其他产品/功能截图",
+            "positioning_charts": "竞争格局/生态位/商业模式图",
             "competitors": "竞品分析/行业格局",
         }
         topic = card_topics.get(asset_key, "产品配图")
@@ -952,6 +1104,11 @@ Markdown 摘要：{summary}
                 {"en": "technology tool dashboard", "zh": "科技 工具 界面"},
                 {"en": "digital product showcase", "zh": "数字 产品 展示"},
             ],
+            "positioning_charts": [
+                {"en": "competitive landscape matrix", "zh": "竞争格局 矩阵 图"},
+                {"en": "market positioning bubble chart", "zh": "市场定位 气泡图"},
+                {"en": "value chain ecosystem map", "zh": "产业链 生态位 图"},
+            ],
             "competitors": [
                 {"en": "technology startup competition", "zh": "科技 创业公司 行业"},
                 {"en": "market landscape comparison", "zh": "市场 格局 对比"},
@@ -1000,6 +1157,9 @@ def _import_url(company: str, asset_key: str):
         local_path=local_path,
         source_type="import_url",
         source_url=url,
+        **_quality_kwargs_for_variant(
+            company, asset_key, dest, "import_url", source_url=url,
+        ),
     )
     select_variant(config.DB_PATH_ASSETS, company, asset_key, variant_id)
 
@@ -1028,6 +1188,9 @@ def _import_upload(company: str, asset_key: str):
         config.DB_PATH_ASSETS, company, asset_key,
         local_path=local_path,
         source_type="import_upload",
+        **_quality_kwargs_for_variant(
+            company, asset_key, dest, "import_upload",
+        ),
     )
     select_variant(config.DB_PATH_ASSETS, company, asset_key, variant_id)
 
@@ -1042,15 +1205,20 @@ def generate_slot_map(company: str, asset_key: str):
     try:
         research = database.get_research(config.DB_PATH_RESEARCH, company, "standard")
         location = ""
+        company_url = ""
         if research:
             location = (research.get("location") or "").strip()
+            company_url = (research.get("website_url") or research.get("company_url") or "").strip()
 
         if not location:
             return jsonify({"error": "未找到公司位置信息，请先完成研究"}), 400
 
+        resolved = _resolve_office_location(company, location, company_url)
+        map_location = resolved.get("location") or location
+
         # 先验证 geocode 可达性
         import requests as _requests
-        geo_url = f"https://nominatim.openstreetmap.org/search?q={location}&format=json&limit=1"
+        geo_url = f"https://nominatim.openstreetmap.org/search?q={_geocode_search_text(map_location)}&format=json&limit=1"
         try:
             geo_resp = _requests.get(geo_url, headers={"User-Agent": "aistartups-cn/1.0"}, timeout=10)
             geo_data = geo_resp.json()
@@ -1058,25 +1226,36 @@ def generate_slot_map(company: str, asset_key: str):
             return jsonify({"error": f"地理编码失败（OSM 服务不可达，请检查 HTTPS_PROXY）: {geo_err}"}), 500
 
         if not geo_data:
-            return jsonify({"error": f"无法定位「{location}」，请检查位置名称是否准确"}), 400
+            return jsonify({"error": f"无法定位「{map_location}」，请检查位置名称是否准确"}), 400
 
         suffix = f"osm_{int(time.time())}"
         dest = _variant_path(config.IMAGES_DIR, company, asset_key, suffix)
         filename = os.path.basename(dest)
         url_path = _variant_url_path(company, filename)
 
-        if not _render_osm_map(location, dest):
+        if not _render_osm_map(map_location, dest, label=company, legend=map_location):
             return jsonify({"error": "地图渲染失败（staticmap 和 Playwright 均不可用）"}), 500
 
         init_assets_db(config.DB_PATH_ASSETS)
+        quality = _quality_kwargs_for_variant(
+            company, asset_key, dest, "osm_map", prompt=map_location,
+        )
+        quality["meta"] = {
+            **(quality.get("meta") or {}),
+            "location_source": resolved.get("source"),
+            "map_location": map_location,
+        }
         variant_id = insert_variant(
             config.DB_PATH_ASSETS, company, asset_key,
             local_path=url_path,
             source_type="osm_map",
+            source_url=resolved.get("source_url") or "",
+            prompt=map_location,
+            **quality,
         )
         select_variant(config.DB_PATH_ASSETS, company, asset_key, variant_id)
 
-        return jsonify({"variant_id": variant_id, "local_path": url_path, "location": location})
+        return jsonify({"variant_id": variant_id, "local_path": url_path, "location": map_location, "location_source": resolved.get("source")})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1105,8 +1284,8 @@ def extract_svg_data(company: str, asset_key: str):
 @app.route("/api/image-studio/<company>/<asset_key>/render-svg", methods=["POST"])
 def render_svg_variant(company: str, asset_key: str):
     """使用指定模板渲染 SVG → PNG 变体"""
-    if asset_key not in ("flywheel", "timeline"):
-        return jsonify({"error": "仅支持 flywheel / timeline"}), 400
+    if asset_key not in ("flywheel", "timeline", "positioning_charts"):
+        return jsonify({"error": "仅支持 flywheel / timeline / positioning_charts"}), 400
 
     try:
         body = request.get_json()
@@ -1116,7 +1295,40 @@ def render_svg_variant(company: str, asset_key: str):
         if not template_id:
             return jsonify({"error": "缺少 template_id"}), 400
 
-        # 获取对应卡片的定稿 markdown
+        suffix = f"{template_id}_{int(time.time())}"
+        variant_dir = _company_image_dir(config.IMAGES_DIR, company, "variants")
+        os.makedirs(variant_dir, exist_ok=True)
+        dest = os.path.join(variant_dir, f"{asset_key}__{suffix}.png")
+
+        # ── positioning_charts：无需 LLM，直接查库画散点图 ──
+        if asset_key == "positioning_charts":
+            companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+            if template_id == "competitive_landscape":
+                ok = render_competitive_landscape(companies, company, dest, params)
+            elif template_id == "stack_positioning":
+                ok = render_stack_positioning(companies, company, dest, params)
+            else:
+                return jsonify({"error": f"未知图表类型: {template_id}"}), 400
+            if not ok:
+                return jsonify({"error": "散点图渲染失败"}), 500
+            init_assets_db(config.DB_PATH_ASSETS)
+            vid = insert_variant(
+                config.DB_PATH_ASSETS, company, asset_key,
+                local_path=_variant_url_path(company, f"{asset_key}__{suffix}.png"),
+                source_type="svg_render",
+                prompt=f"chart={template_id}",
+                **_quality_kwargs_for_variant(
+                    company, asset_key, dest, "svg_render",
+                    prompt=f"chart={template_id}",
+                ),
+            )
+            select_variant(config.DB_PATH_ASSETS, company, asset_key, vid)
+            return jsonify({
+                "variant_id": vid,
+                "local_path": _variant_url_path(company, f"{asset_key}__{suffix}.png"),
+            })
+
+        # ── flywheel / timeline：LLM 提取结构化数据 ──
         card_index = 6 if asset_key == "flywheel" else 3
         markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
         if not markdown:
@@ -1125,12 +1337,6 @@ def render_svg_variant(company: str, asset_key: str):
         data, _cached = _load_svg_data(company, asset_key, markdown)
         if not data:
             return jsonify({"error": "结构化数据提取失败"}), 500
-
-        # 渲染
-        suffix = f"{template_id}_{int(time.time())}"
-        variant_dir = _company_image_dir(config.IMAGES_DIR, company, "variants")
-        os.makedirs(variant_dir, exist_ok=True)
-        dest = os.path.join(variant_dir, f"{asset_key}__{suffix}.png")
 
         try:
             ok = render_with_template(data, params, template_id, dest)
@@ -1146,6 +1352,10 @@ def render_svg_variant(company: str, asset_key: str):
             local_path=_variant_url_path(company, f"{asset_key}__{suffix}.png"),
             source_type="svg_render",
             prompt=f"template={template_id} params={json.dumps(params)}",
+            **_quality_kwargs_for_variant(
+                company, asset_key, dest, "svg_render",
+                prompt=f"template={template_id} params={json.dumps(params)}",
+            ),
         )
         select_variant(config.DB_PATH_ASSETS, company, asset_key, vid)
 

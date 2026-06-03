@@ -54,7 +54,19 @@
       </div>
     </div>
 
-    <!-- 手风琴3：图片定稿 -->
+    <!-- 手风琴3：数据库字段 -->
+    <div class="accordion-section">
+      <div class="accordion-header" data-section="dbfields">
+        <span class="arrow">&#9654;</span> 数据库字段
+      </div>
+      <div class="accordion-body" data-section="dbfields">
+        <div id="editor-dbfields-nav">
+          <button class="editor-card-btn editor-dbfields-btn active" data-card="dbfields">全部字段</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 手风琴4：图片定稿 -->
     <div class="accordion-section">
       <div class="accordion-header" data-section="image">
         <span class="arrow">&#9654;</span> 图片定稿
@@ -110,6 +122,29 @@
   <!-- 图片定稿模式：iframe 容器 -->
   <div id="image-studio-frame">
     <iframe id="image-studio-iframe" src="" title="图片定稿台"></iframe>
+  </div>
+
+  <!-- 钩子模式：占据中右区域 -->
+  <div id="hook-mode">
+    <div id="hook-mode-content" class="preview-content"></div>
+  </div>
+
+  <!-- 数据库字段模式：占据中右区域 -->
+  <div id="db-fields-mode">
+    <div class="db-fields-head">
+      <span>数据库字段 · <span id="db-fields-company"></span></span>
+      <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer">
+        <input type="checkbox" id="db-show-system"> 显示系统字段
+      </label>
+    </div>
+    <div id="db-fields-table-wrap">
+      <table id="db-fields-table">
+        <thead><tr>
+          <th>字段</th><th>标准版</th><th>商业版</th><th>传播版</th>
+        </tr></thead>
+        <tbody id="db-fields-tbody"></tbody>
+      </table>
+    </div>
   </div>
 </main>
 

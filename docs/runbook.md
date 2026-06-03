@@ -42,9 +42,14 @@ DB_PATH_FINAL=/absolute/path/to/final_db.sqlite
 DB_PATH_ASSETS=/absolute/path/to/assets_db.sqlite
 IMAGES_DIR=/absolute/path/to/images
 PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium
+SCREENSHOT_PROVIDER=local
+SCREENSHOT_API_URL=
+SCREENSHOT_API_KEY=
 ```
 
 `IMAGE_API_KEY` and `IMAGE_API_URL` are defaults for image generation. The card workbench can also send a one-off `image_api_url` and `image_api_key` to `/api/generate-image`; the one-off API key is not persisted or returned.
+
+`SCREENSHOT_PROVIDER=local` uses Playwright. Other screenshot API settings are reserved for later adapters and are not required for the current path.
 
 ## Start
 
@@ -81,7 +86,14 @@ python3 - <<'PY'
 import sys
 sys.path.insert(0, "webapp")
 from deepseek_client import load_prompt
-for name in ["layer0-cleaner", "layer1-hv-analysis", "layer2-business", "layer3-field-extraction", "split-text"]:
+for name in ["layer0-cleaner", "layer1-hv-analysis", "layer2-business", "layer3-field-extraction",
+             "layer3-group-a-technical", "layer3-group-b-competitive", "layer3-group-c-business",
+             "split-text"]:
+    print(name, len(load_prompt(name)))
+# 检查新字段
+import sys; sys.path.insert(0,"webapp")
+from markdown_builder import build_card_markdown
+print("ecosystem_niche field split from moat — see prompts/layer3-field-extraction.md")
     print(name, len(load_prompt(name)))
 PY
 ```
@@ -133,7 +145,7 @@ Open image studio directly (standalone):
 http://127.0.0.1:5050/image-studio/?company=Anthropic
 ```
 
-The image studio is also embedded in the editor via the left-side "图片定稿" accordion section; in embed mode it hides its top bar and slot overview panel. Standalone layout is slot overview on the left, candidate variants plus search results in the middle, and actions/import/current selected image on the right.
+The image studio is also embedded in the editor via the left-side "图片定稿" accordion section; in embed mode it hides its top bar and slot overview panel. Standalone layout: left slot overview, middle preview/search toggle + toolbar (search, recollect, AI gen, upload, URL import), right 2-column candidate thumbnails + "确定图片" confirm button. Candidate thumbnails show source, dimensions, `final_score`, previewed/selected state, and `reject_reason`.
 
 In the finalization desk, each card is edited row by row across four columns: standard version, business version, spread version, and final input. Confirm cards 1-8. Card 7 is the competition landscape; card 8 is the summary and contains the market opportunity. The spread hook paragraphs are available from the left-side `传播钩子文案` entry; they are copy options for the article opening and are not written into cards.
 
@@ -177,9 +189,18 @@ node canvas/screenshot.js \
   --bg-image /path/to/watermark.png \
   --shots 3 \
   --scale 3
+
+# 带参数覆盖（从 param-editor 导出的 JSON）
+node canvas/screenshot.js \
+  --company Anthropic \
+  --base-url http://127.0.0.1:5050 \
+  --params-file /path/to/card-params.json \
+  --shots 3 \
+  --scale 3
 ```
 
 `--shots` 控制每张卡导出几张候选图；`--scale` 控制 Puppeteer 的 `deviceScaleFactor`，数值越高图片越清晰、文件越大。默认是 `--shots 3 --scale 3`。
+`--params` 和 `--params-file` 接受卡片参数 JSON（字号/颜色/间距覆盖），参数通过 base64 编码注入到卡片页面 URL。
 
 Asset collection and infographic generation:
 
@@ -193,11 +214,24 @@ curl http://127.0.0.1:5050/api/assets/Anthropic | python3 -m json.tool
 # Regenerate and select the card 2 company location map
 curl -X POST http://127.0.0.1:5050/api/image-studio/Anthropic/office/generate-map
 
+# Re-score candidates and auto-select the highest scored usable image
+curl -X POST http://127.0.0.1:5050/api/image-studio/Anthropic/product_main/rescore
+
 # Flywheel and timeline infographics are auto-generated on card confirm (card 3/6).
 # Manual generation via API:
 curl -X POST http://127.0.0.1:5050/api/image-studio/Anthropic/flywheel/render-svg \
   -H "Content-Type: application/json" \
   -d '{"template_id":"flywheel_circular","params":{"radius":200,"accent_color":"#29B8D4","label_size":16}}'
+
+# Generate competitive landscape scatter plot
+curl -X POST http://127.0.0.1:5050/api/image-studio/Anthropic/positioning_charts/render-svg \
+  -H "Content-Type: application/json" \
+  -d '{"template_id":"competitive_landscape","params":{}}'
+
+# Generate AI stack positioning scatter plot
+curl -X POST http://127.0.0.1:5050/api/image-studio/Anthropic/positioning_charts/render-svg \
+  -H "Content-Type: application/json" \
+  -d '{"template_id":"stack_positioning","params":{}}'
 
 # Upload a local Python SVG template (localhost only)
 curl -X POST http://127.0.0.1:5050/api/svg-templates/upload \
@@ -236,12 +270,16 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
 - If a research job fails at L3, no partial all-missing record should be written.
 - If hook copy is missing in the finalization desk, open the left-side `传播钩子文案` entry and confirm `hook_paragraph_1/2/3` exist in `GET /api/research/<company>/<version>`.
 - If generated images do not display, confirm `/images/<filename>` returns 200 and `IMAGES_DIR` points to the saved image directory. Asset APIs normalize absolute local image paths to `/images/...`; stale DB rows with raw absolute paths can be fixed by reselecting or reimporting the variant.
-- If the image folder is empty, check that assets have been auto-collected (triggered after research completes) or manually recollected via the editor's image-studio "重新采集图片" button. Asset images from `company_assets` with `status=ready` are displayed first.
+- If the image folder is empty, check that assets have been auto-collected (triggered after research completes) or manually recollected via the image studio toolbar "全部重新采集" / "当页重新采集" buttons. "当页重新采集" passes `?asset_key=` to collect only the current slot. Asset images from `company_assets` with `status=ready` are displayed first.
+- If a slot has variants but no good final image, open image-studio and sort by score. Rejected candidates keep a visible `reject_reason`; click “重新评分” after changing scoring rules or manually importing better candidates.
 - If the background watermark is missing, open “图片夹”, upload a local image again, and confirm browser `localStorage` is available for `aistartups_bg_image`.
 - If image generation fails from the card workbench, check the bottom-bar API URL/API Key first, then the environment `IMAGE_API_URL` and `IMAGE_API_KEY`.
 - If flywheel or timeline infographic generation fails, confirm card 6 or card 3 has been finalized with Markdown content in `final_db`. The infographic pipeline needs the card's markdown to extract structured JSON for SVG rendering.
 - If the card workbench opens without a project name, go back through `/editor?company=<company>` or add `?company=<company>` to the canvas URL; the left project label is intentionally not editable.
 - If the card preview differs from the source editor, reload `/canvas/?company=<company>` and confirm the current card source was saved in the same browser profile.
+- If the template list is empty on first visit, clear `aistartups.templates` from browser localStorage and refresh. Default templates auto-load from `/canvas/default-templates.json`.
+- To share templates across machines, use "导入模板" / export the `aistartups.templates` localStorage key as JSON.
+- If Tavily / GitHub / YouTube requests time out during research, confirm the proxy is running on the port configured in `.env` (`HTTPS_PROXY`). Timeout values are set in `pipeline.py` (connect/read: Tavily 30s/120s, GitHub 15s/45s, YouTube 15s/45s). Tavily now uses explicit `proxies=` parameter (not just env-var auto-detection).
 - If PNG export says Puppeteer is missing, run `npm install` from the project root.
 - If imports fail in a new environment, reinstall with `pip install -r requirements.txt`.
 - `urllib3` may warn about LibreSSL on the system Python. The warning is noisy but was not a blocker in local verification.

@@ -39,6 +39,9 @@ class Config:
     GOOGLE_MAPS_API_KEY: str = os.environ.get("GOOGLE_MAPS_API_KEY", "")
     PEXELS_API_KEY: str = os.environ.get("PEXELS_API_KEY", "")
     UNSPLASH_ACCESS_KEY: str = os.environ.get("UNSPLASH_ACCESS_KEY", "")
+    SCREENSHOT_PROVIDER: str = os.environ.get("SCREENSHOT_PROVIDER", "local")
+    SCREENSHOT_API_URL: str = os.environ.get("SCREENSHOT_API_URL", "")
+    SCREENSHOT_API_KEY: str = os.environ.get("SCREENSHOT_API_KEY", "")
     IMAGE_API_KEY: str = os.environ.get("IMAGE_API_KEY", "")
     IMAGE_API_URL: str = os.environ.get(
         "IMAGE_API_URL", "https://api.openai.com/v1/images/generations"

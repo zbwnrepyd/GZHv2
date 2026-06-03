@@ -127,10 +127,23 @@ def build_card_markdown(db_path: str, company_name: str, card_index: int, versio
             f"**飞轮**：{_value(record, 'growth_flywheel')}",
         ]
     elif card_index == 7:
+        moat_text = _value(record, 'moat')
+        # 拆分壁垒和生态位（若 moat 字段中包含"生态位分析"标记则拆分，否则生态位留空）
+        moat_part = moat_text
+        niche_part = record.get('ecosystem_niche') or ''
+        if not niche_part:
+            for sep in ['- 生态位分析', '●生态位分析', '生态位分析', '- 生态位', '●生态位', '\n\n生态位']:
+                idx = moat_text.find(sep)
+                if idx > 0:
+                    moat_part = moat_text[:idx].strip()
+                    niche_part = moat_text[idx:].strip()
+                    break
         lines += [
-            f"**壁垒**：{_value(record, 'moat')}",
-            _format_competitors(record.get("competitors")),
+            f"**壁垒**：{moat_part if moat_part and moat_part != '暂缺' else '暂缺'}",
         ]
+        if niche_part and niche_part != '暂缺':
+            lines.append(f"**生态位**：{niche_part}")
+        lines.append(_format_competitors(record.get("competitors")))
     elif card_index == 8:
         lines += [
             f"**机遇**：{_value(record, 'market_opportunity')}",

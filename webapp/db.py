@@ -6,6 +6,8 @@ import shutil
 import sqlite3
 from contextlib import contextmanager
 
+from competitive_scoring import compute_scores, normalize_fields
+
 
 @contextmanager
 def get_db(db_path: str):
@@ -23,6 +25,8 @@ def get_db(db_path: str):
 def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
     """列出所有已研究公司，附带定稿进度"""
     with get_db(db_path) as conn:
+        _ensure_research_schema(conn)
+        conn.commit()
         rows = conn.execute(
             "SELECT DISTINCT company_name, MAX(created_at) as created_at "
             "FROM research GROUP BY company_name ORDER BY created_at DESC"
@@ -30,7 +34,7 @@ def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
         companies = []
         for row in rows:
             latest = conn.execute(
-                "SELECT * FROM research WHERE company_name=? ORDER BY created_at DESC LIMIT 1",
+                "SELECT * FROM research WHERE company_name=? ORDER BY created_at DESC, CASE version WHEN 'standard' THEN 0 ELSE 1 END LIMIT 1",
                 (row["company_name"],),
             ).fetchone()
             filled = 0
@@ -46,9 +50,11 @@ def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
             website_url = latest["website_url"] if latest else ""
             if not website_url or str(website_url).strip() in ("", "暂缺"):
                 website_url = _latest_job_company_url(conn, row["company_name"])
+            scoring = _company_scoring_payload(latest)
             companies.append(
                 {
                     "company_name": row["company_name"],
+                    "category": latest["company_type"] if latest else "",
                     "company_url": website_url,
                     "website_url": website_url,
                     "created_at": row["created_at"],
@@ -56,9 +62,56 @@ def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
                     "completeness": completeness,
                     "confirmed": confirmed,
                     "total": 8,
+                    **scoring,
                 }
             )
         return companies
+
+
+def _company_scoring_payload(row: sqlite3.Row | None) -> dict:
+    if not row:
+        return {
+            "ai_model_dependency": "",
+            "workflow_integration_level": "",
+            "data_flywheel": "",
+            "proprietary_data_asset": "",
+            "incumbent_direct_competitor": "",
+            "customer_segment_type": "",
+            "funding_stage": "",
+            "funding_stage_score": None,
+            "pricing_model": "",
+            "inference_cost_exposure": "",
+            "stack_layer": "",
+            "score_defensibility": None,
+            "score_incumbent_attention": None,
+            "score_value_capture": None,
+        }
+
+    data = dict(row)
+    normalized = normalize_fields(data)
+    scores = compute_scores(normalized)
+    payload = {}
+    for field in [
+        "ai_model_dependency",
+        "workflow_integration_level",
+        "data_flywheel",
+        "proprietary_data_asset",
+        "incumbent_direct_competitor",
+        "customer_segment_type",
+        "funding_stage",
+        "pricing_model",
+        "inference_cost_exposure",
+        "stack_layer",
+    ]:
+        payload[field] = data.get(field) or normalized[field]
+    for field in [
+        "funding_stage_score",
+        "score_defensibility",
+        "score_incumbent_attention",
+        "score_value_capture",
+    ]:
+        payload[field] = data.get(field) if data.get(field) is not None else scores[field]
+    return payload
 
 
 def _latest_job_company_url(conn: sqlite3.Connection, company_name: str) -> str:
@@ -118,12 +171,57 @@ REQUIRED_RESEARCH_FIELDS = [
     "data_confidence",
 ]
 
+COMPETITIVE_RESEARCH_FIELDS = [
+    "ai_model_dependency",
+    "workflow_integration_level",
+    "data_flywheel",
+    "proprietary_data_asset",
+    "incumbent_direct_competitor",
+    "customer_segment_type",
+    "funding_stage",
+    "funding_stage_score",
+    "pricing_model",
+    "inference_cost_exposure",
+    "stack_layer",
+    "score_defensibility",
+    "score_incumbent_attention",
+    "score_value_capture",
+]
+
+RESEARCH_SAVE_FIELDS = REQUIRED_RESEARCH_FIELDS + COMPETITIVE_RESEARCH_FIELDS
+
+
+def _ensure_research_schema(conn: sqlite3.Connection):
+    """Migrate existing local research DB files to the current scoring schema."""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(research)").fetchall()}
+    columns = {
+        "ai_model_dependency": "TEXT",
+        "workflow_integration_level": "TEXT",
+        "data_flywheel": "TEXT",
+        "proprietary_data_asset": "TEXT",
+        "incumbent_direct_competitor": "TEXT",
+        "customer_segment_type": "TEXT",
+        "funding_stage": "TEXT",
+        "funding_stage_score": "REAL",
+        "pricing_model": "TEXT",
+        "inference_cost_exposure": "TEXT",
+        "stack_layer": "TEXT",
+        "score_defensibility": "REAL",
+        "score_incumbent_attention": "REAL",
+        "score_value_capture": "REAL",
+    }
+    for name, definition in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE research ADD COLUMN {name} {definition}")
+
 
 def save_research_records(db_path: str, records: list[dict]) -> list[int]:
     """保存多条研究记录到 research_db，返回插入的 ID 列表"""
     ids = []
     with get_db(db_path) as conn:
+        _ensure_research_schema(conn)
         for rec in records:
+            rec = dict(rec)
             for f in REQUIRED_RESEARCH_FIELDS:
                 val = rec.get(f)
                 if val is None or (isinstance(val, str) and val.strip() == ""):
@@ -131,11 +229,15 @@ def save_research_records(db_path: str, records: list[dict]) -> list[int]:
                 elif isinstance(val, (list, dict)):
                     rec[f] = json.dumps(val, ensure_ascii=False)
 
+            normalized = normalize_fields(rec)
+            rec.update(normalized)
+            rec.update(compute_scores(rec))
+
             values = [rec.get("company_name", "未知"), rec.get("version", "unknown")]
-            values += [rec.get(f, "暂缺") for f in REQUIRED_RESEARCH_FIELDS]
-            placeholders = ",".join(["?"] * (len(REQUIRED_RESEARCH_FIELDS) + 2))
+            values += [rec.get(f, "暂缺") for f in RESEARCH_SAVE_FIELDS]
+            placeholders = ",".join(["?"] * (len(RESEARCH_SAVE_FIELDS) + 2))
             cur = conn.execute(
-                f"INSERT INTO research (company_name, version, {','.join(REQUIRED_RESEARCH_FIELDS)}) VALUES ({placeholders})",
+                f"INSERT INTO research (company_name, version, {','.join(RESEARCH_SAVE_FIELDS)}) VALUES ({placeholders})",
                 values,
             )
             ids.append(cur.lastrowid)

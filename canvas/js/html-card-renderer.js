@@ -16,6 +16,7 @@ const DEFAULT_CARD_CSS = `
   --fs-hero:           96px;
   --fs-s1:             40px;
   --fs-s2:             30px;
+  --fs-tagline:        56px;
   --fs-body:           22px;
   --fs-body-sm:        17px;
   --fs-label:          11px;
@@ -221,21 +222,48 @@ const DEFAULT_CARD_CSS = `
   font-size: var(--fs-body);
 }
 
-/* ── 图片框（卡片2-8，从上往下1/3处，4:3，居中）── */
+/* ── 图片标题（卡片2-8，图片上方70px）── */
+.card-image-title {
+  position: absolute;
+  top: calc(33.33% - 14% - 70px);
+  left: 50%;
+  transform: translate(-50%, -100%);
+  margin: 0;
+  font: 700 var(--fs-tagline)/1.2 "SimHei", "Heiti SC", "Noto Serif SC", serif;
+  color: var(--ink-primary);
+  letter-spacing: -0.01em;
+  text-align: center;
+  z-index: 3;
+  white-space: nowrap;
+}
+
+/* ── 图片框（卡片2-8，中轴线在卡片1/3处，宽6/7）── */
 .img-box {
-  margin: 30% auto 0;
-  width: 58%;
-  aspect-ratio: 16 / 9;
+  position: absolute;
+  top: 33.33%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 85.7%;
+  max-height: 28%;
   border-radius: 6px;
-  box-shadow: 0 2px 16px rgba(0,0,0,0.10);
+  box-shadow: 0 2px 14px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
   overflow: hidden;
-  background: var(--navy-deep);
-  flex-shrink: 0;
+  background: transparent;
+  z-index: 3;
 }
 .img-box img {
-  width: 100%; height: 100%;
-  object-fit: cover;
+  width: 100%; height: auto;
+  max-height: 336px;
+  object-fit: contain;
   display: block;
+}
+
+/* ── 当有图片时，正文在图片下方70px ── */
+.card-body.with-image {
+  margin-top: calc(33.33% + 14% + 70px);
+}
+.img-box--office {
+  background: #F8FAFC;
 }
 
 /* ── 卡片1 — 封面 ── */
@@ -243,26 +271,36 @@ const DEFAULT_CARD_CSS = `
   height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  padding-top: 50px;
+  align-items: center;
+  text-align: center;
+  padding-top: 44px;
   position: relative;
 }
+.p1-gzh-logo {
+  display: block;
+  max-width: 180px;
+  max-height: 48px;
+  margin: 0 auto 24px;
+  object-fit: contain;
+}
 .p1-tagline {
-  margin: 0 0 16px;
+  margin: 0 0 14px;
   color: #000;
-  font: 300 20px/1.3 var(--font-serif);
-  letter-spacing: 0.08em;
+  font: 400 var(--fs-tagline)/1.25 var(--font-serif);
+  letter-spacing: 0.06em;
+  text-align: center;
 }
 .p1-title {
   margin: 0;
   max-width: 700px;
   font-family: var(--font-serif);
-  font-size: 120px;
+  font-size: var(--fs-hero);
   font-weight: 700;
   line-height: 0.92;
   letter-spacing: -0.015em;
   color: #000;
   word-break: break-word;
+  text-align: center;
 }
 .p1-logo-area {
   position: absolute;
@@ -272,17 +310,17 @@ const DEFAULT_CARD_CSS = `
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
+  gap: 32px;
 }
 .p1-logo-area img {
-  max-width: 200px;
-  max-height: 130px;
+  max-width: 300px;
+  max-height: 195px;
   display: block;
 }
 .p1-type-section {
-  font: 500 18px/1.3 var(--font-body);
+  font: 700 var(--fs-tagline)/1.3 "SimHei", "Heiti SC", "PingFang SC", sans-serif;
   color: #000;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-align: center;
 }
 
@@ -351,17 +389,20 @@ function firstVal(cardData, keys, fallback = '暂缺') {
 }
 
 // ─── 图片框 ──────────────────────────────────────────────────
-function imageBox(imageUrl) {
+function imageBox(imageUrl, assetKey = '') {
   const imgTag = imageUrl ? `<img src="${escapeHTML(imageUrl)}" alt="">` : '';
-  return `<div class="img-box">${imgTag}</div>`;
+  const classes = ['img-box'];
+  if (assetKey === 'office') classes.push('img-box--office');
+  return `<div class="${classes.join(' ')}">${imgTag}</div>`;
 }
 
 // ─── Markdown → HTML（保留原始层级，不添加人为标签）─────────
 function fullMarkdownToHTML(markdown) {
-  if (!markdown || !String(markdown).trim()) return { html: '', image: '' };
+  if (!markdown || !String(markdown).trim()) return { html: '', image: '', title: '' };
 
   const lines = String(markdown).split('\n');
   let image = '';
+  let title = '';
   const blocks = [];
   let currentItems = [];
   let currentType = null;
@@ -391,7 +432,14 @@ function fullMarkdownToHTML(markdown) {
     if (/^#{1,3}\s+/.test(t)) {
       flush();
       const hm = t.match(/^(#{1,3})\s+(.+)/);
-      blocks.push({ type: 'h', level: hm[1].length, text: hm[2].trim() });
+      const level = hm[1].length;
+      const text = hm[2].trim();
+      // 第一个 ## h2 作为图片标题提取，不放入正文
+      if (level === 2 && !title) {
+        title = text;
+        continue;
+      }
+      blocks.push({ type: 'h', level, text });
       continue;
     }
 
@@ -433,7 +481,7 @@ function fullMarkdownToHTML(markdown) {
     }
   }
 
-  return { html: parts.join(''), image };
+  return { html: parts.join(''), image, title };
 }
 
 function cardDataToMarkdown(cardData) {
@@ -521,6 +569,7 @@ function fitVarsForCard(cardIndex, cardData) {
     '--fs-hero':       Math.round(108 * S),
     '--fs-s1':         Math.round(46 * S),
     '--fs-s2':         Math.round(32 * S),
+    '--fs-tagline':    Math.round(56 * S),
     '--fs-body':       Math.round(22 * S),
     '--fs-body-sm':    Math.round(17 * S),
     '--fs-label':      Math.round(11 * S),
@@ -541,23 +590,82 @@ function fitVarsForCard(cardIndex, cardData) {
   return pxVars;
 }
 
-function articleOpen(cardIndex, cardData, extraStyle = '') {
-  const vars = fitVarsForCard(cardIndex, cardData);
-  const fitStyle = Object.entries(vars).map(([k, v]) => `${k}: ${v}`).join('; ');
-  const style = [fitStyle, extraStyle].filter(Boolean).join('; ');
+// ─── 参数覆盖：将 params JSON 转为 CSS 变量 map ──────────────
+function applyParamOverrides(paramOverrides) {
+  const vars = {};
+  if (!paramOverrides || typeof paramOverrides !== 'object') return vars;
+
+  const t = paramOverrides.typography || {};
+  if (t.fsHero != null)     vars['--fs-hero']     = t.fsHero + 'px';
+  if (t.fsS1 != null)       vars['--fs-s1']       = t.fsS1 + 'px';
+  if (t.fsS2 != null)       vars['--fs-s2']       = t.fsS2 + 'px';
+  if (t.fsTagline != null)  vars['--fs-tagline']  = t.fsTagline + 'px';
+  if (t.fsBody != null)     vars['--fs-body']     = t.fsBody + 'px';
+  if (t.fsBodySm != null)   vars['--fs-body-sm']  = t.fsBodySm + 'px';
+  if (t.fsLabel != null)    vars['--fs-label']    = t.fsLabel + 'px';
+  if (t.fsCaption != null)  vars['--fs-caption']  = t.fsCaption + 'px';
+  if (t.fsData != null)     vars['--fs-data']     = t.fsData + 'px';
+  if (t.fsTimeline != null) vars['--fs-timeline'] = t.fsTimeline + 'px';
+  if (t.lhBody != null)     vars['--lh-body']     = String(t.lhBody);
+  if (t.lhTight != null)    vars['--lh-tight']    = String(t.lhTight);
+
+  const s = paramOverrides.spacing || {};
+  if (s.fieldGap != null)      vars['--field-gap']       = s.fieldGap + 'px';
+  if (s.fieldInnerGap != null) vars['--field-inner-gap'] = s.fieldInnerGap + 'px';
+  if (s.fieldPadY != null)     vars['--field-pad-y']     = s.fieldPadY + 'px';
+  if (s.sectionGap != null)    vars['--section-gap']     = s.sectionGap + 'px';
+  if (s.cardPadding != null)   vars['--card-pad']        = s.cardPadding + 'px';
+
+  const c = paramOverrides.colors || {};
+  if (c.accent)            vars['--accent']        = c.accent;
+  if (c.inkPrimary)        vars['--ink-primary']   = c.inkPrimary;
+  if (c.inkSecondary)      vars['--ink-secondary'] = c.inkSecondary;
+  if (c.inkMuted)          vars['--ink-muted']     = c.inkMuted;
+
+  return vars;
+}
+
+// ─── 根据配色参数生成渐变 CSS（8 段插值）─────────────────────
+function buildGradientCSS(paramOverrides) {
+  if (!paramOverrides || !paramOverrides.colors) return '';
+  const c = paramOverrides.colors;
+  const top = c.bgGradientTop;
+  const mid = c.bgGradientMid;
+  const bottom = c.bgGradientBottom;
+  if (!top && !mid && !bottom) return '';
+  const t = top || '#0B1629';
+  const m = mid || t;
+  const b = bottom || '#FFFFFF';
+  // 8 stops 模拟深→浅过渡
+  return `linear-gradient(180deg, ${t} 0%, ${t} 4%, ${m} 14%, ${m} 26%, ${b} 42%, ${b} 60%, ${b} 80%, ${b} 100%)`;
+}
+
+function articleOpen(cardIndex, cardData, extraStyle = '', paramOverrides = null) {
+  const fitVars = fitVarsForCard(cardIndex, cardData);
+  const overrideVars = applyParamOverrides(paramOverrides);
+  // fitVars 先应用，paramOverrides 覆盖（优先级更高）
+  const merged = Object.assign({}, fitVars, overrideVars);
+  const mergedStyle = Object.entries(merged).map(([k, v]) => `${k}: ${v}`).join('; ');
+
+  // 渐变覆盖
+  const gradientCSS = buildGradientCSS(paramOverrides);
+  const bgStyle = gradientCSS ? `background: ${gradientCSS}` : '';
+
+  const style = [mergedStyle, extraStyle, bgStyle].filter(Boolean).join('; ');
   return `<article class="knowledge-card" style="${style}">`;
 }
 
-// ─── 卡片2-8 通用渲染（Markdown 驱动 + 底部图框）───────────
-function renderPageGeneric(cardIndex, cardData) {
+// ─── 卡片2-8 通用渲染（图片标题在上 → 图片 → 正文在下）──────
+function renderPageGeneric(cardIndex, cardData, opts = {}) {
   const md = cardData?._markdown || cardDataToMarkdown(cardData);
-  const { html, image } = fullMarkdownToHTML(md);
+  const { html, image, title } = fullMarkdownToHTML(md);
+  const showImage = opts.showImage !== false; // 默认显示图片
 
   // 优先级：_selectedImage（图片夹选中） > 资产图片 > markdown 图片
   let displayImage = cardData?._selectedImage || '';
+  const assetKey = RENDERER_CARD_ASSET_MAP[cardIndex];
   if (!displayImage) {
     const assets = cardData?._assets || {};
-    const assetKey = RENDERER_CARD_ASSET_MAP[cardIndex];
     const asset = assetKey ? assets[assetKey] : null;
     if (asset && asset.local_path && asset.status === 'ready') {
       displayImage = asset.local_path;
@@ -565,13 +673,25 @@ function renderPageGeneric(cardIndex, cardData) {
   }
   if (!displayImage) displayImage = image;
 
+  // 图片标题：优先 markdown 中的 ## h2，回退到卡片数据的 _title 或空
+  const imageTitle = title || cardData?._title || '';
+
+  const bodyClass = (showImage && displayImage) ? 'card-body with-image' : 'card-body';
+
+  const imageSection = (showImage && displayImage) ? `
+    ${imageTitle ? `<h2 class="card-image-title">${escapeHTML(imageTitle)}</h2>` : ''}
+    ${imageBox(displayImage, assetKey)}
+  ` : '';
+
+  const paramOverrides = opts.paramOverrides || null;
+
   return `
-${articleOpen(cardIndex, cardData)}
+${articleOpen(cardIndex, cardData, '', paramOverrides)}
   ${cardChrome()}
   ${bgOverlay()}
+  ${imageSection}
   <div class="card-content">
-    ${displayImage ? imageBox(displayImage) : ''}
-    <div class="card-body">${html || '<p class="md-empty">暂无内容</p>'}</div>
+    <div class="${bodyClass}">${html || '<p class="md-empty">暂无内容</p>'}</div>
   </div>
 </article>`;
 }
@@ -581,15 +701,17 @@ function bgOverlay() {
 }
 
 // ─── 卡片1 — 封面 ────────────────────────────────────────────
-function renderPage1({ companyName, cardData }) {
+function renderPage1({ companyName, cardData, paramOverrides }) {
   const name = val(cardData, '公司名', '') || companyName || '暂缺';
   const type = val(cardData, '类型', '');
   const assets = cardData?._assets || {};
   const logoUrl = assets.logo?.local_path || '';
+  const gzhLogoUrl = cardData?._gzhLogo || '';
   return `
-${articleOpen(1, cardData, 'background:#FFFFFF;--vignette:none')}
+${articleOpen(1, cardData, 'background:#FFFFFF;--vignette:none', paramOverrides)}
   ${cardChrome()}
   <div class="p1-hero">
+    ${gzhLogoUrl ? `<img class="p1-gzh-logo" src="${escapeHTML(gzhLogoUrl)}" alt="公众号logo">` : ''}
     <p class="p1-tagline">三分钟认识一家AI初创公司</p>
     <h1 class="p1-title">${escapeHTML(name)}</h1>
     <div class="p1-logo-area">
@@ -600,13 +722,13 @@ ${articleOpen(1, cardData, 'background:#FFFFFF;--vignette:none')}
 </article>`;
 }
 
-function renderPage2({ cardData }) { return renderPageGeneric(2, cardData); }
-function renderPage3({ cardData }) { return renderPageGeneric(3, cardData); }
-function renderPage4({ cardData }) { return renderPageGeneric(4, cardData); }
-function renderPage5({ cardData }) { return renderPageGeneric(5, cardData); }
-function renderPage6({ cardData }) { return renderPageGeneric(6, cardData); }
-function renderPage7({ cardData }) { return renderPageGeneric(7, cardData); }
-function renderPage8({ cardData }) { return renderPageGeneric(8, cardData); }
+function renderPage2({ cardData, paramOverrides }) { return renderPageGeneric(2, cardData, { paramOverrides }); }
+function renderPage3({ cardData, showImage, paramOverrides }) { return renderPageGeneric(3, cardData, { showImage, paramOverrides }); }
+function renderPage4({ cardData, paramOverrides }) { return renderPageGeneric(4, cardData, { paramOverrides }); }
+function renderPage5({ cardData, paramOverrides }) { return renderPageGeneric(5, cardData, { paramOverrides }); }
+function renderPage6({ cardData, paramOverrides }) { return renderPageGeneric(6, cardData, { paramOverrides }); }
+function renderPage7({ cardData, paramOverrides }) { return renderPageGeneric(7, cardData, { paramOverrides }); }
+function renderPage8({ cardData, paramOverrides }) { return renderPageGeneric(8, cardData, { paramOverrides }); }
 
 // ─── 主路由 ──────────────────────────────────────────────────
 const PAGE_RENDERERS = {
@@ -615,14 +737,14 @@ const PAGE_RENDERERS = {
   7: renderPage7, 8: renderPage8,
 };
 
-function renderKnowledgeCard({ companyName, cardIndex, cardData }) {
+function renderKnowledgeCard({ companyName, cardIndex, cardData, showImage, paramOverrides }) {
   const renderer = PAGE_RENDERERS[cardIndex];
   if (!renderer) return `<article class="knowledge-card"><div class="empty-card">未知卡片 ${cardIndex}</div></article>`;
-  return renderer({ companyName, cardIndex, cardData });
+  return renderer({ companyName, cardIndex, cardData, showImage, paramOverrides });
 }
 
-function renderCardSource({ companyName, cardIndex, cardData }) {
-  return `<style>\n${DEFAULT_CARD_CSS}\n</style>\n${renderKnowledgeCard({ companyName, cardIndex, cardData }).trim()}\n`;
+function renderCardSource({ companyName, cardIndex, cardData, showImage, paramOverrides }) {
+  return `<style>\n${DEFAULT_CARD_CSS}\n</style>\n${renderKnowledgeCard({ companyName, cardIndex, cardData, showImage, paramOverrides }).trim()}\n`;
 }
 
 function renderEmptyCard(message) {

@@ -87,6 +87,8 @@ const EditorApp = {
           await this.showHooks();
         } else if (card === 'image') {
           this.switchSection('image');
+        } else if (card === 'dbfields') {
+          this.switchSection('dbfields');
         } else {
           this.switchSection('content');
           await this.loadCard(Number(card));
@@ -144,6 +146,8 @@ const EditorApp = {
     } else if (section === 'hook') {
       this.showHookMode();
       this.showHooks();
+    } else if (section === 'dbfields') {
+      this.showDbFields();
     } else {
       this.showContentMode();
     }
@@ -155,6 +159,8 @@ const EditorApp = {
     document.getElementById('editor-middle-pane').style.display = '';
     document.getElementById('editor-right-pane').style.display = '';
     document.getElementById('image-studio-frame').classList.remove('open');
+    document.getElementById('hook-mode').classList.remove('open');
+    document.getElementById('db-fields-mode').classList.remove('open');
     document.getElementById('version-compare').classList.remove('hidden');
     document.querySelector('.markdown-toolbar').classList.remove('hidden');
     document.querySelector('.markdown-footer').classList.remove('hidden');
@@ -167,23 +173,19 @@ const EditorApp = {
   },
 
   showHookMode() {
-    document.getElementById('editor-middle-pane').style.display = '';
-    document.getElementById('editor-right-pane').style.display = '';
+    document.getElementById('editor-middle-pane').style.display = 'none';
+    document.getElementById('editor-right-pane').style.display = 'none';
     document.getElementById('image-studio-frame').classList.remove('open');
-    document.getElementById('version-compare').classList.add('hidden');
-    document.querySelector('.markdown-toolbar').classList.add('hidden');
-    document.querySelector('.markdown-footer').classList.add('hidden');
-    document.getElementById('preview-render').classList.add('hidden');
-    document.getElementById('preview-status').classList.add('hidden');
-    document.getElementById('btn-confirm').classList.add('hidden');
-    document.getElementById('hook-content').classList.add('hidden');
-    document.getElementById('hook-render').classList.remove('hidden');
+    document.getElementById('db-fields-mode').classList.remove('open');
+    document.getElementById('hook-mode').classList.add('open');
     this.updateButtons();
   },
 
   showImageMode() {
     document.getElementById('editor-middle-pane').style.display = 'none';
     document.getElementById('editor-right-pane').style.display = 'none';
+    document.getElementById('hook-mode').classList.remove('open');
+    document.getElementById('db-fields-mode').classList.remove('open');
     document.getElementById('image-studio-frame').classList.add('open');
     this.updateButtons();
 
@@ -331,7 +333,7 @@ const EditorApp = {
   /* ── 钩子内容 ── */
 
   renderHookContent() {
-    const container = document.getElementById('hook-render');
+    const container = document.getElementById('hook-mode-content');
     const parts = ['<div class="hook-display">'];
     const hasHooks = VERSIONS.some((version) => this.getHookParagraphs(version).length);
 
@@ -681,6 +683,82 @@ const EditorApp = {
       '"': '&quot;',
       "'": '&#039;',
     }[ch]));
+  },
+
+  /* ── 数据库字段模式 ── */
+
+  _allFieldsCache: null,
+  _showSystemFields: false,
+
+  showDbFields() {
+    // 隐藏中右栏，显示字段模式
+    document.getElementById('editor-middle-pane').style.display = 'none';
+    document.getElementById('editor-right-pane').style.display = 'none';
+    document.getElementById('image-studio-frame').classList.remove('open');
+    document.getElementById('hook-mode').classList.remove('open');
+    const mode = document.getElementById('db-fields-mode');
+    if (mode) mode.classList.add('open');
+
+    document.getElementById('db-fields-company').textContent = this.companyName;
+    // 系统字段开关
+    document.getElementById('db-show-system').checked = this._showSystemFields;
+    document.getElementById('db-show-system').onchange = (e) => {
+      this._showSystemFields = e.target.checked;
+      this._renderDbFieldsTable();
+    };
+    if (!this._allFieldsCache) this._loadAllFieldsForDb().then(() => this._renderDbFieldsTable());
+    else this._renderDbFieldsTable();
+
+    this.updateButtons();
+  },
+
+  async _loadAllFieldsForDb() {
+    this._allFieldsCache = {};
+    await Promise.all(VERSIONS.map(async v => {
+      try {
+        const r = await API.getResearch(this.companyName, v);
+        this._allFieldsCache[v] = r || {};
+      } catch { this._allFieldsCache[v] = {}; }
+    }));
+  },
+
+  _renderDbFieldsTable() {
+    const tbody = document.getElementById('db-fields-tbody');
+    if (!tbody || !this._allFieldsCache) return;
+
+    const allKeys = new Set();
+    VERSIONS.forEach(v => Object.keys(this._allFieldsCache[v] || {}).forEach(k => allKeys.add(k)));
+
+    const SYSTEM_KEYS = new Set([
+      'website_url','main_product_img_src','office_photo_hints',
+      'ai_model_dependency','workflow_integration_level','data_flywheel',
+      'proprietary_data_asset','incumbent_direct_competitor','customer_segment_type',
+      'funding_stage','funding_stage_score','pricing_model','inference_cost_exposure',
+      'stack_layer','score_defensibility','score_incumbent_attention','score_value_capture',
+    ]);
+    const HOOK_KEYS = new Set(['hook_paragraph_1','hook_paragraph_2','hook_paragraph_3']);
+
+    const ordered = [...allKeys].sort();
+    const rows = ordered.map(field => {
+      if (SYSTEM_KEYS.has(field) && !this._showSystemFields) return '';
+      const isSystem = SYSTEM_KEYS.has(field);
+      const isHook = HOOK_KEYS.has(field);
+      const cls = isSystem ? 'cell-system' : isHook ? 'cell-hook' : '';
+      const dv = (v) => {
+        const val = (this._allFieldsCache[v] || {})[field];
+        if (!val || val === '暂缺') return '<span class="cell-empty">-</span>';
+        if (typeof val === 'object') return `<span title="${this.esc(JSON.stringify(val))}">JSON</span>`;
+        return this.esc(String(val).substring(0, 120));
+      };
+      return `<tr class="${cls}">
+        <td title="${field}">${field}</td>
+        <td>${dv('standard')}</td>
+        <td>${dv('business')}</td>
+        <td>${dv('spread')}</td>
+      </tr>`;
+    }).filter(Boolean);
+
+    tbody.innerHTML = rows.join('');
   },
 };
 

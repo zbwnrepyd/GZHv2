@@ -287,16 +287,8 @@ def extract_timeline_json(markdown: str, deepseek_call) -> dict | None:
 # Playwright 渲染 SVG → PNG
 # ═══════════════════════════════════════════════════════════════
 
-def _svg_to_png(svg_content: str, dest: str, width: int = 800, height: int = 800):
-    """用 Playwright 将 SVG 渲染为 PNG"""
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@500;700&family=Noto+Sans+SC:wght@400;700;900&display=swap');
-  body {{ margin: 0; width: {width}px; height: {height}px; overflow: hidden; background: #0B1629; }}
-  svg {{ display: block; }}
-</style></head><body>{svg_content}</body></html>"""
-
+def _html_to_png(html: str, dest: str, width: int = 800, height: int = 600, scale: int = 2):
+    """用 Playwright 将 HTML 渲染为高清 PNG"""
     tmp = dest + ".html"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(html)
@@ -307,23 +299,17 @@ def _svg_to_png(svg_content: str, dest: str, width: int = 800, height: int = 800
         with sync_playwright() as p:
             exe = _find_chromium()
             if not exe:
-                raise RuntimeError(
-                    "找不到 Chromium 可执行文件。请执行 'playwright install chromium' 或设置 "
-                    "PLAYWRIGHT_CHROMIUM_PATH 环境变量指向 chromium 可执行文件路径。"
-                )
+                raise RuntimeError("找不到 Chromium。执行 'playwright install chromium'")
             browser = p.chromium.launch(
-                headless=True,
-                executable_path=exe,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                ],
+                headless=True, executable_path=exe,
+                args=["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu"],
             )
-            page = browser.new_page(viewport={"width": width, "height": height})
+            page = browser.new_page(
+                viewport={"width": width, "height": height},
+                device_scale_factor=scale,
+            )
             page.goto(f"file://{tmp}", wait_until="networkidle", timeout=15000)
-            page.wait_for_timeout(1500)  # 等字体加载
+            page.wait_for_timeout(2000)
             page.screenshot(path=dest, full_page=False, clip={
                 "x": 0, "y": 0, "width": width, "height": height,
             })
@@ -333,6 +319,18 @@ def _svg_to_png(svg_content: str, dest: str, width: int = 800, height: int = 800
             os.remove(tmp)
         except OSError:
             pass
+
+
+def _svg_to_png(svg_content: str, dest: str, width: int = 800, height: int = 800, scale: int = 2):
+    """用 Playwright 将 SVG 渲染为高清 PNG"""
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@500;700&family=Noto+Sans+SC:wght@400;700;900&display=swap');
+  body {{ margin: 0; width: {width}px; height: {height}px; overflow: hidden; background: #0B1629; }}
+  svg {{ display: block; }}
+</style></head><body>{svg_content}</body></html>"""
+    _html_to_png(html, dest, width, height, scale)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -396,3 +394,110 @@ def generate_timeline_from_markdown(markdown: str, dest: str, deepseek_call) -> 
     if not data:
         return False
     return render_timeline(data, dest)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Frappe Charts 散点图（竞争格局 + 生态位）
+# ═══════════════════════════════════════════════════════════════
+
+_FRAPPE_CDN_CSS = "https://unpkg.com/frappe-charts@1.6.2/dist/frappe-charts.min.css"
+_FRAPPE_CDN_JS = "https://unpkg.com/frappe-charts@1.6.2/dist/frappe-charts.min.iife.js"
+
+_STACK_LABELS = ["Infrastructure", "Foundation Model", "Middleware", "Vertical App", "Distribution"]
+
+
+def _build_scatter_html(title: str, x_label: str, y_label: str,
+                        datasets: list[dict], height: int = 560,
+                        params: dict | None = None) -> str:
+    """生成 Frappe Charts 散点图 HTML"""
+    p = params or {}
+    accent = p.get("accent_color", "#29B8D4")
+    point_size = p.get("point_size", 5)
+    title_size = p.get("title_size", 14)
+    axis_size = p.get("axis_size", 11)
+    data_json = json.dumps({"datasets": datasets}, ensure_ascii=False)
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="{_FRAPPE_CDN_CSS}">
+<style>
+  body {{ margin: 0; width: 780px; height: 580px; overflow: hidden;
+         background: #0B1629; display: flex; align-items: center; justify-content: center; }}
+  #chart {{ width: 760px; height: {height}px; }}
+  .frappe-chart .title {{ fill: {accent} !important; font-size: {title_size}px !important; font-weight: 700 !important; }}
+  .frappe-chart text {{ fill: rgba(255,255,255,0.55) !important; font-size: {axis_size}px !important; }}
+  .frappe-chart .line-vertical, .frappe-chart .line-horizontal {{ stroke: rgba(255,255,255,0.08) !important; }}
+  .frappe-chart .dataset-units {{ display: none; }}
+  .frappe-chart circle {{ r: {point_size}px; }}
+</style></head><body>
+<div id="chart"></div>
+<script src="{_FRAPPE_CDN_JS}"></script>
+<script>
+  var data = {data_json};
+  data.datasets.forEach(function(ds) {{
+    ds.values = ds.values.filter(function(v) {{ return v.x != null && v.y != null; }});
+  }});
+  new frappe.Chart("#chart", {{
+    title: "{title}",
+    type: "scatter",
+    height: {height},
+    data: data,
+    axisOptions: {{ xAxisMode: "tick", yAxisMode: "tick", xIsSeries: true }},
+    colors: ["{accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF",
+             "rgba(255,255,255,0.25)","rgba(255,255,255,0.20)","rgba(255,255,255,0.18)","rgba(255,255,255,0.15)"],
+    maxSlices: 20
+  }});
+</script></body></html>"""
+
+
+def build_competitive_landscape_svg(companies: list[dict], highlight: str,
+                                     params: dict | None = None) -> str:
+    """竞争格局散点图 HTML：Defensibility × Incumbent Attention"""
+    highlight_data, other_data = [], []
+    for c in companies:
+        name = str(c.get("company_name", ""))
+        dx = float(c.get("score_defensibility") or 0)
+        dy = float(c.get("score_incumbent_attention") or 0)
+        if dx == 0 and dy == 0: continue
+        (highlight_data if name == highlight else other_data).append({"x": dx, "y": dy, "name": name})
+    datasets = []
+    if highlight_data: datasets.append({"name": highlight, "values": highlight_data})
+    if other_data: datasets.append({"name": "其他公司", "values": other_data})
+    return _build_scatter_html("竞争格局矩阵", "Defensibility", "Incumbent Attention", datasets, params=params)
+
+
+def build_stack_positioning_svg(companies: list[dict], highlight: str,
+                                 params: dict | None = None) -> str:
+    """生态位散点图 HTML：Stack Layer × Value Capture"""
+    highlight_data, other_data = [], []
+    st_map = {"infrastructure": 1, "foundation_model": 2, "middleware": 3,
+              "vertical_app": 4, "distribution": 5}
+    for c in companies:
+        name = str(c.get("company_name", ""))
+        sx = st_map.get(str(c.get("stack_layer") or "vertical_app"), 3)
+        dy = float(c.get("score_value_capture") or 0)
+        if dy == 0: continue
+        (highlight_data if name == highlight else other_data).append({"x": sx, "y": dy, "name": name})
+    datasets = []
+    if highlight_data: datasets.append({"name": highlight, "values": highlight_data})
+    if other_data: datasets.append({"name": "其他公司", "values": other_data})
+    return _build_scatter_html("AI Stack 定位图", "Stack Layer", "Value Capture", datasets, params=params)
+
+
+def render_competitive_landscape(companies: list[dict], highlight: str, dest: str,
+                                  params: dict | None = None) -> bool:
+    try:
+        html = build_competitive_landscape_svg(companies, highlight, params)
+        _html_to_png(html, dest, width=780, height=580, scale=2)
+        return os.path.getsize(dest) > 1024
+    except Exception:
+        return False
+
+
+def render_stack_positioning(companies: list[dict], highlight: str, dest: str,
+                              params: dict | None = None) -> bool:
+    try:
+        html = build_stack_positioning_svg(companies, highlight, params)
+        _html_to_png(html, dest, width=780, height=580, scale=2)
+        return os.path.getsize(dest) > 1024
+    except Exception:
+        return False

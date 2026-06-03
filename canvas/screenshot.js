@@ -5,17 +5,19 @@ const path = require('path');
 
 function usage() {
   console.log(`Usage:
-  node canvas/screenshot.js --company <name> [--base-url http://127.0.0.1:5050] [--out output/cards/<name>] [--bg-image <path>] [--shots 3] [--scale 3]
+  node canvas/screenshot.js --company <name> [--base-url http://127.0.0.1:5050] [--out output/cards/<name>] [--bg-image <path>] [--shots 3] [--scale 3] [--params <json>] [--params-file <path>]
 
 Options:
-  --company     Company name to export. Required.
-  --base-url    Flask base URL. Default: http://127.0.0.1:5050
-  --out         Output directory. Default: output/cards/<company>
-  --bg-image    Path to local watermark image (PNG/JPEG). Injected as base64 data URL.
-  --shots       Number of screenshots per card. Default: 3.
-  --scale       deviceScaleFactor for high-resolution PNGs. Default: 3.
-  --shot-delay  Milliseconds between repeated shots. Default: 350.
-  --help        Show this help.
+  --company      Company name to export. Required.
+  --base-url     Flask base URL. Default: http://127.0.0.1:5050
+  --out          Output directory. Default: output/cards/<company>
+  --bg-image     Path to local watermark image (PNG/JPEG). Injected as base64 data URL.
+  --shots        Number of screenshots per card. Default: 3.
+  --scale        deviceScaleFactor for high-resolution PNGs. Default: 3.
+  --shot-delay   Milliseconds between repeated shots. Default: 350.
+  --params       Inline JSON string of card parameter overrides.
+  --params-file  Path to a JSON file containing card parameter overrides.
+  --help         Show this help.
 `);
 }
 
@@ -33,6 +35,8 @@ function parseArgs(argv) {
     shots: 3,
     scale: 3,
     shotDelay: 350,
+    params: null,
+    paramsFile: null,
   };
   for (let i = 2; i < argv.length; i += 1) {
     const item = argv[i];
@@ -52,6 +56,10 @@ function parseArgs(argv) {
       args.scale = positiveInt(argv[++i], args.scale);
     } else if (item === '--shot-delay') {
       args.shotDelay = positiveInt(argv[++i], args.shotDelay);
+    } else if (item === '--params') {
+      args.params = argv[++i] || null;
+    } else if (item === '--params-file') {
+      args.paramsFile = argv[++i] || null;
     }
   }
   return args;
@@ -61,15 +69,40 @@ function safeName(value) {
   return String(value || 'company').replace(/[/\\?%*:|"<>]/g, '_');
 }
 
-function buildCardUrl(baseUrl, company, cardIndex, bgImagePath) {
+function buildCardUrl(baseUrl, company, cardIndex, bgImagePath, params) {
   let url = `${baseUrl.replace(/\/$/, '')}/canvas/card/${encodeURIComponent(company)}/${cardIndex}`;
+  const sep = url.includes('?') ? '&' : '?';
   if (bgImagePath) {
     const mime = bgImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
     const b64 = fs.readFileSync(bgImagePath).toString('base64');
     const dataUrl = `data:${mime};base64,${b64}`;
-    url += `?bg=${encodeURIComponent(dataUrl)}`;
+    url += `${sep}bg=${encodeURIComponent(dataUrl)}`;
+  }
+  if (params) {
+    const encoded = Buffer.from(JSON.stringify(params)).toString('base64');
+    url += `${url.includes('?') ? '&' : '?'}params=${encodeURIComponent(encoded)}`;
   }
   return url;
+}
+
+function loadParams(args) {
+  if (args.params) {
+    try { return JSON.parse(args.params); } catch (e) {
+      console.warn('Failed to parse --params JSON:', e.message);
+      return null;
+    }
+  }
+  if (args.paramsFile) {
+    if (!fs.existsSync(args.paramsFile)) {
+      console.warn('Params file not found:', args.paramsFile);
+      return null;
+    }
+    try { return JSON.parse(fs.readFileSync(args.paramsFile, 'utf-8')); } catch (e) {
+      console.warn('Failed to parse params file:', e.message);
+      return null;
+    }
+  }
+  return null;
 }
 
 async function waitForCard(page) {
@@ -142,6 +175,11 @@ async function run() {
   const outDir = path.resolve(args.out || path.join('output', 'cards', safeCompany));
   fs.mkdirSync(outDir, { recursive: true });
 
+  const params = loadParams(args);
+  if (params) {
+    console.log('Loaded card parameter overrides.');
+  }
+
   const browser = await puppeteer.launch({ headless: 'new' });
   try {
     const page = await browser.newPage();
@@ -152,7 +190,7 @@ async function run() {
     });
 
     for (let cardIndex = 1; cardIndex <= 8; cardIndex += 1) {
-      const url = buildCardUrl(args.baseUrl, company, cardIndex, args.bgImage);
+      const url = buildCardUrl(args.baseUrl, company, cardIndex, args.bgImage, params);
       await page.goto(url, { waitUntil: 'networkidle0' });
       await waitForCard(page);
       const clip = await cardClip(page);

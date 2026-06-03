@@ -57,14 +57,42 @@ function getRouteCardInfo() {
   };
 }
 
+function fromBase64(base64) {
+  const binary = atob(base64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function loadParamsFromURL() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const base64 = urlParams.get('params');  // URLSearchParams.get 已自动 percent-decode
+  if (!base64) return null;
+  try {
+    return fromBase64(base64);
+  } catch (e) {
+    console.warn('Failed to decode card params:', e);
+    return null;
+  }
+}
+
+window.__cardParams = loadParamsFromURL();
+
 window.renderSourcePreview = function renderSourcePreview(source) {
   renderSourceIntoDocument(document, source);
   fitCardPage();
 };
 
-window.renderCardPage = function renderCardPage({ companyName, cardIndex, cardData }) {
+window.renderCardPage = function renderCardPage({ companyName, cardIndex, cardData, paramOverrides }) {
+  // 读取公众号 Logo（与 Workbench 共享 localStorage key）
+  const gzhLogoUrl = localStorage.getItem('aistartups.gzhLogoUrl') || '/images/gzh-logo.jpg';
+  if (gzhLogoUrl && cardData) {
+    cardData._gzhLogo = gzhLogoUrl;
+  }
+  const params = paramOverrides || window.__cardParams;
   const sourceMap = SourceEditor ? SourceEditor.loadMap(companyName) : {};
-  const defaultSource = renderCardSource({ companyName, cardIndex, cardData });
+  const defaultSource = renderCardSource({ companyName, cardIndex, cardData, paramOverrides: params });
   const saved = sourceMap[cardIndex];
   const signature = SourceEditor ? SourceEditor.signature(defaultSource) : '';
   const source = saved && typeof saved === 'object' && saved.signature === signature

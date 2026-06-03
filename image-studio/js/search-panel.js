@@ -1,4 +1,4 @@
-/* search-panel.js — 图库搜索 + 候选网格 + 翻页 */
+/* search-panel.js — 中栏：预览/搜索结果切换 + 工具栏 */
 const SearchPanel = {
   _company: '',
   _assetKey: '',
@@ -9,12 +9,17 @@ const SearchPanel = {
   _totalResults: 0,
   _perPage: 9,
   _loading: false,
-  _onFetch: null, // callback(imageData) — 用户点击候选图时触发
-  _slotImage: '',  // 当前槽位已有的图片 local_path
+  _slotImage: '',
+  _view: 'preview', // 'preview' | 'search'
+  _container: null,
+  _onFetch: null,     // callback(imageData) — 搜索结果被点击下载后
+  _onRefresh: null,   // callback() — 变体列表刷新后（重采集等）
+  _queries: [],
 
-  init(container, { onFetch }) {
+  init(container, { onFetch, onRefresh }) {
     this._container = container;
     this._onFetch = onFetch;
+    this._onRefresh = onRefresh;
     this._render();
   },
 
@@ -23,17 +28,31 @@ const SearchPanel = {
     this._assetKey = assetKey;
     this._currentPage = 1;
     this._totalResults = 0;
+    this._slotImage = '';
+    this._view = 'preview';
   },
 
   setSlotImage(localPath) {
     this._slotImage = localPath || '';
-    this._renderCurrentImage();
+    this._renderPreview();
+  },
+
+  /* 外部调用：右栏缩略图点击时在中间预览 */
+  showPreviewImage(src) {
+    this._slotImage = src;
+    this._switchView('preview');
+    this._renderPreview();
   },
 
   setQueries(queries) {
-    this._queries = queries;
-    // 渲染关键词展示标签，不预填搜索框
-    this._renderKeywordGroups();
+    this._queries = queries || [];
+    // 预填搜索框为第一个查询词
+    if (this._queries.length) {
+      const q = this._queries[0];
+      this._currentQuery = this._currentLang === 'zh' ? q.zh : q.en;
+      const input = this._container?.querySelector('.search-input');
+      if (input) input.value = this._currentQuery;
+    }
   },
 
   search(query) {
@@ -42,11 +61,181 @@ const SearchPanel = {
     this._doSearch();
   },
 
+  /* ── Render ── */
+
+  _render() {
+    if (!this._container) return;
+    this._container.innerHTML = `
+      <!-- 预览切换按钮 -->
+      <div class="preview-toggle-bar">
+        <button class="toggle-btn active" data-view="preview">选定图片</button>
+        <button class="toggle-btn" data-view="search">搜索结果</button>
+      </div>
+
+      <!-- 上部：预览区 -->
+      <div class="preview-stage" id="preview-stage">
+        <div class="preview-empty">
+          <div class="empty-icon">&#128247;</div>
+          <p>未选择图片</p>
+        </div>
+      </div>
+
+      <!-- 上部：搜索结果区 -->
+      <div class="search-results-area hidden" id="search-results-area">
+        <div class="results-grid" id="results-grid"></div>
+        <div class="results-pagination" id="results-pagination"></div>
+      </div>
+
+      <!-- 下部：工具栏 -->
+      <div class="toolbar-section" id="toolbar-section">
+        <div class="toolbar-search-row">
+          <input class="search-input" type="text" placeholder="输入搜索关键词...">
+          <select class="engine-select">
+            <option value="pexels">Pexels</option>
+            <option value="unsplash">Unsplash</option>
+            <option value="tavily">Tavily</option>
+          </select>
+          <button class="btn-search">搜索</button>
+        </div>
+        <div class="toolbar-recollect-row">
+          <button class="btn-recollect-all">全部重新采集</button>
+          <button class="btn-recollect-slot">当页重新采集</button>
+        </div>
+        <div class="toolbar-actions-row">
+          <input class="ai-prompt-input" type="text" placeholder="AI 生图 prompt...">
+          <button class="btn-small accent" id="btn-ai-gen">生成</button>
+          <button class="btn-generate-map hidden" id="btn-generate-map">生成地图</button>
+          <button class="btn-small" id="btn-rescore">重新评分</button>
+          <button class="btn-small" id="btn-upload">上传图片</button>
+          <input class="url-input" type="text" placeholder="粘贴图片 URL...">
+          <button class="btn-small" id="btn-url-fetch">下载</button>
+          <input type="file" accept="image/*" class="file-input-hidden" id="file-upload-input">
+        </div>
+      </div>
+    `;
+
+    this._bindEvents();
+    this._renderPreview();
+    this._updateToolbarForSlot();
+  },
+
+  _bindEvents() {
+    if (!this._container) return;
+
+    // 切换按钮
+    this._container.querySelectorAll('.toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._switchView(btn.dataset.view);
+      });
+    });
+
+    // 搜索
+    this._container.querySelector('.btn-search').addEventListener('click', () => {
+      this._currentQuery = this._container.querySelector('.search-input').value;
+      this.search();
+    });
+    this._container.querySelector('.search-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        this._currentQuery = e.target.value;
+        this.search();
+      }
+    });
+    this._container.querySelector('.engine-select').addEventListener('change', (e) => {
+      this._currentSource = e.target.value;
+      if (this._currentSource === 'unsplash') this._currentLang = 'en';
+      else if (this._currentSource === 'pexels') this._currentLang = 'zh';
+      if (this._queries.length) {
+        const q = this._queries[0];
+        this._currentQuery = this._currentLang === 'zh' ? q.zh : q.en;
+        this._container.querySelector('.search-input').value = this._currentQuery;
+      }
+      this.search();
+    });
+
+    // 重采集
+    this._container.querySelector('.btn-recollect-all').addEventListener('click', () => this._recollectAll());
+    this._container.querySelector('.btn-recollect-slot').addEventListener('click', () => this._recollectSlot());
+
+    // AI 生图
+    this._container.querySelector('#btn-ai-gen').addEventListener('click', () => {
+      const prompt = this._container.querySelector('.ai-prompt-input').value.trim();
+      if (prompt) this._onAiGenerate(prompt);
+    });
+    this._container.querySelector('.ai-prompt-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const prompt = e.target.value.trim();
+        if (prompt) this._onAiGenerate(prompt);
+      }
+    });
+
+    // 地图生成
+    this._container.querySelector('#btn-generate-map').addEventListener('click', () => this._onGenerateMap());
+
+    // 重新评分
+    this._container.querySelector('#btn-rescore').addEventListener('click', () => this._onRescore());
+
+    // 上传
+    this._container.querySelector('#btn-upload').addEventListener('click', () => {
+      this._container.querySelector('#file-upload-input').click();
+    });
+    this._container.querySelector('#file-upload-input').addEventListener('change', (e) => {
+      if (e.target.files[0]) this._importFile(e.target.files[0]);
+    });
+
+    // URL 导入
+    this._container.querySelector('#btn-url-fetch').addEventListener('click', () => {
+      const url = this._container.querySelector('.url-input').value.trim();
+      if (url) this._importUrl(url);
+    });
+    this._container.querySelector('.url-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const url = e.target.value.trim();
+        if (url) this._importUrl(url);
+      }
+    });
+  },
+
+  _switchView(view) {
+    this._view = view;
+    const previewStage = document.getElementById('preview-stage');
+    const searchArea = document.getElementById('search-results-area');
+    const btns = this._container.querySelectorAll('.toggle-btn');
+
+    btns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
+
+    if (view === 'preview') {
+      previewStage?.classList.remove('hidden');
+      searchArea?.classList.add('hidden');
+    } else {
+      previewStage?.classList.add('hidden');
+      searchArea?.classList.remove('hidden');
+    }
+  },
+
+  _renderPreview() {
+    const stage = document.getElementById('preview-stage');
+    if (!stage) return;
+    if (this._slotImage) {
+      stage.innerHTML = `<img src="${this._escape(this._slotImage)}" alt="选定预览" onerror="this.parentElement.innerHTML='<div class=preview-empty><div class=empty-icon>&#9888;</div><p>图片加载失败</p></div>'">`;
+    } else {
+      stage.innerHTML = `<div class="preview-empty"><div class="empty-icon">&#128247;</div><p>未选择图片</p></div>`;
+    }
+  },
+
+  _updateToolbarForSlot() {
+    const isOffice = this._assetKey === 'office';
+    const mapBtn = document.getElementById('btn-generate-map');
+    if (mapBtn) mapBtn.classList.toggle('hidden', !isOffice);
+  },
+
+  /* ── 搜索 ── */
+
   _doSearch() {
     if (this._loading) return;
     if (!this._currentQuery.trim()) return;
 
     this._loading = true;
+    this._switchView('search');
     this._renderGridLoading();
 
     StudioAPI.search(this._company, this._assetKey, {
@@ -58,185 +247,34 @@ const SearchPanel = {
     }).then(data => {
       this._totalResults = data.total || 0;
       this._renderGrid(data.results || []);
-      this._renderDefaultCandidates(data.results || []);
       this._renderPagination();
       this._loading = false;
-      if (data.error) this._showEmpty(data.error);
     }).catch(err => {
-      this._showEmpty(err.message);
+      this._showGridEmpty(err.message);
       this._loading = false;
-    });
-  },
-
-  /* ── Render ── */
-
-  _render() {
-    this._container.innerHTML = `
-      <!-- 1. 搜索区 -->
-      <div class="search-section">
-        <div class="search-row">
-          <input class="search-input" type="text" placeholder="输入搜索关键词..." value="">
-          <select class="source-select">
-            <option value="pexels">Pexels</option>
-            <option value="unsplash">Unsplash</option>
-            <option value="tavily">Tavily</option>
-          </select>
-          <button class="search-btn">搜索</button>
-        </div>
-      </div>
-      <!-- 2. 关键词标签（展示用） -->
-      <div class="keyword-tags-section hidden" id="keyword-tags-section">
-        <div class="keyword-tags-row" id="keyword-tags-row"></div>
-      </div>
-      <!-- 3. 当前图片 -->
-      <div class="current-image-section hidden"><span class="current-image-label">当前图片</span><div class="current-image-preview"></div></div>
-      <!-- 4. 已入库候选 -->
-      <div class="variant-library-section">
-        <div class="variant-library-head">
-          <h4>候选图片</h4>
-          <span id="variant-count-label">0 张</span>
-        </div>
-        <div class="variant-list variant-list-main" id="variant-list-main"></div>
-      </div>
-      <!-- 5. 默认+候选 -->
-      <div class="default-candidates-section hidden" id="default-candidates-section">
-        <h4>推荐候选</h4>
-        <div class="default-candidate-row" id="default-candidate-row"></div>
-      </div>
-      <!-- 6. 搜索结果网格 -->
-      <div class="candidate-grid-container">
-        <div class="candidate-grid"></div>
-        <div class="pagination"></div>
-      </div>
-    `;
-
-    // Events
-    this._container.querySelector('.search-btn').addEventListener('click', () => {
-      this._currentQuery = this._container.querySelector('.search-input').value;
-      this.search();
-    });
-    this._container.querySelector('.search-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        this._currentQuery = e.target.value;
-        this.search();
-      }
-    });
-    this._container.querySelector('.source-select').addEventListener('change', (e) => {
-      this._currentSource = e.target.value;
-      if (this._currentSource === 'unsplash') this._currentLang = 'en';
-      else if (this._currentSource === 'pexels') this._currentLang = 'zh';
-      if (this._queries && this._queries.length) {
-        const q = this._queries[0];
-        this._currentQuery = this._currentLang === 'zh' ? q.zh : q.en;
-        this._container.querySelector('.search-input').value = this._currentQuery;
-      }
-      this.search();
-    });
-  },
-
-  _renderCurrentImage() {
-    const section = this._container.querySelector('.current-image-section');
-    const preview = this._container.querySelector('.current-image-preview');
-    if (!section || !preview) return;
-    if (this._slotImage) {
-      section.classList.remove('hidden');
-      preview.innerHTML = `<img src="${this._escape(this._slotImage)}" alt="当前图片" onerror="this.parentElement.innerHTML='<span style=color:var(--ink-muted);font-size:12px>图片加载失败</span>'">`;
-    } else {
-      section.classList.add('hidden');
-      preview.innerHTML = '';
-    }
-  },
-
-  _renderKeywordGroups() {
-    const section = document.getElementById('keyword-tags-section');
-    const row = document.getElementById('keyword-tags-row');
-    if (!section || !row) return;
-    const queries = this._queries || [];
-    if (!queries.length) {
-      section.classList.add('hidden');
-      return;
-    }
-    section.classList.remove('hidden');
-    row.innerHTML = queries.map((q) => {
-      const zh = this._escape(q.zh || '');
-      const en = this._escape(q.en || '');
-      return `<span class="keyword-tag-display" title="${en}">${zh}</span>`;
-    }).join('');
-    // 展示用，不绑定点击
-  },
-
-  _renderDefaultCandidates(results) {
-    const section = document.getElementById('default-candidates-section');
-    const row = document.getElementById('default-candidate-row');
-    if (!section || !row) return;
-
-    const candidates = results.slice(0, 3);
-    if (!this._slotImage && !candidates.length) {
-      section.classList.add('hidden');
-      return;
-    }
-    section.classList.remove('hidden');
-
-    const cards = [];
-    if (this._slotImage) {
-      cards.push({
-        src: this._slotImage,
-        label: '当前选择',
-        isDefault: true,
-        data: null,
-      });
-    }
-    candidates.forEach((img, i) => {
-      cards.push({
-        src: img.thumbnail_url || img.full_url,
-        label: `候选 ${i + 1}`,
-        isDefault: false,
-        data: img,
-      });
-    });
-
-    row.innerHTML = cards.map(c => `
-      <div class="default-candidate-card ${c.isDefault ? 'selected' : ''}"
-           data-json="${c.isDefault ? '' : this._escape(JSON.stringify(c.data || {}))}">
-        <img src="${this._escape(c.src)}" alt="" loading="lazy"
-             onerror="this.parentElement.style.opacity='0.5'">
-        <div class="card-label">${c.label}</div>
-      </div>
-    `).join('');
-
-    row.querySelectorAll('.default-candidate-card').forEach(card => {
-      card.addEventListener('click', () => {
-        try {
-          const json = card.dataset.json;
-          if (json) {
-            const data = JSON.parse(json);
-            if (this._onFetch) this._onFetch(data);
-          }
-        } catch { /* ignore */ }
-      });
     });
   },
 
   _renderGrid(results) {
-    const grid = this._container.querySelector('.candidate-grid');
+    const grid = document.getElementById('results-grid');
     if (!grid) return;
     if (!results.length) {
       grid.innerHTML = `<div class="empty-state"><div class="empty-icon">&#128269;</div><p>没有找到相关图片</p></div>`;
       return;
     }
     grid.innerHTML = results.map(img => `
-      <div class="candidate-card" data-id="${this._escape(img.id)}" data-json="${this._escape(JSON.stringify(img))}">
+      <div class="result-card" data-json="${this._escape(JSON.stringify(img))}">
         <img src="${this._escape(img.thumbnail_url || img.full_url)}" alt="" loading="lazy"
              onerror="this.parentElement.style.opacity='0.5'">
-        <div class="card-overlay">
+        <div class="result-overlay">
           <span>${this._escape(img.author || '')}</span>
-          <span class="source-badge">${img.source === 'pexels' ? 'P' : img.source === 'unsplash' ? 'U' : 'T'}</span>
+          <span class="result-source-badge">${img.source === 'pexels' ? 'P' : img.source === 'unsplash' ? 'U' : 'T'}</span>
         </div>
         ${img.source === 'tavily' ? '<div class="tavily-warn">&#9888; 版权未核实</div>' : ''}
       </div>
     `).join('');
 
-    grid.querySelectorAll('.candidate-card').forEach(card => {
+    grid.querySelectorAll('.result-card').forEach(card => {
       card.addEventListener('click', () => {
         try {
           const data = JSON.parse(card.dataset.json);
@@ -247,13 +285,17 @@ const SearchPanel = {
   },
 
   _renderGridLoading() {
-    const grid = this._container.querySelector('.candidate-grid');
-    if (!grid) return;
-    grid.innerHTML = `<div class="empty-state"><div class="empty-icon">&#8987;</div><p>搜索中...</p></div>`;
+    const grid = document.getElementById('results-grid');
+    if (grid) grid.innerHTML = `<div class="empty-state"><div class="empty-icon">&#8987;</div><p>搜索中...</p></div>`;
+  },
+
+  _showGridEmpty(msg) {
+    const grid = document.getElementById('results-grid');
+    if (grid) grid.innerHTML = `<div class="empty-state"><div class="empty-icon">&#9888;</div><p>${this._escape(msg || '搜索失败')}</p></div>`;
   },
 
   _renderPagination() {
-    const el = this._container.querySelector('.pagination');
+    const el = document.getElementById('results-pagination');
     if (!el) return;
     const totalPages = Math.max(1, Math.ceil(this._totalResults / this._perPage));
     el.innerHTML = `
@@ -270,10 +312,183 @@ const SearchPanel = {
     });
   },
 
-  _showEmpty(msg) {
-    const grid = this._container.querySelector('.candidate-grid');
-    if (!grid) return;
-    grid.innerHTML = `<div class="empty-state"><div class="empty-icon">&#9888;</div><p>${this._escape(msg || '搜索失败')}</p></div>`;
+  /* ── 重采集 ── */
+
+  async _recollectAll() {
+    const btn = this._container?.querySelector('.btn-recollect-all');
+    if (btn) { btn.disabled = true; btn.textContent = '采集中...'; }
+    try {
+      const r = await fetch(`/api/assets/collect/${encodeURIComponent(this._company)}`, { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      if (this._onRefresh) this._onRefresh();
+      this._toast('全部重新采集完成');
+    } catch (e) {
+      this._toast('采集失败: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '全部重新采集'; }
+    }
+  },
+
+  async _recollectSlot() {
+    const btn = this._container?.querySelector('.btn-recollect-slot');
+    if (btn) { btn.disabled = true; btn.textContent = '采集中...'; }
+    try {
+      const url = `/api/assets/collect/${encodeURIComponent(this._company)}?asset_key=${encodeURIComponent(this._assetKey)}`;
+      const r = await fetch(url, { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      if (this._onRefresh) this._onRefresh();
+      this._toast('当页重新采集完成');
+    } catch (e) {
+      this._toast('采集失败: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '当页重新采集'; }
+    }
+  },
+
+  /* ── AI 生图 ── */
+
+  async _onAiGenerate(prompt) {
+    const btn = document.getElementById('btn-ai-gen');
+    if (btn) { btn.disabled = true; btn.textContent = '生成中...'; }
+    try {
+      const result = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt, company_name: this._company,
+          field_name: this._assetKey, asset_key: this._assetKey,
+        }),
+      }).then(r => r.json());
+      if (result.error) throw new Error(result.error);
+      await StudioAPI.fetch(this._company, this._assetKey, {
+        full_url: result.img_path, id: `ai_${Date.now()}`,
+        source: 'api_generate', source_page: '',
+        author: 'AI Generated', license: 'AI',
+      });
+      if (this._onRefresh) this._onRefresh();
+      const input = this._container?.querySelector('.ai-prompt-input');
+      if (input) input.value = '';
+    } catch (e) {
+      this._toast('AI 生成失败: ' + e.message, 'error');
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '生成'; }
+  },
+
+  /* ── 地图生成 ── */
+
+  async _onGenerateMap() {
+    const btn = document.getElementById('btn-generate-map');
+    if (btn) { btn.disabled = true; btn.textContent = '生成中...'; }
+    try {
+      const r = await fetch(
+        `/api/image-studio/${encodeURIComponent(this._company)}/${encodeURIComponent(this._assetKey)}/generate-map`,
+        { method: 'POST' }
+      );
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      if (this._onRefresh) this._onRefresh();
+    } catch (e) {
+      this._toast('地图生成失败: ' + e.message, 'error');
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '生成地图'; }
+  },
+
+  /* ── 重新评分 ── */
+
+  async _onRescore() {
+    const btn = document.getElementById('btn-rescore');
+    if (btn) { btn.disabled = true; btn.textContent = '评分中...'; }
+    try {
+      await StudioAPI.rescoreVariants(this._company, this._assetKey);
+      if (this._onRefresh) this._onRefresh();
+      this._toast('已重新评分并自动选优');
+    } catch (e) {
+      this._toast('重新评分失败: ' + e.message, 'error');
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '重新评分'; }
+  },
+
+  /* ── 上传 / URL ── */
+
+  async _importUrl(url) {
+    const btn = document.getElementById('btn-url-fetch');
+    if (btn) { btn.disabled = true; btn.textContent = '下载中...'; }
+    try {
+      await StudioAPI.importUrl(this._company, this._assetKey, url);
+      const input = this._container?.querySelector('.url-input');
+      if (input) input.value = '';
+      if (this._onRefresh) this._onRefresh();
+      this._toast('导入成功');
+    } catch (e) {
+      this._toast('导入失败: ' + e.message, 'error');
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '下载'; }
+  },
+
+  async _importFile(file) {
+    const btn = document.getElementById('btn-upload');
+    if (btn) { btn.disabled = true; btn.textContent = '上传中...'; }
+    try {
+      await StudioAPI.importFile(this._company, this._assetKey, file);
+      if (this._onRefresh) this._onRefresh();
+      this._toast('上传成功');
+    } catch (e) {
+      this._toast('上传失败: ' + e.message, 'error');
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '上传图片'; }
+  },
+
+  /* ── 隐藏/显示 (Logo / SVG 槽位) ── */
+
+  /* Logo 只读：只显示预览图，无切换按钮、无搜索结果、无工具栏 */
+  showPreviewOnly(imageSrc) {
+    if (!this._container) return;
+    this._container.querySelector('.preview-toggle-bar')?.classList.add('hidden');
+    document.getElementById('search-results-area')?.classList.add('hidden');
+    document.getElementById('toolbar-section')?.classList.add('hidden');
+    const stage = document.getElementById('preview-stage');
+    if (stage) {
+      stage.classList.remove('hidden');
+      if (imageSrc) {
+        stage.innerHTML = `<img src="${this._escape(imageSrc)}" alt="Logo" onerror="this.parentElement.innerHTML='<div class=preview-empty><div class=empty-icon>&#127760;</div><p>Logo 加载失败</p></div>'">`;
+      } else {
+        stage.innerHTML = `<div class="preview-empty"><div class="empty-icon">&#127760;</div><p>暂未获取到 Logo</p></div>`;
+      }
+    }
+  },
+
+  hideAll() {
+    if (!this._container) return;
+    this._container.querySelector('.preview-toggle-bar')?.classList.add('hidden');
+    document.getElementById('preview-stage')?.classList.add('hidden');
+    document.getElementById('search-results-area')?.classList.add('hidden');
+    document.getElementById('toolbar-section')?.classList.add('hidden');
+  },
+
+  showAll() {
+    if (!this._container) return;
+    this._container.querySelector('.preview-toggle-bar')?.classList.remove('hidden');
+    document.getElementById('toolbar-section')?.classList.remove('hidden');
+    this._switchView(this._view);
+    this._updateToolbarForSlot();
+  },
+
+  /* ── Toast ── */
+
+  _toast(msg, type) {
+    const existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+    const el = document.createElement('div');
+    el.className = 'toast' + (type === 'error' ? ' error' : '');
+    el.textContent = msg;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 200);
+    }, 2500);
   },
 
   _escape(s) {

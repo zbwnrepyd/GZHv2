@@ -8,6 +8,8 @@ import requests
 from config import config
 from deepseek_client import call_deepseek, load_prompt
 from firecrawl_local import scrape_url
+from field_rules import run_rule_layer
+from field_validator import validate_enum_fields
 import db as database
 
 _REQUIRED_FIELDS = database.REQUIRED_RESEARCH_FIELDS
@@ -73,6 +75,15 @@ def _tavily_error_text(resp) -> str:
     return f"HTTP {resp.status_code}"
 
 
+def _tavily_proxy() -> dict | None:
+    """读取 .env 中的代理配置，用于 requests 显式传参"""
+    import os
+    proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or ""
+    if proxy_url:
+        return {"http": proxy_url, "https": proxy_url}
+    return None
+
+
 def _search_tavily_query(query: str, include_images: bool = False):
     keys = _tavily_keys()
     if not keys:
@@ -95,7 +106,8 @@ def _search_tavily_query(query: str, include_images: bool = False):
             resp = requests.post(
                 "https://api.tavily.com/search",
                 json=body,
-                timeout=(10, 60),
+                timeout=(30, 120),
+                proxies=_tavily_proxy(),
             )
             if resp.status_code >= 400:
                 last_error = _tavily_error_text(resp)
@@ -105,7 +117,9 @@ def _search_tavily_query(query: str, include_images: bool = False):
             return resp.json()
         except Exception as e:
             last_error = str(e)
-            break
+            # 超时也尝试下一个 key
+            if index < len(keys) - 1:
+                continue
     return {"error": last_error or "Tavily request failed", "results": []}
 
 
@@ -115,7 +129,7 @@ def _search_github(company_name: str):
             "https://api.github.com/search/repositories",
             params={"q": f"{company_name} in:name", "sort": "stars", "per_page": 5},
             headers={"Accept": "application/vnd.github.v3+json"},
-            timeout=(5, 25),
+            timeout=(15, 45),
         )
         if resp.status_code == 200:
             return resp.json()
@@ -137,7 +151,7 @@ def _search_youtube(company_name: str):
                 "maxResults": 3,
                 "key": config.YOUTUBE_API_KEY,
             },
-            timeout=(5, 25),
+            timeout=(15, 45),
         )
         return resp.json() if resp.status_code == 200 else {"items": [], "error": resp.status_code}
     except Exception as e:
@@ -145,7 +159,12 @@ def _search_youtube(company_name: str):
 
 
 def _scrape_website(company_url: str):
-    result = scrape_url(company_url, timeout=30)
+    for attempt in range(3):
+        result = scrape_url(company_url, timeout=30)
+        if not result.get("error"):
+            return result
+        if attempt < 2:
+            time.sleep(3)
     return result
 
 
@@ -257,6 +276,127 @@ def _load_prompt_text(name: str) -> str:
     return load_prompt(name)
 
 
+# ══ 三层枚举提取（规则层 → LLM 三组 → 验证）══════════════════
+
+ENUM_GROUP_PROMPTS = {
+    "A": ("layer3-group-a-technical", ["ai_model_dependency", "data_flywheel", "proprietary_data_asset"]),
+    "B": ("layer3-group-b-competitive", ["incumbent_direct_competitor", "workflow_integration_level", "inference_cost_exposure"]),
+    "C": ("layer3-group-c-business", ["pricing_model", "customer_segment_type", "stack_layer"]),
+}
+
+KEY_ENUM_FIELDS = ["ai_model_dependency", "incumbent_direct_competitor", "pricing_model"]
+
+
+def _run_llm_enum_group(api_key: str, group_name: str, context: str,
+                        rule_hits: dict | None = None,
+                        temperature: float = 0.1) -> dict:
+    """调用单组 LLM 提取枚举字段。返回 {field: value} dict。"""
+    prompt_file, field_names = ENUM_GROUP_PROMPTS[group_name]
+    prompt = _load_prompt_text(prompt_file)
+
+    # 组 C 需要注入规则层提示
+    if group_name == "C" and rule_hits:
+        hint_lines = [f"- {k} = \"{v}\"（规则层已确定，跳过）" for k, v in rule_hits.items()]
+        prompt = prompt.replace("{rule_fields_hint}", "\n".join(hint_lines))
+    elif group_name == "C":
+        prompt = prompt.replace("{rule_fields_hint}", "（无）")
+
+    result = call_deepseek(
+        api_key, prompt, context,
+        temperature=temperature, max_tokens=200, timeout=60,
+    )
+    parsed = _extract_json(result)
+    # 只保留本组字段
+    return {k: v for k, v in parsed.items() if k in field_names and v}
+
+
+def _extract_enum_fields(api_key: str, l0_result: str, l1_result: str, l2_result: str,
+                         company_url: str, company_type: str = "",
+                         progress_callback=None, job_id: str = None) -> dict:
+    """三层枚举提取：规则层 → LLM 组A+B→组C → 验证 → 合并。
+    返回 {field: value} dict，覆盖原 L3 的枚举字段。"""
+    context = json.dumps(
+        {"layer0": l0_result, "layer1": l1_result, "layer2": l2_result},
+        ensure_ascii=False, indent=2,
+    )
+
+    # 层1：规则层
+    _report(progress_callback, "枚举-规则", "规则层提取...", job_id=job_id)
+    rule_hits = run_rule_layer(company_url, company_type)
+    _report(progress_callback, "枚举-规则",
+            f"命中 {len(rule_hits)} 字段: {list(rule_hits.keys())}", job_id=job_id)
+
+    # 层2：LLM 组 A + B 并行
+    _report(progress_callback, "枚举-LLM", "组A+B并行提取...", job_id=job_id)
+    group_a = {}
+    group_b = {}
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fa = ex.submit(_run_llm_enum_group, api_key, "A", context)
+        fb = ex.submit(_run_llm_enum_group, api_key, "B", context)
+        group_a = fa.result() or {}
+        group_b = fb.result() or {}
+
+    # 层2：LLM 组 C（传规则层结果，跳过已有字段）
+    _report(progress_callback, "枚举-LLM", "组C提取...", job_id=job_id)
+    group_c = _run_llm_enum_group(api_key, "C", context, rule_hits) or {}
+
+    # 合并三组
+    merged = {}
+    merged.update(group_a)
+    merged.update(group_b)
+    merged.update(group_c)
+    # 规则层覆盖（优先级最高）
+    merged.update(rule_hits)
+
+    _report(progress_callback, "枚举-LLM",
+            f"合并 {len(merged)} 字段: {list(merged.keys())}", job_id=job_id)
+
+    # 关键字段多数投票（2 round，不一致时加第3 round）
+    for field in KEY_ENUM_FIELDS:
+        if field in merged:
+            v1 = merged[field]
+            _report(progress_callback, "枚举-投票", f"{field} round 2...", job_id=job_id)
+            r2 = _run_llm_enum_group(api_key, _group_for_field(field), context,
+                                     rule_hits if _group_for_field(field) == "C" else None,
+                                     temperature=0.2)
+            v2 = r2.get(field) if r2 else None
+            if v2 and v2 != v1:
+                _report(progress_callback, "枚举-投票",
+                        f"{field} 不一致({v1} vs {v2}), round 3...", job_id=job_id)
+                r3 = _run_llm_enum_group(api_key, _group_for_field(field), context,
+                                         rule_hits if _group_for_field(field) == "C" else None,
+                                         temperature=0.25)
+                v3 = r3.get(field) if r3 else None
+                # 取众数
+                votes = [v1, v2]
+                if v3: votes.append(v3)
+                merged[field] = max(set(votes), key=votes.count)
+                _report(progress_callback, "枚举-投票",
+                        f"{field} → {merged[field]} (投票: {votes})", job_id=job_id)
+            else:
+                _report(progress_callback, "枚举-投票",
+                        f"{field} 一致 ({v1})", job_id=job_id)
+
+    # 层3：Pydantic 验证
+    _report(progress_callback, "枚举-验证", "Pydantic 验证...", job_id=job_id)
+    try:
+        validated = validate_enum_fields(merged)
+        _report(progress_callback, "枚举-验证",
+                f"通过 {len(validated)}/{len(merged)} 字段", job_id=job_id)
+        return validated
+    except ValueError as e:
+        _report(progress_callback, "枚举-验证",
+                f"验证失败: {e}，退回未验证结果", job_id=job_id)
+        return merged
+
+
+def _group_for_field(field: str) -> str:
+    for g, (_, fields) in ENUM_GROUP_PROMPTS.items():
+        if field in fields:
+            return g
+    return "A"
+
+
 def llm_analysis(company_name: str, company_url: str, raw_data: dict,
                  progress_callback=None, job_id: str = None) -> list[dict]:
     """4层 Prompt 分析，返回 3 版本记录列表"""
@@ -329,6 +469,18 @@ def llm_analysis(company_name: str, company_url: str, raw_data: dict,
                     break
 
         if parsed is not None:
+            # ── 三层枚举提取覆盖 ──
+            try:
+                enum_fields = _extract_enum_fields(
+                    api_key, l0_result, l1_result, l2_result,
+                    company_url, parsed.get("company_type", ""),
+                    progress_callback, job_id,
+                )
+                parsed.update(enum_fields)
+            except Exception as e:
+                _report(progress_callback, f"L3-{ver_name}",
+                        f"枚举提取异常: {e}", job_id=job_id)
+
             missing_founder_fields = _missing_founder_fields(parsed)
             if missing_founder_fields and _has_founder_detail_signal(l0_result):
                 _report(

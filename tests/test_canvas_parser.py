@@ -105,6 +105,24 @@ class CanvasParserTests(unittest.TestCase):
         self.assertEqual(parsed["8"]["赛道契机"], "AI 工作流重构带来新机会。")
         self.assertNotIn("赛道契机", parsed["7"])
 
+    def test_card2_office_map_uses_contain_image_fit(self):
+        source = render_card_source(
+            2,
+            {
+                "_markdown": "## 卡片2：公司画像\n\n总部位于 South San Francisco。",
+                "_assets": {
+                    "office": {
+                        "status": "ready",
+                        "local_path": "/images/Midjourney/variants/office__osm.png",
+                    }
+                },
+            },
+            company="Midjourney",
+        )
+
+        self.assertIn("img-box--office", source)
+        self.assertIn('/images/Midjourney/variants/office__osm.png', source)
+
     def test_parse_confirmed_markdown_json_timeline_for_card3(self):
         markdown = textwrap.dedent(
             """

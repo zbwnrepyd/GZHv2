@@ -193,7 +193,7 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("this._svDataByKey[slot.asset_key]", studio_js)
         self.assertNotIn("if (!this._svData) {", studio_js)
 
-    def test_image_studio_shows_variants_in_middle_panel(self):
+    def test_image_studio_uses_preview_search_and_candidate_sidebar(self):
         with open(os.path.join(ROOT, "image-studio", "index.html"), encoding="utf-8") as f:
             html = f.read()
         with open(os.path.join(ROOT, "image-studio", "js", "search-panel.js"), encoding="utf-8") as f:
@@ -203,11 +203,13 @@ class StaticContractTests(unittest.TestCase):
         with open(os.path.join(ROOT, "image-studio", "css", "studio.css"), encoding="utf-8") as f:
             css = f.read()
 
-        self.assertIn("候选变体 + 搜索图片网格", html)
-        self.assertIn('id="variant-list-main"', search_js)
-        self.assertIn("document.getElementById('variant-list-main')", sidebar_js)
+        self.assertIn('id="editor-area"', html)
+        self.assertIn('id="candidate-panel"', html)
+        self.assertIn('id="search-results-area"', search_js)
+        self.assertIn('id="preview-stage"', search_js)
+        self.assertIn('id="candidate-grid-2col"', sidebar_js)
         self.assertNotIn("<h3>候选</h3>", sidebar_js)
-        self.assertIn(".variant-list-main", css)
+        self.assertIn(".candidate-panel", css)
 
     def test_card2_map_is_main_collection_path(self):
         with open(os.path.join(ROOT, "webapp", "asset_pipeline.py"), encoding="utf-8") as f:
