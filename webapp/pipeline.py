@@ -656,6 +656,16 @@ def run_pipeline(company_name: str, company_url: str,
     # Step 3: 写库
     _report(progress_callback, "写库", "写入数据库...", job_id=job_id)
     ids = database.save_research_records(config.DB_PATH_RESEARCH, records)
+
+    # Step 3.5: 写入字段级表（解耦架构 — 字段不天然属于任何卡片）
+    from services.field_service import split_research_to_fields
+    from repositories.field_repo import insert_research_fields_batch
+    for record in records:
+        version = record.get('version', 'standard')
+        field_rows = split_research_to_fields(record, version)
+        if field_rows:
+            insert_research_fields_batch(config.DB_PATH_RESEARCH, field_rows)
+
     t3 = time.time()
 
     # Step 4: 图片采集

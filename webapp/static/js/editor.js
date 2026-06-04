@@ -70,8 +70,11 @@ const EditorApp = {
 
     await this.loadStatus();
     await this.loadHookChoices();
-    this.switchSection('content');
-    await this.loadCard(1);
+    // 默认进入字段定稿（解耦主流程），旧版内容定稿保留为兼容入口
+    this.switchSection('field-finalize');
+    if (this.companyName) {
+      FieldFinalizePanel.init(this.companyName);
+    }
   },
 
   bindEvents() {
