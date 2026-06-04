@@ -111,24 +111,32 @@ class StaticContractTests(unittest.TestCase):
             editor_html = f.read()
         with open(os.path.join(ROOT, "webapp", "static", "js", "editor.js"), encoding="utf-8") as f:
             editor_js = f.read()
+        with open(os.path.join(ROOT, "webapp", "static", "js", "editor", "card-settings-panel.js"), encoding="utf-8") as f:
+            card_settings_js = f.read()
+        with open(os.path.join(ROOT, "webapp", "static", "js", "editor", "text-finalize-panel.js"), encoding="utf-8") as f:
+            text_finalize_js = f.read()
         with open(os.path.join(ROOT, "webapp", "static", "js", "index.js"), encoding="utf-8") as f:
             index_js = f.read()
 
         self.assertIn('id="research-desk"', index_html)
         self.assertIn('id="company-table-body"', index_html)
         self.assertIn('id="editor-workbench"', editor_html)
-        self.assertIn('id="version-compare"', editor_html)
-        self.assertIn('data-version="standard"', editor_html)
-        self.assertIn('data-version="business"', editor_html)
-        self.assertIn('data-version="spread"', editor_html)
-        self.assertIn('id="line-choice-grid"', editor_html)
-        self.assertIn('id="preview-render"', editor_html)
-        self.assertIn("markdown_content", editor_js)
-        self.assertIn("loadVersionChoices", editor_js)
-        self.assertIn("renderLineChoices", editor_js)
-        self.assertIn("applyLineChoice", editor_js)
-        self.assertIn("getFinalMarkdown", editor_js)
-        self.assertIn("await this.loadCard(1)", editor_js)
+        self.assertIn('data-section="card-settings"', editor_html)
+        self.assertIn('data-section="text-finalize"', editor_html)
+        self.assertIn('data-section="image"', editor_html)
+        self.assertIn('id="btn-go-layout"', editor_html)
+        self.assertIn('/static/js/editor/card-settings-panel.js', editor_html)
+        self.assertIn('/static/js/editor/text-finalize-panel.js', editor_html)
+        self.assertIn("CardSettingsPanel.init(company)", editor_html)
+        self.assertIn("TextFinalizePanel.init(company)", editor_html)
+        self.assertIn("switchSection(section)", editor_js)
+        self.assertIn("showCardSettingsMode", editor_js)
+        self.assertIn("showTextFinalizeMode", editor_js)
+        self.assertIn("showImageMode", editor_js)
+        self.assertIn("/api/card-config/", card_settings_js)
+        self.assertIn("/api/fields/", text_finalize_js)
+        self.assertIn("VERSION_LABELS_TF", text_finalize_js)
+        self.assertIn("tf-version-card", text_finalize_js)
         self.assertIn("CARD_COUNT = 8", index_js)
         self.assertIn("${confirmed}/${total}", index_js)
         self.assertNotIn("${confirmed}/7", index_js)
@@ -181,18 +189,21 @@ class StaticContractTests(unittest.TestCase):
         self.assertNotIn("version-detail-grid", index_js)
 
     def test_editor_surfaces_hook_copy_view(self):
+        with open(os.path.join(ROOT, "contracts", "fields.json"), encoding="utf-8") as f:
+            fields_contract = f.read()
+        with open(os.path.join(ROOT, "webapp", "static", "js", "editor", "text-finalize-panel.js"), encoding="utf-8") as f:
+            text_finalize_js = f.read()
         with open(os.path.join(ROOT, "webapp", "templates", "editor.html"), encoding="utf-8") as f:
             editor_html = f.read()
-        with open(os.path.join(ROOT, "webapp", "static", "js", "editor.js"), encoding="utf-8") as f:
-            editor_js = f.read()
 
-        self.assertIn('data-card="hook"', editor_html)
-        self.assertIn('data-card="8"', editor_html)
-        self.assertIn('id="hook-render"', editor_html)
-        self.assertIn("loadHookChoices", editor_js)
-        self.assertIn("showHooks", editor_js)
-        self.assertIn("renderHookContent", editor_js)
-        self.assertIn("hook_paragraph_1", editor_js)
+        self.assertIn('"group_key": "hook"', fields_contract)
+        self.assertIn('"hook_paragraph_1"', fields_contract)
+        self.assertIn('"hook_paragraph_2"', fields_contract)
+        self.assertIn('"hook_paragraph_3"', fields_contract)
+        self.assertIn("TextFinalizePanel", text_finalize_js)
+        self.assertIn("/api/fields/", text_finalize_js)
+        self.assertNotIn('data-card="hook"', editor_html)
+        self.assertNotIn('id="hook-render"', editor_html)
 
     def test_image_studio_caches_svg_data_per_asset_key(self):
         with open(os.path.join(ROOT, "image-studio", "js", "studio-app.js"), encoding="utf-8") as f:
