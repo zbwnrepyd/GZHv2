@@ -20,6 +20,7 @@ tests/          — unittest 回归测试
 ```bash
 pip install -r requirements.txt
 cd webapp && python3 app.py
+# Flask 已配置 TEMPLATES_AUTO_RELOAD=True，模板修改后无需重启
 # 访问研究台 http://127.0.0.1:5050/
 # 定稿台 http://127.0.0.1:5050/editor?company=<公司名>
 # 卡片制作台 http://127.0.0.1:5050/canvas/?company=<公司名>
@@ -55,6 +56,7 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 ## 技术约束
 - 所有LLM调用使用DeepSeek V4 Pro
 - 前端不用React/Vue，Vanilla JS + CDN
+- CSS 共享设计系统在 `webapp/static/css/gzh2-base.css`（变量、顶栏、按钮、面板布局）；`editor.css` 只定义研究台/定稿台专属样式，不重复定义 :root 变量和 .btn 基类；image-studio 使用独立的 `studio.css`（变量名不同但颜色值对齐）
 - `canvas/` 主路径不用 fabric.js；使用 HTML/CSS 源码编辑器 + iframe 预览，右侧展示当前页完整 HTML+CSS 并实时渲染。左侧含模板系统（全局共享，`localStorage` key `aistartups.templates`，默认模板 JSON 在 `canvas/default-templates.json`）
 - 卡片制作台左侧公司名是只读项目状态，来自定稿台跳转或 `?company=<公司名>`；不要恢复可输入公司名框
 - 左侧“卡片每一页”和“图片夹”是互斥手风琴，长内容在各自面板内滚动；背景水印控件放在图片夹内，导出按钮保持常驻，不放进折叠区
@@ -86,7 +88,7 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - 国内环境访问 Tavily 和 YouTube API 需配 HTTPS_PROXY（在 `.env` 手动配置）。Tavily 使用显式 `proxies=` 传参并支持超时后换 Key；超时配置在 `pipeline.py`
 - Pexels（200 req/h，支持中文）和 Unsplash（50 req/h，英文关键词）API Key 通过环境变量配置，用于图片定稿台手动搜索
 - 图片自动采集不再使用 Lorem Flickr / Picsum 通用图；搜不到真实图片时标记 `failed`，进入图片定稿台手动补
-- 定稿台左侧为四区手风琴：内容定稿（卡片1-8）、传播钩子文案、数据库字段、图片定稿（iframe 嵌入 image-studio）。每个面板点击后占据中右全区域，互斥切换
+- 定稿台左侧为六区手风琴：卡片设置、字段定稿、内容定稿（卡片1-8）、传播钩子文案、数据库字段、图片定稿（iframe 嵌入 image-studio）。每个面板点击后占据中右全区域，互斥切换。卡片设置/字段定稿内容渲染在中右 overlay 容器内，不在左侧手风琴 body
 - 研究台要展示 Tavily/GitHub/YouTube/官网抓取的链路状态与数量；公司库点击一条只展开该公司研究信息，点另一条时其他行折叠
 
 ## 参考

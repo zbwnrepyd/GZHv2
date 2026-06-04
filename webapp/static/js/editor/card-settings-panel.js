@@ -7,10 +7,12 @@ const CardSettingsPanel = {
   _availableMedia: [],
 
   async init(company) {
+    if (this._loaded && this._company === company) return;
     this._company = company;
     await this._loadCards();
     await this._loadPools();
     this._render();
+    this._loaded = true;
   },
 
   /* ── 数据加载 ── */
@@ -45,7 +47,7 @@ const CardSettingsPanel = {
 
   /* ── 渲染 ── */
   _render() {
-    const root = document.getElementById('card-settings-content');
+    const root = document.getElementById('card-settings-mode-content');
     if (!root) return;
 
     root.innerHTML = `

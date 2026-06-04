@@ -39,6 +39,7 @@ from pathlib import Path
 
 app = Flask(__name__)
 app.config.from_object(config)
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 
 # 确保图片目录存在
 Path(config.IMAGES_DIR).mkdir(parents=True, exist_ok=True)
