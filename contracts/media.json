@@ -1,0 +1,47 @@
+{
+  "version": "v1",
+  "description": "图片素材契约 — 定义系统中所有图片素材类型。图片不天然属于任何卡片。",
+  "media_types": [
+    {"media_key": "logo", "media_label": "公司 Logo", "kind": "collected", "required": true},
+    {"media_key": "website_screenshot", "media_label": "官网截图", "kind": "collected", "required": false},
+    {"media_key": "office", "media_label": "公司办公室/地图", "kind": "collected", "required": false},
+    {"media_key": "product_main", "media_label": "主产品截图", "kind": "collected", "required": false},
+    {"media_key": "products_other", "media_label": "其他产品图", "kind": "collected", "required": false},
+    {"media_key": "competitors", "media_label": "竞品截图", "kind": "collected", "required": false},
+    {
+      "media_key": "competitors_logo_strip",
+      "media_label": "竞品 Logo 横条",
+      "kind": "generated",
+      "required": false,
+      "generator": "logo_strip"
+    },
+    {
+      "media_key": "flywheel",
+      "media_label": "增长飞轮图",
+      "kind": "generated",
+      "required": false,
+      "generator": "svg"
+    },
+    {
+      "media_key": "timeline",
+      "media_label": "发展时间线图",
+      "kind": "generated",
+      "required": false,
+      "generator": "svg"
+    },
+    {
+      "media_key": "chart_competitive",
+      "media_label": "竞争格局图",
+      "kind": "generated",
+      "required": false,
+      "generator": "echarts"
+    },
+    {
+      "media_key": "chart_ecosystem",
+      "media_label": "产业链生态位图",
+      "kind": "generated",
+      "required": false,
+      "generator": "echarts"
+    }
+  ]
+}

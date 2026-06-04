@@ -74,11 +74,11 @@ class PageRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="card-page"', response.get_data(as_text=True))
 
-    def test_canvas_single_card_route_rejects_card_9(self):
-        response = self.client.get("/canvas/card/DemoCo/9")
+    def test_canvas_single_card_route_accepts_dynamic_card_id(self):
+        response = self.client.get("/canvas/card/DemoCo/card_09")
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("card_index", response.get_json()["error"])
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="card-page"', response.get_data(as_text=True))
 
 
 class ResearchCardMarkdownTests(unittest.TestCase):

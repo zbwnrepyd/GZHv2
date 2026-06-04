@@ -43,6 +43,11 @@ class StaticContractTests(unittest.TestCase):
         self.assertNotIn("min-width: 1220px", html)
         self.assertIn("this.cardLabel(i)", html)
         self.assertIn("js/html-card-renderer.js", html)
+        self.assertIn("js/render-data-loader.js", html)
+        self.assertIn("js/template-renderer.js", html)
+        self.assertIn("RenderDataLoader.load(this.companyName)", html)
+        self.assertIn("TemplateRenderer.render(this.currentCardDataWithImage())", html)
+        self.assertIn("保存当前启用卡片", html)
         self.assertIn("js/source-editor.js", html)
         self.assertIn("js/export-client.js", html)
         self.assertIn("8: '总结'", html)
@@ -87,6 +92,8 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("deviceScaleFactor: args.scale", script)
         self.assertIn("for (let shotIndex = 1; shotIndex <= args.shots; shotIndex += 1)", script)
         self.assertIn("_shot_", script)
+        self.assertIn("encodeURIComponent(cardId)", script)
+        self.assertIn("safeName(card.card_title || card.card_id)", script)
 
     def test_editor_api_exposes_research_job_helpers(self):
         with open(os.path.join(ROOT, "webapp", "static", "js", "api.js"), encoding="utf-8") as f:
@@ -245,6 +252,9 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("chart-code-highlight", chart_js)
         self.assertIn("_syncCodeHighlight", chart_js)
         self.assertIn("chart-param-bottom", chart_js)
+        self.assertIn('<div id="chart-param-bottom" class="chart-param-bottom"></div>', chart_js)
+        self.assertIn("chart-confirm-dock", chart_js)
+        self.assertIn("_syncPreviewAspect", chart_js)
         self.assertIn("mode: 'compact'", chart_js)
         self.assertIn("this._syncCodeHighlight(textarea.value)", chart_js)
         self.assertIn("this._applyCodePreview();", chart_js)
@@ -254,6 +264,9 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("param-inspector-compact", inspector_js)
         self.assertIn("param-compact-tabs", inspector_js)
         self.assertIn(".chart-param-bottom", css)
+        self.assertIn("aspect-ratio: var(--chart-aspect, 16 / 9)", css)
+        self.assertIn(".chart-confirm-dock", css)
+        self.assertIn(".workspace-primary", css)
         self.assertIn(".param-inspector-compact", css)
         self.assertIn(".chart-code-highlight", css)
         self.assertIn(".tok-keyword", css)
@@ -269,17 +282,67 @@ class StaticContractTests(unittest.TestCase):
     def test_canvas_image_folder_supports_all_asset_keys(self):
         with open(os.path.join(ROOT, "canvas", "card-renderer.html"), encoding="utf-8") as f:
             html = f.read()
+        with open(os.path.join(ROOT, "canvas", "card.html"), encoding="utf-8") as f:
+            card_html = f.read()
         with open(os.path.join(ROOT, "canvas", "js", "api-loader.js"), encoding="utf-8") as f:
             api_loader = f.read()
         with open(os.path.join(ROOT, "canvas", "js", "html-card-renderer.js"), encoding="utf-8") as f:
             renderer = f.read()
+        with open(os.path.join(ROOT, "canvas", "js", "template-renderer.js"), encoding="utf-8") as f:
+            template_renderer = f.read()
 
         self.assertIn("renderAllCompanyAssets", html)
+        self.assertIn("render-data-loader.js", card_html)
+        self.assertIn("template-renderer.js", card_html)
+        self.assertIn("RenderDataLoader.loadCard", card_html)
+        self.assertIn("const TemplateRenderer", template_renderer)
+        self.assertIn("render(cardData)", template_renderer)
+        self.assertIn("knowledge-card", template_renderer)
+        self.assertIn('data-od-id="card-root"', template_renderer)
+        self.assertNotIn("<html><head>", template_renderer)
         self.assertIn("website_screenshot", api_loader)
         self.assertIn("competitors_logo_strip", api_loader)
         self.assertIn("chart_competitive", api_loader)
         self.assertIn("chart_ecosystem", api_loader)
         self.assertIn("allAssets", renderer)
+
+    def test_decoupled_routes_and_safe_flask_start_are_wired(self):
+        with open(os.path.join(ROOT, "webapp", "app.py"), encoding="utf-8") as f:
+            app_py = f.read()
+        with open(os.path.join(ROOT, "webapp", "routes", "__init__.py"), encoding="utf-8") as f:
+            routes_init = f.read()
+        with open(os.path.join(ROOT, "webapp", "routes", "media_routes.py"), encoding="utf-8") as f:
+            media_routes = f.read()
+        with open(os.path.join(ROOT, "webapp", "templates", "layout.html"), encoding="utf-8") as f:
+            layout_html = f.read()
+        with open(os.path.join(ROOT, "webapp", "templates", "template_maker.html"), encoding="utf-8") as f:
+            template_maker_html = f.read()
+        with open(os.path.join(ROOT, "webapp", "static", "js", "layout", "layout-app.js"), encoding="utf-8") as f:
+            layout_js = f.read()
+        with open(os.path.join(ROOT, "webapp", "templates", "editor.html"), encoding="utf-8") as f:
+            editor_html = f.read()
+        with open(os.path.join(ROOT, "webapp", "static", "js", "editor", "card-settings-panel.js"), encoding="utf-8") as f:
+            card_settings_js = f.read()
+
+        self.assertIn('host=os.environ.get("FLASK_HOST", "127.0.0.1")', app_py)
+        self.assertIn('debug=os.environ.get("FLASK_DEBUG") == "1"', app_py)
+        self.assertIn('media_bp = Blueprint("media"', routes_init)
+        self.assertIn("media_routes", routes_init)
+        self.assertIn("/media/<company>/<media_key>/upload", media_routes)
+        self.assertIn("UPLOAD_EXTENSIONS", media_routes)
+        self.assertIn("普通图片不接受 svg", media_routes)
+        self.assertIn("/api/export/", layout_js)
+        self.assertIn("layout-status", layout_html)
+        self.assertIn("/canvas/js/template-renderer.js", layout_html)
+        self.assertIn("_layoutOverrides", layout_js)
+        self.assertIn("_effectiveTemplate()", layout_js)
+        self.assertIn("body: JSON.stringify({ overrides: this._layoutOverrides })", layout_js)
+        self.assertIn("template-status", template_maker_html)
+        self.assertIn("template-checks", template_maker_html)
+        self.assertIn("_validateTemplate()", template_maker_html)
+        self.assertIn("data-od-id", template_maker_html)
+        self.assertIn("new URLSearchParams(window.location.search).get('company')", editor_html)
+        self.assertIn("/api/media/", card_settings_js)
 
     def test_card_spec_freezes_current_eight_card_asset_contract(self):
         with open(os.path.join(ROOT, "docs", "card-spec.md"), encoding="utf-8") as f:

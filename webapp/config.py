@@ -61,6 +61,14 @@ class Config:
         "DB_PATH_ASSETS",
         str(PROJECT_ROOT / "db" / "assets_db.sqlite"),
     )
+    DB_PATH_COMPOSITION: str = os.environ.get(
+        "DB_PATH_COMPOSITION",
+        str(PROJECT_ROOT / "db" / "composition_db.sqlite"),
+    )
+    DB_PATH_TEMPLATE: str = os.environ.get(
+        "DB_PATH_TEMPLATE",
+        str(PROJECT_ROOT / "db" / "template_db.sqlite"),
+    )
     IMAGES_DIR: str = os.environ.get(
         "IMAGES_DIR",
         str(PROJECT_ROOT / "images"),

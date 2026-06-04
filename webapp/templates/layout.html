@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>排版界面 — GZHv2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=Instrument+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0B1629; --accent: #29B8D4; --line: rgba(0,0,0,0.08);
+    --ink: #111; --ink-muted: #999; --bg: #F8FAFC; --panel-bg: #fff;
+    font-family: 'Instrument Sans','Noto Sans SC',sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background: var(--bg); height:100vh; overflow:hidden; }
+
+  .top-bar { display:flex; align-items:center; gap:16px; padding:8px 16px; background:var(--navy); color:#fff; height:40px; }
+  .top-bar a { color: rgba(255,255,255,0.6); text-decoration:none; font-size:13px; }
+  .top-bar .company-name { font-weight:600; font-size:14px; }
+
+  .main { display:flex; height:calc(100vh - 40px); }
+  .panel { display:flex; flex-direction:column; gap:8px; }
+  .panel-left { width:240px; background:var(--panel-bg); border-right:1px solid var(--line); padding:12px; overflow-y:auto; }
+  .panel-right { width:280px; background:var(--panel-bg); border-left:1px solid var(--line); padding:12px; overflow-y:auto; }
+  .panel-center { flex:1; background:#E2E8F0; display:flex; align-items:center; justify-content:center; overflow:auto; }
+
+  .section-title { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--ink-muted); padding:4px 0; }
+  .card-item { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; cursor:pointer; font-size:13px; }
+  .card-item:hover { background:rgba(41,184,212,0.06); }
+  .card-item.active { background:rgba(41,184,212,0.12); font-weight:600; }
+  .card-item .idx { width:20px; height:20px; border-radius:4px; background:var(--navy); color:#fff; font-size:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+
+  select, input[type="range"], input[type="number"], textarea { width:100%; font-size:12px; border:1px solid var(--line); border-radius:4px; padding:4px 6px; }
+  select:focus, input:focus { outline:none; border-color:var(--accent); }
+  label { font-size:11px; color:var(--ink-muted); display:block; margin-top:8px; }
+  .prop-row { display:flex; gap:6px; }
+  .prop-row label { flex:1; }
+  .btn { font-size:12px; padding:6px 12px; border-radius:6px; border:none; cursor:pointer; font-weight:600; }
+  .btn-accent { background:var(--accent); color:#fff; }
+  .btn-outline { background:transparent; border:1px solid var(--line); color:var(--ink); }
+  .btn-sm { padding:4px 8px; font-size:11px; }
+  .btn-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+
+  .canvas-stage { position:relative; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.12); border-radius:4px; background:#fff; }
+  .canvas-stage iframe { border:none; display:block; transform-origin:top left; }
+
+  .empty-state { text-align:center; color:var(--ink-muted); padding:40px; font-size:14px; }
+  .od-status { font-size:11px; color:rgba(255,255,255,0.68); padding:2px 8px; border:1px solid rgba(255,255,255,0.16); border-radius:999px; }
+</style>
+</head>
+<body>
+
+<header class="top-bar">
+  <a href="/">← 研究台</a>
+  <a href="#" id="btn-back-editor">← 定稿台</a>
+  <span class="company-name" id="company-label"></span>
+  <span class="od-status" id="layout-status">未加载</span>
+  <span style="flex:1"></span>
+  <button class="btn btn-outline btn-sm" id="btn-template-maker" style="color:#fff;border-color:rgba(255,255,255,0.3)">模板制作</button>
+  <button class="btn btn-accent btn-sm" id="btn-export">导出 PNG</button>
+</header>
+
+<div class="main">
+  <!-- 左：卡片列表 + 模板选择 -->
+  <aside class="panel panel-left" id="left-panel">
+    <div class="section-title">卡片列表</div>
+    <div id="card-list"></div>
+    <div class="section-title" style="margin-top:16px">模板</div>
+    <select id="template-select"></select>
+    <button class="btn btn-outline btn-sm" id="btn-apply-template" style="margin-top:4px">应用模板</button>
+    <div class="section-title" style="margin-top:16px">图层</div>
+    <div id="layer-list" style="font-size:11px;color:var(--ink-muted)"></div>
+  </aside>
+
+  <!-- 中：Canvas 预览区 -->
+  <main class="panel-center" id="canvas-area">
+    <div class="empty-state">请从左侧选择卡片</div>
+  </main>
+
+  <!-- 右：属性面板 -->
+  <aside class="panel panel-right" id="right-panel">
+    <div class="section-title">属性</div>
+    <div id="property-panel">
+      <div class="empty-state">选择区域查看属性</div>
+    </div>
+    <div class="btn-row" style="margin-top:16px">
+      <button class="btn btn-accent btn-sm" id="btn-save-layout">保存排版</button>
+      <button class="btn btn-outline btn-sm" id="btn-reset-layout">重置</button>
+    </div>
+  </aside>
+</div>
+
+<script src="/canvas/js/template-renderer.js"></script>
+<script src="/static/js/layout/layout-app.js"></script>
+</body>
+</html>

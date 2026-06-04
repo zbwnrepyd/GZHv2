@@ -28,16 +28,17 @@ The app no longer depends on n8n for the main path. Research is started from the
 - `prompts/`: prompt templates loaded by `webapp/deepseek_client.py`.
 - `webapp/static/js/index.js`: research desk orchestration, research job polling, and finalization progress display as `confirmed/8`.
 - `webapp/static/js/editor.js`: finalization desk orchestration, three-section accordion (content finalization / hook copy / image finalization), four-column line choice, hook-copy view, card confirmation, and embedded image-studio integration.
-- `image-studio/`: standalone image finalization module with three-column layout (slot overview | middle preview + toolbar or chart bar | right candidate thumbnails + confirm). Two slot modes: **image slots** (logo/office/product/competitors) use preview/search toggle + toolbar; **chart slots** (flywheel/timeline/positioning_charts) use real-time iframe preview (Frappe Charts or SVG) + functional parameter bar (adjust + reset + render). Supports `?embed=1` for iframe integration into the editor; slot navigation moves to the editor accordion in embed mode.
-- `image-studio/js/studio-app.js`: main controller. `_showChartSlot()` unifies chart-type slot handling (flywheel/timeline → template params + SVG preview; positioning_charts → Frappe Charts scatter preview + render). Renders functional bar in toolbar area, hides search for chart slots.
+- `image-studio/`: standalone image finalization module with three-column layout (slot overview | middle preview + toolbar or chart bar | right candidate thumbnails/code + confirm). Two slot modes: **image slots** (logo/office/website_screenshot/product/competitors/competitors_logo_strip) use preview/search toggle + toolbar; **chart slots** (flywheel/timeline/chart_competitive/chart_ecosystem) use a proportional real-time iframe preview, bottom parameter bar, and right-side code/action dock with the final confirm button. Supports `?embed=1` for iframe integration into the editor; slot navigation moves to the editor accordion in embed mode.
+- `image-studio/js/studio-app.js` and `image-studio/js/workspace-chart.js`: main controllers. Generated chart slots are routed to the chart workspace: flywheel/timeline use SVG template params + preview; chart_competitive/chart_ecosystem use editable ECharts/HTML preview with syntax-highlighted code and live application.
 - `image-studio/js/search-panel.js`: middle panel for image slots — preview/search toggle bar, large preview stage, search results grid with pagination, and toolbar (search bar + engine selector, recollect all/slot, AI generation, upload, URL import).
 - `image-studio/js/variant-sidebar.js`: right panel — 2-column candidate thumbnail grid with sort control, preview highlighting, delete, and "确定图片" confirm button.
 - `canvas/`: HTML/CSS card workbench, single-card render page, and Puppeteer screenshot CLI.
-- `canvas/js/api-loader.js`: loads card data from `/api/final/export?format=json` and assets from `/api/assets/<company>` when opened with `?company=`.
+- `canvas/js/render-data-loader.js` and `canvas/js/template-renderer.js`: dynamic GZHv2 renderer path. The card workbench and single-card page first load `/api/render-data/<company>` and render enabled `card_compositions`; the legacy fixed-card renderer remains as fallback.
+- `canvas/js/api-loader.js`: legacy fallback loader for `/api/final/export?format=json` and `/api/assets/<company>`.
 - `canvas/js/html-card-renderer.js`: converts parsed card data into editable `<style> + <article>` card source; maps asset images to card image boxes via `CARD_ASSET_MAP`.
 - `canvas/js/source-editor.js`: syntax-highlighted HTML/CSS source editor with live iframe rendering.
 - `canvas/js/param-controls.js`: collapsible parameter-tuning bar in the card workbench. Renders accordion sliders/color-pickers for typography, colors, spacing, and layout. Changes are debounced and injected directly into the iframe via `renderSourceIntoDocument()`. Params persist in localStorage key `aistartups.paramTuning`.
-- `canvas/screenshot.js`: screenshots cards 1-8 through Puppeteer.
+- `canvas/screenshot.js`: loads enabled cards from `/api/render-data/<company>` and screenshots each card through Puppeteer; falls back to legacy 1-8 only when render-data is unavailable.
 
 ## Research Pipeline
 
@@ -67,16 +68,18 @@ company_name + card_index + field_name
 
 Saving the same card again updates existing fields instead of inserting duplicates. `get_final_cards()` also cleans older duplicate rows before reading, keeping the latest row per field.
 
-`assets_db.sqlite` contains the `company_assets` table tracking 8 image asset types per company:
+`assets_db.sqlite` contains the `company_assets` table tracking demand-based media asset types per company:
 
 ```text
-asset_key: logo | office | product_main | products_other | competitors | flywheel | timeline | positioning_charts
-card_index: 1-7 mapping asset to card (positioning_charts is attached to card 6; card 8 has no dedicated asset)
+asset_key: logo | website_screenshot | office | product_main | products_other |
+           competitors | competitors_logo_strip | flywheel | timeline |
+           chart_competitive | chart_ecosystem
+card_index: compatibility hint only; card placement is controlled by card_items
 status:    missing → ready / generating / failed
 selected_variant_id / final_score / auto_selected / fail_reason: final selection metadata
 ```
 
-Each row records `local_path`, `source_type` (favicon/web_search/screenshot/composite/svg_render/api_generate/web_scrape/osm_map/street_view/web_tavily/playwright/import_url/import_upload), `source_url`, `prompt`, `selected_variant_id`, `final_score`, `auto_selected`, `fail_reason`, and `meta_json`. The unique key is `(company_name, asset_key)`. Assets are collected via the pipeline (logo, office, product, other products, competitors), generated on-demand (flywheel, timeline via SVG rendering), or manually imported/generated in image studio (`positioning_charts` for the two positioning charts).
+Each row records `local_path`, `source_type` (favicon/web_search/screenshot/composite/svg_render/api_generate/web_scrape/osm_map/street_view/web_tavily/playwright/import_url/import_upload), `source_url`, `prompt`, `selected_variant_id`, `final_score`, `auto_selected`, `fail_reason`, and `meta_json`. The unique key is `(company_name, asset_key)`. Assets are collected via the pipeline (logo, office, website/product screenshots, competitors), generated on-demand (competitors_logo_strip, flywheel, timeline, chart_competitive, chart_ecosystem), or manually imported/generated in image studio.
 
 `image_variants` stores downloaded image alternatives per asset slot, with copyright metadata:
 
@@ -141,9 +144,12 @@ SVG templates:
 - `DELETE /api/svg-templates/<template_id>` — delete an uploaded template.
 - `POST /api/svg-templates/preview` — render a template preview without selecting it for an asset.
 
-Positioning charts (scatter plots):
+Generated charts:
 
-- `POST /api/image-studio/<company>/positioning_charts/render-svg` — render competitive landscape or stack positioning scatter plot. Accepts `template_id` = `competitive_landscape` or `stack_positioning`. No LLM needed — queries all scored companies from `research_db` and plots them as an SVG scatter chart.
+- `POST /api/image-studio/<company>/chart_competitive/render-html` — save a hand-edited ECharts/HTML competitive landscape version.
+- `POST /api/image-studio/<company>/chart_ecosystem/render-html` — save a hand-edited ECharts/HTML AI stack positioning version.
+- `POST /api/image-studio/<company>/<asset_key>/render-svg` — render SVG-template chart assets such as flywheel and timeline.
+- `POST /api/media/<company>/<media_key>/generate` — stable media API wrapper that dispatches generated slots to the current renderer.
 
 Pages and static assets:
 
@@ -151,7 +157,7 @@ Pages and static assets:
 - `GET /editor` and `GET /editor?company=<company>` — finalization desk.
 - `GET /editor/<company>` legacy-compatible editor route.
 - `GET /canvas/` — card workbench. Use `?company=<company>` to load confirmed cards.
-- `GET /canvas/card/<company>/<card_index>` — single-card HTML page for iframe preview and Puppeteer export. Valid indexes are 1-8.
+- `GET /canvas/card/<company>/<card_id>` — single-card HTML page for iframe preview and Puppeteer export. `card_id` may be a dynamic ID such as `card_06`; numeric legacy IDs still work.
 - `GET /canvas/<path>`
 
 `POST /api/generate-image` accepts the existing `company_name`, `field_name`, and `prompt` fields. It also accepts optional runtime `image_api_url` and `image_api_key`; these override environment defaults for that request only. The API key is never returned in the response.

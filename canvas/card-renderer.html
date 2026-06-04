@@ -639,6 +639,8 @@
 </main>
 
 <script src="/canvas/js/markdown-parser.js"></script>
+<script src="/canvas/js/render-data-loader.js"></script>
+<script src="/canvas/js/template-renderer.js"></script>
 <script src="/canvas/js/api-loader.js"></script>
 <script src="/canvas/js/html-card-renderer.js"></script>
 <script src="/canvas/js/source-editor.js"></script>
@@ -661,6 +663,9 @@ const Workbench = {
   companyName: '',
   currentCard: 1,
   allCardData: {},
+  renderMode: 'legacy',
+  renderCards: [],
+  companyAssets: {},
   selectedImages: {},
   card3ShowImage: false,  // 卡片3默认文字排版
   gzhLogoUrl: '',         // 公众号 logo
@@ -809,11 +814,38 @@ const Workbench = {
     }
     try {
       this.setStatus(`正在加载 ${this.companyName}...`, 'info');
+      const dynamic = await RenderDataLoader.load(this.companyName);
+      const cards = RenderDataLoader.getSortedCards(dynamic);
+      if (cards.length) {
+        this.renderMode = 'dynamic';
+        this.renderCards = cards;
+        this.allCardData = {};
+        cards.forEach((card) => {
+          this.allCardData[card.card_id] = card;
+        });
+        this.companyAssets = await loadAssetsFromAPI(this.companyName);
+        this.currentCard = cards[0].card_id;
+        this.renderNav();
+        this.renderImageFolder();
+        await this.refreshPreview();
+        this.setStatus(`已加载 ${dynamic.company_name || this.companyName} · ${cards.length} 张动态卡片`, 'success');
+        return;
+      }
+    } catch (dynamicError) {
+      RenderDataLoader.clearCache?.(this.companyName);
+      this.setStatus(`动态渲染数据不可用，尝试旧版卡片：${dynamicError.message}`, 'info');
+    }
+
+    try {
+      this.renderMode = 'legacy';
+      this.renderCards = [];
+      this.companyAssets = {};
       const result = await loadFromAPI(this.companyName);
       this.allCardData = result.allCardData || {};
 
       // 加载资产，合并到对应卡片的 _assets 字段
       const assets = await loadAssetsFromAPI(this.companyName);
+      this.companyAssets = assets;
       for (let i = 1; i <= 8; i++) {
         if (!this.allCardData[i]) this.allCardData[i] = {};
         this.allCardData[i]._assets = assets;
@@ -836,6 +868,29 @@ const Workbench = {
   renderNav() {
     const nav = document.getElementById('card-nav');
     nav.innerHTML = '';
+    if (this.renderMode === 'dynamic') {
+      this.renderCards.forEach((card) => {
+        const button = document.createElement('button');
+        button.className = 'card-tab';
+        button.dataset.card = card.card_id;
+        button.innerHTML = `<span>${card.card_index || ''} ${this.esc(card.card_title || card.card_id)}</span><span>${card.items?.length || 0}</span>`;
+        button.classList.toggle('active', card.card_id === this.currentCard);
+        button.addEventListener('click', async () => {
+          SourceEditor.autoSaveCurrentCard(this.currentCard);
+          this.currentCard = card.card_id;
+          this.renderNav();
+          this.renderTemplateList();
+          await this.refreshPreview();
+        });
+        nav.appendChild(button);
+      });
+      const countEl = document.getElementById('card-count');
+      if (countEl) countEl.textContent = String(this.renderCards.length);
+      const toggleRow = document.getElementById('card3-toggle-row');
+      if (toggleRow) toggleRow.style.display = 'none';
+      return;
+    }
+
     for (let i = 1; i <= 8; i += 1) {
       const button = document.createElement('button');
       button.className = 'card-tab';
@@ -861,6 +916,9 @@ const Workbench = {
   },
 
   cardLabel(cardIndex) {
+    if (this.renderMode === 'dynamic') {
+      return this.allCardData[cardIndex]?.card_title || this.allCardData[cardIndex]?._title || String(cardIndex);
+    }
     return this.allCardData[cardIndex]?._title || CARD_TABS[cardIndex] || `卡片${cardIndex}`;
   },
 
@@ -874,11 +932,18 @@ const Workbench = {
     };
 
     // 服务器资产
-    const assets = this.allCardData[1]?._assets || {};
+    const assets = this.companyAssets || this.allCardData[1]?._assets || {};
     this.renderAllCompanyAssets(assets, add);
 
     for (const [cardIndex, data] of Object.entries(this.allCardData || {})) {
       add(Number(cardIndex), data?._image, '定稿图片');
+      if (this.renderMode === 'dynamic') {
+        (data.items || []).forEach((item) => {
+          if (item.item_type === 'media') {
+            add(data.card_index || 0, item.url || item.local_path, item.media_label || item.item_label || item.item_key, item.item_key);
+          }
+        });
+      }
     }
 
     return images;
@@ -935,12 +1000,25 @@ const Workbench = {
   },
 
   cardUrl() {
-    return `/canvas/card/${encodeURIComponent(this.companyName)}/${this.currentCard}?parent-driven=1`;
+    return `/canvas/card/${encodeURIComponent(this.companyName)}/${encodeURIComponent(this.currentCard)}?parent-driven=1`;
   },
 
   currentCardDataWithImage() {
     const cardData = Object.assign({}, this.allCardData[this.currentCard] || {});
     const selectedImage = this.selectedImages[String(this.currentCard)];
+    if (this.renderMode === 'dynamic' && selectedImage) {
+      const items = Array.isArray(cardData.items) ? cardData.items.slice() : [];
+      items.unshift({
+        item_type: 'media',
+        item_key: 'manual_selected_image',
+        item_label: '手动选择图片',
+        media_label: '手动选择图片',
+        display_role: 'hero_image',
+        url: selectedImage,
+        sort_order: -1,
+      });
+      cardData.items = items;
+    }
     if (selectedImage) {
       cardData._selectedImage = selectedImage;
     }
@@ -951,6 +1029,9 @@ const Workbench = {
   },
 
   defaultSourceForCurrentCard() {
+    if (this.renderMode === 'dynamic') {
+      return TemplateRenderer.render(this.currentCardDataWithImage());
+    }
     return renderCardSource({
       companyName: this.companyName,
       cardIndex: this.currentCard,
@@ -1033,10 +1114,13 @@ const Workbench = {
     // 刷新资产
     if (this.companyName) {
       const assets = await loadAssetsFromAPI(this.companyName);
-      for (let i = 1; i <= 8; i++) {
-        if (!this.allCardData[i]) this.allCardData[i] = {};
-        this.allCardData[i]._assets = assets;
-        this.allCardData[i]._allAssets = assets;
+      this.companyAssets = assets;
+      if (this.renderMode !== 'dynamic') {
+        for (let i = 1; i <= 8; i++) {
+          if (!this.allCardData[i]) this.allCardData[i] = {};
+          this.allCardData[i]._assets = assets;
+          this.allCardData[i]._allAssets = assets;
+        }
       }
     }
 
@@ -1051,8 +1135,9 @@ const Workbench = {
     SourceEditor.setEditorValue(source);
     SourceEditor.applyToFrame(frame, source);
     this._setupEditing(frame);
-    const title = cardData._title || CARD_TABS[this.currentCard] || `卡片${this.currentCard}`;
-    document.getElementById('canvas-title').textContent = `卡片${this.currentCard} · ${title}`;
+    const title = cardData.card_title || cardData._title || CARD_TABS[this.currentCard] || `卡片${this.currentCard}`;
+    const indexLabel = cardData.card_index || this.currentCard;
+    document.getElementById('canvas-title').textContent = `卡片${indexLabel} · ${title}`;
     this.renderImageFolder();
     this.updateFrameScale();
   },
@@ -1150,25 +1235,30 @@ const Workbench = {
     this.setStatus(`已导入 ${added} 个模板集。`, 'success');
   },
 
-  // 保存全部8张为模板集
+  // 保存当前启用卡片为模板集
   saveAllCardsAsTemplate() {
     const map = this.loadTemplates();
     const sets = map._sets || [];
     const name = prompt('模板集名称：', `模板集-${sets.length + 1}`);
     if (!name) return;
 
-    // 收集当前8张卡的源码
+    // 收集当前卡片源码。动态模式按 render-data 返回的启用卡片，旧模式保留 1..8。
     const cards = {};
     const savedCard = this.currentCard;
-    for (let i = 1; i <= 8; i++) {
-      this.currentCard = i;
+    const cardIds = this.renderMode === 'dynamic'
+      ? this.renderCards.map(card => card.card_id)
+      : Array.from({ length: 8 }, (_, i) => i + 1);
+    for (const cardId of cardIds) {
+      this.currentCard = cardId;
       const cardData = this.currentCardDataWithImage();
-      cards[i] = renderCardSource({
-        companyName: this.companyName,
-        cardIndex: i,
-        cardData,
-        showImage: i === 3 ? this.card3ShowImage : undefined,
-      });
+      cards[String(cardId)] = this.renderMode === 'dynamic'
+        ? TemplateRenderer.render(cardData)
+        : renderCardSource({
+          companyName: this.companyName,
+          cardIndex: cardId,
+          cardData,
+          showImage: cardId === 3 ? this.card3ShowImage : undefined,
+        });
     }
     this.currentCard = savedCard;
 
@@ -1178,7 +1268,7 @@ const Workbench = {
     map._sets = sets;
     this.saveTemplates(map);
     this.renderTemplateList();
-    this.setStatus(`模板集"${name.trim()}"已保存（8张卡片）。`, 'success');
+    this.setStatus(`模板集"${name.trim()}"已保存（${cardIds.length}张卡片）。`, 'success');
   },
 
   exportAllTemplates() {
@@ -1207,7 +1297,7 @@ const Workbench = {
 
     if (nav) {
       if (!sets.length) {
-        nav.innerHTML = '<p style="padding:8px;font-size:12px;color:var(--muted)">暂无模板。<br>编辑源码后点"保存模板"保存全部8张。</p>';
+        nav.innerHTML = '<p style="padding:8px;font-size:12px;color:var(--muted)">暂无模板。<br>编辑源码后点"保存模板"保存当前启用卡片。</p>';
       } else {
         nav.innerHTML = sets.map((s, idx) => {
           const isActive = idx === this._activeTemplateIdx;
