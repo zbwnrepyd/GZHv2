@@ -98,7 +98,11 @@ const TemplateRenderer = {
 
     if (type === 'image' || type === 'chart' || type === 'logo') {
       const mediaItems = (roleMap[role] || roleMap['hero_image'] || roleMap['chart'] || []);
-      const media = mediaItems[0];
+      // 优先按 bind 精确匹配 item_key，再按 role fallback；避免多图同 role 时重复取第一张
+      const bindKey = region.bind;
+      const media = bindKey
+        ? (mediaItems.find(m => m.item_key === bindKey) || mediaItems[0])
+        : mediaItems[0];
       const url = media?.url || media?.local_path || '';
       if (!url) {
         // placeholder

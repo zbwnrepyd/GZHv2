@@ -78,9 +78,9 @@ INSERT OR IGNORE INTO card_templates (template_id, template_name, canvas_width, 
   "background": {"type": "color", "value": "#FFFFFF"},
   "regions": [
     {"id": "title", "type": "text", "role": "title", "x": 68, "y": 70, "w": 764, "h": 90, "style": {"fontFamily": "Noto Sans SC", "fontSize": 46, "fontWeight": 700, "color": "#111111", "textAlign": "left"}},
-    {"id": "chart_1", "type": "image", "role": "chart", "x": 30, "y": 190, "w": 410, "h": 340, "style": {"objectFit": "contain"}},
-    {"id": "chart_2", "type": "image", "role": "chart", "x": 460, "y": 190, "w": 410, "h": 340, "style": {"objectFit": "contain"}},
-    {"id": "logo_strip", "type": "image", "role": "decoration", "x": 80, "y": 560, "w": 740, "h": 80, "style": {"objectFit": "contain"}},
+    {"id": "chart_1", "type": "image", "role": "chart", "bind": "chart_competitive", "x": 30, "y": 190, "w": 410, "h": 340, "style": {"objectFit": "contain"}},
+    {"id": "chart_2", "type": "image", "role": "chart", "bind": "chart_ecosystem", "x": 460, "y": 190, "w": 410, "h": 340, "style": {"objectFit": "contain"}},
+    {"id": "logo_strip", "type": "image", "role": "decoration", "bind": "competitors_logo_strip", "x": 80, "y": 560, "w": 740, "h": 80, "style": {"objectFit": "contain"}},
     {"id": "body", "type": "text", "role": "body", "x": 80, "y": 680, "w": 740, "h": 440, "style": {"fontFamily": "Noto Sans SC", "fontSize": 22, "fontWeight": 400, "color": "#333333", "lineHeight": 1.5}}
   ]
 }', 1);
