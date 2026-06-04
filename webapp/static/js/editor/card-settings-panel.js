@@ -96,6 +96,7 @@ const CardSettingsPanel = {
     root.innerHTML = `
       <div class="cs-toolbar">
         <button class="cs-btn-add" id="cs-btn-add-card">+ 新增卡片</button>
+        <button class="cs-btn-restore" id="cs-btn-restore-defaults">恢复默认</button>
         <span class="cs-card-count">${this._cards.length} 张卡片</span>
       </div>
       <div class="cs-card-list" id="cs-card-list">
@@ -105,6 +106,7 @@ const CardSettingsPanel = {
     `;
 
     document.getElementById('cs-btn-add-card')?.addEventListener('click', () => this._showAddCard());
+    document.getElementById('cs-btn-restore-defaults')?.addEventListener('click', () => this._restoreDefaults());
     document.querySelectorAll('.cs-card-row').forEach(row => {
       row.addEventListener('click', () => this._editCard(row.dataset.cardId));
     });
@@ -310,6 +312,19 @@ const CardSettingsPanel = {
       await this._loadCards();
       this._render();
     } catch (e) { alert('删除失败: ' + e.message); }
+  },
+
+  async _restoreDefaults() {
+    if (!confirm('确定恢复为默认 8 张卡片？当前编排将被清除。')) return;
+    try {
+      // 删除所有现有卡片
+      for (const card of this._cards) {
+        await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(card.card_id)}`, { method: 'DELETE' });
+      }
+      // 重新加载（GET 会自动创建默认卡片）
+      await this._loadCards();
+      this._render();
+    } catch (e) { alert('恢复失败: ' + e.message); }
   },
 
   _esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); },
