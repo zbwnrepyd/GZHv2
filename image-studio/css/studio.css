@@ -294,6 +294,38 @@ a:hover { text-decoration: underline; }
 .toolbar-search-row .btn-search:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* 重采集行 — 中等 */
+/* 一级工具栏（预览/重采集/上传/确认） */
+.toolbar-primary-row {
+  display: flex; gap: 8px; align-items: center;
+}
+.toolbar-primary-row .btn-recollect-all,
+.toolbar-primary-row .btn-recollect-slot {
+  flex: 1;
+  padding: 7px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-secondary);
+  font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.toolbar-primary-row .btn-recollect-all:hover,
+.toolbar-primary-row .btn-recollect-slot:hover { border-color: var(--accent); color: var(--accent); }
+.toolbar-primary-row .btn-recollect-all:disabled,
+.toolbar-primary-row .btn-recollect-slot:disabled { opacity: 0.4; cursor: not-allowed; }
+.toggle-advanced {
+  padding: 6px 10px; border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm); background: var(--surface-2);
+  color: var(--ink-muted); font-size: 11px; cursor: pointer;
+  white-space: nowrap;
+}
+.toggle-advanced:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 高级面板（折叠） */
+.toolbar-advanced-row { margin-top: 8px; }
+.toolbar-advanced-row.hidden { display: none; }
+
 .toolbar-recollect-row {
   display: flex; gap: 8px;
 }

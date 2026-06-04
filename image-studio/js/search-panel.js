@@ -86,31 +86,34 @@ const SearchPanel = {
         <div class="results-pagination" id="results-pagination"></div>
       </div>
 
-      <!-- 下部：工具栏 -->
+      <!-- 下部：工具栏（一级：预览/重采集/上传/确认；高级折叠其余） -->
       <div class="toolbar-section" id="toolbar-section">
-        <div class="toolbar-search-row">
-          <input class="search-input" type="text" placeholder="输入搜索关键词...">
-          <select class="engine-select">
-            <option value="pexels">Pexels</option>
-            <option value="unsplash">Unsplash</option>
-            <option value="tavily">Tavily</option>
-          </select>
-          <button class="btn-search">搜索</button>
-        </div>
-        <div class="toolbar-recollect-row">
+        <div class="toolbar-primary-row">
           <button class="btn-recollect-all">全部重新采集</button>
           <button class="btn-recollect-slot">当页重新采集</button>
-        </div>
-        <div class="toolbar-actions-row">
-          <input class="ai-prompt-input" type="text" placeholder="AI 生图 prompt...">
-          <button class="btn-small accent" id="btn-ai-gen">生成</button>
-          <button class="btn-generate-map hidden" id="btn-generate-map">生成地图</button>
-          <button class="btn-small" id="btn-rescore">重新评分</button>
           <button class="btn-small" id="btn-upload">上传图片</button>
-          <input class="url-input" type="text" placeholder="粘贴图片 URL...">
-          <button class="btn-small" id="btn-url-fetch">下载</button>
-          <input type="file" accept="image/*" class="file-input-hidden" id="file-upload-input">
+          <button class="btn-small toggle-advanced" id="btn-toggle-advanced">高级 ▸</button>
         </div>
+        <div class="toolbar-advanced-row hidden" id="toolbar-advanced">
+          <div class="toolbar-search-row">
+            <input class="search-input" type="text" placeholder="搜索关键词...">
+            <select class="engine-select">
+              <option value="pexels">Pexels</option>
+              <option value="unsplash">Unsplash</option>
+              <option value="tavily">Tavily</option>
+            </select>
+            <button class="btn-search">搜索</button>
+          </div>
+          <div class="toolbar-actions-row">
+            <input class="ai-prompt-input" type="text" placeholder="AI 生图 prompt...">
+            <button class="btn-small accent" id="btn-ai-gen">生成</button>
+            <input class="url-input" type="text" placeholder="图片 URL...">
+            <button class="btn-small" id="btn-url-fetch">下载</button>
+            <button class="btn-small" id="btn-rescore">重新评分</button>
+          </div>
+        </div>
+        <button class="btn-generate-map hidden" id="btn-generate-map">生成地图</button>
+        <input type="file" accept="image/*" class="file-input-hidden" id="file-upload-input">
       </div>
     `;
 
@@ -173,6 +176,14 @@ const SearchPanel = {
 
     // 重新评分
     this._container.querySelector('#btn-rescore').addEventListener('click', () => this._onRescore());
+
+    // 高级面板切换
+    this._container.querySelector('#btn-toggle-advanced').addEventListener('click', () => {
+      const advanced = this._container.querySelector('#toolbar-advanced');
+      const btn = this._container.querySelector('#btn-toggle-advanced');
+      advanced.classList.toggle('hidden');
+      btn.textContent = advanced.classList.contains('hidden') ? '高级 ▸' : '高级 ▾';
+    });
 
     // 上传
     this._container.querySelector('#btn-upload').addEventListener('click', () => {
