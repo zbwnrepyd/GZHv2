@@ -147,8 +147,16 @@ const TemplateMaker = {
         const bg = json.background || {};
         document.getElementById('bg-type').value = bg.type || 'color';
         document.getElementById('bg-value').value = bg.value || '#FFFFFF';
-        document.getElementById('template-name').value = tpl.template_name || '';
-        document.getElementById('template-status').textContent = '已加载';
+        // 内置模板不可直接修改，编辑时自动创建副本
+        if (tpl.is_builtin) {
+          document.getElementById('template-name').value = (tpl.template_name || '') + ' (副本)';
+          this._tplId = `custom_${Date.now()}`;
+          this._isEditing = false;
+          document.getElementById('template-status').textContent = '内置模板副本';
+        } else {
+          document.getElementById('template-name').value = tpl.template_name || '';
+          document.getElementById('template-status').textContent = '已加载';
+        }
       }
     } catch (e) {
       document.getElementById('template-status').textContent = '加载失败';
