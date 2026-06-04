@@ -65,96 +65,31 @@
       </div>
     </div>
 
-    <!-- 4. 高级 / 兼容入口 -->
-    <div class="accordion-section" data-od-id="editor-advanced">
-      <div class="accordion-header" data-section="advanced">
-        <span class="arrow">&#9654;</span> 高级 / 兼容入口
-      </div>
-      <div class="accordion-body" data-section="advanced">
-        <button class="editor-card-btn" data-legacy="content">旧版内容定稿 (1-8 卡)</button>
-        <button class="editor-card-btn" data-legacy="hook">传播钩子文案</button>
-        <button class="editor-card-btn" data-legacy="dbfields">原始字段查看</button>
-      </div>
-    </div>
-
-    <!-- 5. 进入排版 -->
+    <!-- 4. 进入排版 -->
     <div class="accordion-section" style="border-top:1px solid var(--border);padding-top:8px" data-od-id="editor-goto-layout">
       <a id="btn-go-layout" class="go-layout-link" href="#" data-od-id="editor-btn-go-layout">进入排版 →</a>
     </div>
   </aside>
 
-  <!-- 内容定稿/钩子模式：中间栏+右侧栏 -->
-  <section id="editor-middle-pane">
-    <div class="markdown-toolbar">
-      <span id="markdown-meta">请选择公司</span>
-      <span id="dirty-indicator" class="dirty-indicator hidden">未定稿</span>
-    </div>
-    <div id="version-compare" class="version-compare">
-      <div class="line-grid-header">
-        <span data-version="standard">标准版</span>
-        <span data-version="business">商业版</span>
-        <span data-version="spread">传播版</span>
-        <span>定稿输入</span>
-      </div>
-      <div id="line-choice-grid" class="line-choice-grid"></div>
-    </div>
-    <div class="markdown-footer">
-      <button id="btn-prev" class="btn">← 上一张</button>
-      <button id="btn-next" class="btn">下一张 →</button>
-    </div>
-    <!-- 钩子模式下的摘要区和钩子内容（与 version-compare 共享空间） -->
-    <div id="hook-content" class="preview-content hidden"></div>
+  <!-- 中间栏+右侧栏（被 overlay 覆盖时隐藏，保留作为布局占位） -->
+  <section id="editor-middle-pane" style="display:none"></section>
+  <section id="editor-right-pane" style="display:none">
+    <a id="btn-go-canvas" class="btn btn-accent hidden" href="#">去制作卡片 →</a>
   </section>
 
-  <section id="editor-right-pane">
-    <div class="preview-toolbar">
-      <span id="preview-status">只读预览</span>
-    </div>
-    <div class="preview-content" id="preview-render"></div>
-    <div class="preview-actions">
-      <button id="btn-confirm" class="btn btn-primary">确认定稿</button>
-      <a id="btn-go-canvas" class="btn btn-accent hidden" href="#">去制作卡片 →</a>
-    </div>
-    <!-- 钩子模式下的预览（覆盖 preview-render） -->
-    <div class="preview-content hidden" id="hook-render"></div>
-  </section>
-
-  <!-- 图片定稿模式：iframe 容器 -->
+  <!-- 图片定稿 overlay -->
   <div id="image-studio-frame">
     <iframe id="image-studio-iframe" src="" title="图片定稿台"></iframe>
   </div>
 
-  <!-- 钩子模式：占据中右区域 -->
-  <div id="hook-mode">
-    <div id="hook-mode-content" class="preview-content"></div>
-  </div>
-
-  <!-- 卡片设置模式：占据中右区域 -->
+  <!-- 卡片设置 overlay -->
   <div id="card-settings-mode">
     <div id="card-settings-mode-content" class="preview-content"></div>
   </div>
 
-  <!-- 文字定稿模式：占据中右区域 -->
+  <!-- 文字定稿 overlay -->
   <div id="text-finalize-mode">
     <div id="text-finalize-mode-content" class="preview-content"></div>
-  </div>
-
-  <!-- 数据库字段模式：占据中右区域 -->
-  <div id="db-fields-mode">
-    <div class="db-fields-head">
-      <span>数据库字段 · <span id="db-fields-company"></span></span>
-      <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer">
-        <input type="checkbox" id="db-show-system"> 显示系统字段
-      </label>
-    </div>
-    <div id="db-fields-table-wrap">
-      <table id="db-fields-table">
-        <thead><tr>
-          <th>字段</th><th>标准版</th><th>商业版</th><th>传播版</th>
-        </tr></thead>
-        <tbody id="db-fields-tbody"></tbody>
-      </table>
-    </div>
   </div>
 </main>
 
@@ -174,22 +109,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnLayout = document.getElementById('btn-go-layout');
   if (btnLayout) btnLayout.href = `/layout?company=${encodeURIComponent(company)}`;
 
-  // 监听手风琴切换，懒初始化新面板
+  // 监听手风琴切换，懒初始化面板
   document.querySelectorAll('.accordion-header').forEach(h => {
     h.addEventListener('click', () => {
       const section = h.dataset.section;
       if (section === 'card-settings') CardSettingsPanel.init(company);
       if (section === 'text-finalize') TextFinalizePanel.init(company);
-    });
-  });
-
-  // 高级/兼容入口：旧版按钮点击
-  document.querySelectorAll('[data-legacy]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const legacy = btn.dataset.legacy;
-      if (legacy === 'content') EditorApp.switchSection('content');
-      if (legacy === 'hook') { EditorApp.switchSection('hook'); EditorApp.showHooks(); }
-      if (legacy === 'dbfields') EditorApp.switchSection('dbfields');
     });
   });
 });
