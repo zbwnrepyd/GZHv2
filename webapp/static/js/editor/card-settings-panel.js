@@ -166,8 +166,98 @@ const CardSettingsPanel = {
   },
 
   _editCard(cardId) {
-    document.getElementById('cs-card-editor')?.classList.add('hidden');
-    alert(`编辑卡片 ${cardId}（拖拽排序等高级功能在排版界面完成）`);
+    const card = this._cards.find(c => c.card_id === cardId);
+    if (!card) return;
+    const editor = document.getElementById('cs-card-editor');
+    if (!editor) return;
+    editor._editingCardId = cardId;
+
+    const items = card.items || [];
+    const fieldItems = items.filter(i => i.item_type === 'field');
+    const mediaItems = items.filter(i => i.item_type === 'media');
+
+    editor.classList.remove('hidden');
+    editor.innerHTML = `
+      <h4>编辑卡片：${this._esc(card.card_title)}</h4>
+      <div class="cs-form">
+        <label>卡片ID <input id="cs-edit-id" value="${cardId}" disabled style="opacity:.6"></label>
+        <label>卡片名称 <input id="cs-edit-title" value="${this._esc(card.card_title)}"></label>
+        <label>排序 <input id="cs-edit-index" type="number" value="${card.card_index || 0}" min="1"></label>
+        <label>模板 <input id="cs-edit-template" value="${this._esc(card.template_id || '')}" placeholder="留空使用默认"></label>
+        <label class="cs-check-label"><input type="checkbox" id="cs-edit-enabled" ${card.enabled !== false ? 'checked' : ''}> 启用</label>
+      </div>
+      <div class="cs-pool-section">
+        <h5>字段 <span style="font-weight:400;font-size:11px;color:var(--text-muted)">（勾选即添加，取消勾选即移除）</span></h5>
+        <div class="cs-pool-grid" id="cs-field-pool">
+          ${this._availableFields.map(f => {
+            const existing = fieldItems.find(i => i.item_key === f.field_key);
+            return `<label class="cs-pool-item"><input type="checkbox" value="${f.field_key}" ${existing ? 'checked' : ''}> ${this._esc(f.field_label)}</label>`;
+          }).join('')}
+        </div>
+        <h5>图片 <span style="font-weight:400;font-size:11px;color:var(--text-muted)">（勾选即添加，取消勾选即移除）</span></h5>
+        <div class="cs-pool-grid" id="cs-media-pool">
+          ${this._availableMedia.map(m => {
+            const existing = mediaItems.find(i => i.item_key === m.media_key);
+            return `<label class="cs-pool-item"><input type="checkbox" value="${m.media_key}" ${existing ? 'checked' : ''}> ${this._esc(m.label || m.media_key)}</label>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="cs-form-actions">
+        <button id="cs-btn-save">保存修改</button>
+        <button id="cs-btn-cancel">取消</button>
+      </div>
+    `;
+
+    document.getElementById('cs-btn-save')?.addEventListener('click', () => this._saveEditCard());
+    document.getElementById('cs-btn-cancel')?.addEventListener('click', () => {
+      editor.classList.add('hidden');
+      editor.innerHTML = '';
+      delete editor._editingCardId;
+    });
+    editor.scrollIntoView({ behavior: 'smooth' });
+  },
+
+  async _saveEditCard() {
+    const editor = document.getElementById('cs-card-editor');
+    const cardId = editor._editingCardId;
+    if (!cardId) return;
+
+    const title = document.getElementById('cs-edit-title')?.value || '';
+    const index = parseInt(document.getElementById('cs-edit-index')?.value || '99');
+    const template = document.getElementById('cs-edit-template')?.value || '';
+    const enabled = document.getElementById('cs-edit-enabled')?.checked;
+
+    try {
+      // Update card metadata
+      const r = await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ card_title: title, card_index: index, template_id: template, enabled }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error);
+
+      // Sync items: batch replace
+      const fieldKeys = [...document.querySelectorAll('#cs-field-pool input:checked')].map(el => el.value);
+      const mediaKeys = [...document.querySelectorAll('#cs-media-pool input:checked')].map(el => el.value);
+
+      const items = [];
+      fieldKeys.forEach((key, i) => {
+        items.push({ item_type: 'field', item_key: key, sort_order: i, display_role: 'body' });
+      });
+      mediaKeys.forEach((key, i) => {
+        items.push({ item_type: 'media', item_key: key, sort_order: i + 100, display_role: 'hero_image' });
+      });
+
+      await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}/items/batch`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+
+      editor.classList.add('hidden');
+      editor.innerHTML = '';
+      delete editor._editingCardId;
+      await this._loadCards();
+      this._render();
+    } catch (e) { alert('保存失败: ' + e.message); }
   },
 
   async _deleteCard(cardId) {

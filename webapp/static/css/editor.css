@@ -516,6 +516,7 @@ input, button, select, textarea { font: inherit; }
 .cs-card-editor h4 { font-size: 14px; margin: 0 0 12px; color: var(--navy); }
 .cs-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
 .cs-form label { margin-top: 0; }
+.cs-check-label { display: flex !important; align-items: center; gap: 6px; cursor: pointer; }
 .cs-pool-section h5 { font-size: 12px; color: var(--text-muted); margin: 12px 0 6px; }
 .cs-pool-grid {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
