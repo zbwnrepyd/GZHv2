@@ -106,6 +106,11 @@ const LayoutApp = {
 
     this._renderPreview();
     this._renderLayerList();
+    // Re-setup iframe for editing after card switch
+    requestAnimationFrame(() => {
+      const iframe = document.getElementById('preview-iframe');
+      if (iframe) this._setupIframeRegions(iframe, this._effectiveTemplate());
+    });
   },
 
   /* ── iframe 预览 ── */
@@ -146,15 +151,17 @@ const LayoutApp = {
       html = this._fallbackRender(renderCard);
     }
 
-    // Inject editable text + region highlight support
+    // Inject editable text + region highlight styles
     html = html.replace('</style>', `
       [data-od-id] { transition: box-shadow .15s; }
       [data-od-id].region-selected {
         box-shadow: inset 0 0 0 2px #29B8D4 !important;
         outline: 2px solid #29B8D4 !important; outline-offset: -1px;
       }
-      [data-od-id][contenteditable]:focus {
-        box-shadow: inset 0 0 0 2px #29B8D4 !important; outline: none;
+      [data-od-id][contenteditable="true"] { cursor: text; }
+      [data-od-id][contenteditable="true"]:hover { outline: 1px dashed rgba(41,184,212,.4); outline-offset: -1px; }
+      [data-od-id][contenteditable="true"]:focus {
+        box-shadow: inset 0 0 0 2px #29B8D4 !important; outline: 2px solid #29B8D4 !important; outline-offset: -1px;
       }
     </style>`);
 
@@ -168,26 +175,32 @@ const LayoutApp = {
       <iframe id="preview-iframe" srcdoc="${this._escAttr(html)}" style="width:${canvas.width}px;height:${canvas.height}px;transform:scale(${this._scale});transform-origin:top left;border:none"></iframe>
     </div>`;
 
-    // After iframe loads, make text regions editable + bind region clicks
+    // srcdoc iframe：先试同步访问，失败则等 load
     const iframe = document.getElementById('preview-iframe');
-    iframe.addEventListener('load', () => {
-      this._setupIframeRegions(iframe, template);
+    const setup = () => this._setupIframeRegions(iframe, template);
+    // 延迟一帧确保 DOM ready
+    requestAnimationFrame(() => {
+      if (!this._setupIframeRegions(iframe, template)) {
+        iframe.addEventListener('load', setup);
+      }
     });
   },
 
   _setupIframeRegions(iframe, template) {
     try {
       const doc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (!doc) return;
+      if (!doc || !doc.body) return false;
 
       const regions = template.regions || [];
       const textRegions = regions.filter(r => r.type === 'text');
 
       // Make text regions contenteditable
+      let editableCount = 0;
       textRegions.forEach(r => {
         const el = doc.querySelector(`[data-od-id="${r.id}"]`);
         if (el && el.tagName !== 'IMG') {
-          el.contentEditable = true;
+          el.contentEditable = 'true';
+          editableCount++;
           // Apply cached text content across iframe rebuilds
           if (this._regionTextCache?.[r.id]) {
             el.innerHTML = this._regionTextCache[r.id];
@@ -213,7 +226,8 @@ const LayoutApp = {
       });
 
       this._refreshRegionHighlight(doc);
-    } catch (e) { /* cross-origin iframe access */ }
+      return editableCount > 0;
+    } catch (e) { return false; }
   },
 
   _refreshRegionHighlight(doc) {
@@ -364,11 +378,21 @@ const LayoutApp = {
     };
 
     // Range sliders: debounce preview. Number/color: immediate.
+    const doPreview = () => {
+      this._renderPreview();
+      // Re-setup iframe after preview rebuild
+      const iframe = document.getElementById('preview-iframe');
+      if (iframe) {
+        requestAnimationFrame(() => {
+          this._setupIframeRegions(iframe, this._effectiveTemplate());
+        });
+      }
+    };
     if (el.type === 'range') {
       clearTimeout(this._previewDebounce);
-      this._previewDebounce = setTimeout(() => this._renderPreview(), 60);
+      this._previewDebounce = setTimeout(doPreview, 60);
     } else {
-      this._renderPreview();
+      doPreview();
     }
     // Keep active region visible in layer list without rebuilding property panel
     document.querySelectorAll('.layer-item').forEach(li =>
