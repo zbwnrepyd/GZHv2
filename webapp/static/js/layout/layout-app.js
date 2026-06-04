@@ -117,21 +117,46 @@ const LayoutApp = {
       return;
     }
 
-    // 使用 TemplateRenderer 生成 HTML
-    let html;
+    const template = this._effectiveTemplate() || TemplateRenderer?.DEFAULT_TEMPLATE || {};
+    const canvas = template.canvas || { width: 900, height: 1200 };
+    const regions = template.regions || [];
+    const overrides = this._layoutOverrides || {};
+
+    // Apply overrides + cached text edits to regions for rendering
+    const mergedRegions = regions.map(r => {
+      const ov = overrides[r.id] || {};
+      const merged = this._deepMerge({ ...r }, ov);
+      // Preserve edited text content across iframe rebuilds
+      if (this._regionTextCache?.[r.id]) {
+        merged.value = this._regionTextCache[r.id];
+      }
+      return merged;
+    });
+
     const renderCard = {
       ...card,
-      template: this._effectiveTemplate(),
+      template: { ...template, regions: mergedRegions },
       layout: { overrides: {} },
     };
+
+    let html;
     if (typeof TemplateRenderer !== 'undefined') {
       html = TemplateRenderer.render(renderCard);
     } else {
       html = this._fallbackRender(renderCard);
     }
 
-    const template = renderCard.template || TemplateRenderer?.DEFAULT_TEMPLATE || {};
-    const canvas = template.canvas || { width: 900, height: 1200 };
+    // Inject editable text + region highlight support
+    html = html.replace('</style>', `
+      [data-od-id] { transition: box-shadow .15s; }
+      [data-od-id].region-selected {
+        box-shadow: inset 0 0 0 2px #29B8D4 !important;
+        outline: 2px solid #29B8D4 !important; outline-offset: -1px;
+      }
+      [data-od-id][contenteditable]:focus {
+        box-shadow: inset 0 0 0 2px #29B8D4 !important; outline: none;
+      }
+    </style>`);
 
     this._scale = Math.min(
       (area.clientWidth - 40) / canvas.width,
@@ -139,12 +164,69 @@ const LayoutApp = {
       1.0
     );
 
-    area.innerHTML = `<div class="canvas-stage" id="canvas-stage" style="width:${canvas.width * this._scale}px;height:${canvas.height * this._scale}px">
-      <iframe id="preview-iframe" srcdoc="${this._escAttr(html)}" style="width:${canvas.width}px;height:${canvas.height}px;transform:scale(${this._scale})"></iframe>
+    area.innerHTML = `<div class="canvas-stage" id="canvas-stage" style="width:${canvas.width * this._scale}px;height:${canvas.height * this._scale}px;position:relative">
+      <iframe id="preview-iframe" srcdoc="${this._escAttr(html)}" style="width:${canvas.width}px;height:${canvas.height}px;transform:scale(${this._scale});transform-origin:top left;border:none"></iframe>
     </div>`;
 
-    // 区域点击
-    setTimeout(() => this._bindRegionClicks(), 500);
+    // After iframe loads, make text regions editable + bind region clicks
+    const iframe = document.getElementById('preview-iframe');
+    iframe.addEventListener('load', () => {
+      this._setupIframeRegions(iframe, template);
+    });
+  },
+
+  _setupIframeRegions(iframe, template) {
+    try {
+      const doc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!doc) return;
+
+      const regions = template.regions || [];
+      const textRegions = regions.filter(r => r.type === 'text');
+
+      // Make text regions contenteditable
+      textRegions.forEach(r => {
+        const el = doc.querySelector(`[data-od-id="${r.id}"]`);
+        if (el && el.tagName !== 'IMG') {
+          el.contentEditable = true;
+          // Apply cached text content across iframe rebuilds
+          if (this._regionTextCache?.[r.id]) {
+            el.innerHTML = this._regionTextCache[r.id];
+          }
+          el.addEventListener('input', () => {
+            if (!this._regionTextCache) this._regionTextCache = {};
+            this._regionTextCache[r.id] = el.innerHTML;
+          });
+          el.addEventListener('blur', () => {
+            const html = this._regionTextCache?.[r.id];
+            if (html && this._activeCard) {
+              this._layoutOverrides[r.id] = this._deepMerge(
+                this._layoutOverrides[r.id] || {},
+                { value: html }
+              );
+              this._activeCard.layout = {
+                ...(this._activeCard.layout || {}),
+                overrides: this._layoutOverrides,
+              };
+            }
+          });
+        }
+      });
+
+      this._refreshRegionHighlight(doc);
+    } catch (e) { /* cross-origin iframe access */ }
+  },
+
+  _refreshRegionHighlight(doc) {
+    if (!doc) return;
+    doc.querySelectorAll('.region-selected').forEach(el => el.classList.remove('region-selected'));
+    if (this._activeRegionId) {
+      const el = doc.querySelector(`[data-od-id="${this._activeRegionId}"]`);
+      if (el) el.classList.add('region-selected');
+    }
+  },
+
+  _bindRegionClicks() {
+    // Now handled by _setupIframeRegions
   },
 
   _fallbackRender(card) {
@@ -201,12 +283,20 @@ const LayoutApp = {
 
   _selectRegion(regionId) {
     this._activeRegionId = regionId;
-    // 更新图层列表 active 状态（不重建 DOM）
+    // 更新图层列表 active 状态
     document.querySelectorAll('.layer-item').forEach(li =>
       li.classList.toggle('active', li.dataset.regionId === regionId));
     const template = this._effectiveTemplate();
     const region = (template.regions || []).find(r => r.id === regionId);
     this._renderPropertyPanel(region);
+    // 高亮 iframe 中的区域
+    const iframe = document.getElementById('preview-iframe');
+    if (iframe) {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow?.document;
+        this._refreshRegionHighlight(doc);
+      } catch (e) { /* cross-origin */ }
+    }
   },
 
   /* ── 属性面板 ── */
