@@ -524,11 +524,21 @@ input, button, select, textarea { font: inherit; }
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface-1);
 }
+.cs-pool-item-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 2px 4px; border-radius: 3px;
+}
+.cs-pool-item-row:hover { background: rgba(41,184,212,.04); }
+.cs-role-select {
+  font-size: 10px; padding: 2px 4px; border: 1px solid var(--border);
+  border-radius: 3px; background: var(--surface-1); color: var(--text-muted);
+  width: 64px; flex-shrink: 0;
+}
 .cs-pool-item {
   display: flex; align-items: center; gap: 4px;
-  font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 3px;
+  font-size: 12px; cursor: pointer; padding: 2px 0; flex: 1; min-width: 0;
 }
-.cs-pool-item:hover { background: rgba(41,184,212,.06); }
+.cs-pool-item:hover { background: transparent; }
 .cs-form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 .cs-form-actions button {
   padding: 7px 18px; border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer;

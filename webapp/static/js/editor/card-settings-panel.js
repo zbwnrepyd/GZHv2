@@ -45,6 +45,49 @@ const CardSettingsPanel = {
     } catch { this._availableFields = []; this._availableMedia = []; }
   },
 
+  /* ── 角色映射 ── */
+  _defaultRoleForField(fieldKey) {
+    if (fieldKey === 'company_name') return 'title';
+    if (fieldKey === 'company_type' || fieldKey === 'company_def') return 'subtitle';
+    return 'body';
+  },
+
+  _defaultRoleForMedia(mediaKey) {
+    if (mediaKey === 'logo') return 'logo';
+    if (['flywheel', 'timeline', 'chart_competitive', 'chart_ecosystem'].includes(mediaKey)) return 'chart';
+    if (mediaKey === 'competitors_logo_strip') return 'decoration';
+    return 'hero_image';
+  },
+
+  _ROLE_OPTIONS: [
+    ['title', '标题'], ['subtitle', '副标题'], ['body', '正文'], ['caption', '注释'],
+    ['logo', 'Logo'], ['hero_image', '主图'], ['chart', '图表'], ['decoration', '装饰'],
+  ],
+
+  _roleOptions(selected) {
+    return this._ROLE_OPTIONS.map(([v, label]) =>
+      `<option value="${v}" ${v === selected ? 'selected' : ''}>${label}</option>`
+    ).join('');
+  },
+
+  _renderPoolItem(type, key, label, existingItem) {
+    const existingRole = existingItem?.display_role || '';
+    const defaultRole = type === 'field'
+      ? this._defaultRoleForField(key)
+      : this._defaultRoleForMedia(key);
+    const role = existingRole || defaultRole;
+    return `
+      <div class="cs-pool-item-row">
+        <label class="cs-pool-item">
+          <input type="checkbox" value="${key}" ${existingItem ? 'checked' : ''}>
+          ${this._esc(label)}
+        </label>
+        <select class="cs-role-select" data-type="${type}" data-key="${key}">
+          ${this._roleOptions(role)}
+        </select>
+      </div>`;
+  },
+
   /* ── 渲染 ── */
   _render() {
     const root = document.getElementById('card-settings-mode-content');
@@ -107,11 +150,11 @@ const CardSettingsPanel = {
       <div class="cs-pool-section">
         <h5>可选字段</h5>
         <div class="cs-pool-grid" id="cs-field-pool">
-          ${this._availableFields.map(f => `<label class="cs-pool-item"><input type="checkbox" value="${f.field_key}"> ${this._esc(f.field_label)}</label>`).join('')}
+          ${this._availableFields.map(f => this._renderPoolItem('field', f.field_key, f.field_label)).join('')}
         </div>
         <h5>可选图片</h5>
         <div class="cs-pool-grid" id="cs-media-pool">
-          ${this._availableMedia.map(m => `<label class="cs-pool-item"><input type="checkbox" value="${m.media_key}"> ${this._esc(m.label || m.media_key)}</label>`).join('')}
+          ${this._availableMedia.map(m => this._renderPoolItem('media', m.media_key, m.label || m.media_key)).join('')}
         </div>
       </div>
       <div class="cs-form-actions">
@@ -142,22 +185,25 @@ const CardSettingsPanel = {
       });
       if (!r.ok) throw new Error((await r.json()).error);
 
-      // Add selected items
-      const fields = [...document.querySelectorAll('#cs-field-pool input:checked')].map(el => el.value);
-      const media = [...document.querySelectorAll('#cs-media-pool input:checked')].map(el => el.value);
+      // Add items with proper display_role from the select dropdowns
+      const items = [];
+      document.querySelectorAll('#cs-field-pool .cs-pool-item-row').forEach((row, i) => {
+        const cb = row.querySelector('input[type="checkbox"]');
+        if (!cb?.checked) return;
+        const role = row.querySelector('.cs-role-select')?.value || 'body';
+        items.push({ item_type: 'field', item_key: cb.value, sort_order: i, display_role: role });
+      });
+      document.querySelectorAll('#cs-media-pool .cs-pool-item-row').forEach((row, i) => {
+        const cb = row.querySelector('input[type="checkbox"]');
+        if (!cb?.checked) return;
+        const role = row.querySelector('.cs-role-select')?.value || 'hero_image';
+        items.push({ item_type: 'media', item_key: cb.value, sort_order: i + 100, display_role: role });
+      });
 
-      for (let i = 0; i < fields.length; i++) {
-        await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}/items`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ item_type: 'field', item_key: fields[i], sort_order: i }),
-        });
-      }
-      for (let i = 0; i < media.length; i++) {
-        await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}/items`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ item_type: 'media', item_key: media[i], sort_order: i + 100, display_role: 'hero_image' }),
-        });
-      }
+      await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}/items/batch`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
 
       document.getElementById('cs-card-editor')?.classList.add('hidden');
       await this._loadCards();
@@ -187,19 +233,13 @@ const CardSettingsPanel = {
         <label class="cs-check-label"><input type="checkbox" id="cs-edit-enabled" ${card.enabled !== false ? 'checked' : ''}> 启用</label>
       </div>
       <div class="cs-pool-section">
-        <h5>字段 <span style="font-weight:400;font-size:11px;color:var(--text-muted)">（勾选即添加，取消勾选即移除）</span></h5>
+        <h5>字段 <span style="font-weight:400;font-size:11px;color:var(--text-muted)">（勾选添加，取消移除，右侧选择角色）</span></h5>
         <div class="cs-pool-grid" id="cs-field-pool">
-          ${this._availableFields.map(f => {
-            const existing = fieldItems.find(i => i.item_key === f.field_key);
-            return `<label class="cs-pool-item"><input type="checkbox" value="${f.field_key}" ${existing ? 'checked' : ''}> ${this._esc(f.field_label)}</label>`;
-          }).join('')}
+          ${this._availableFields.map(f => this._renderPoolItem('field', f.field_key, f.field_label, fieldItems.find(i => i.item_key === f.field_key))).join('')}
         </div>
-        <h5>图片 <span style="font-weight:400;font-size:11px;color:var(--text-muted)">（勾选即添加，取消勾选即移除）</span></h5>
+        <h5>图片 <span style="font-weight:400;font-size:11px;color:var(--text-muted)">（同上）</span></h5>
         <div class="cs-pool-grid" id="cs-media-pool">
-          ${this._availableMedia.map(m => {
-            const existing = mediaItems.find(i => i.item_key === m.media_key);
-            return `<label class="cs-pool-item"><input type="checkbox" value="${m.media_key}" ${existing ? 'checked' : ''}> ${this._esc(m.label || m.media_key)}</label>`;
-          }).join('')}
+          ${this._availableMedia.map(m => this._renderPoolItem('media', m.media_key, m.label || m.media_key, mediaItems.find(i => i.item_key === m.media_key))).join('')}
         </div>
       </div>
       <div class="cs-form-actions">
@@ -235,16 +275,19 @@ const CardSettingsPanel = {
       });
       if (!r.ok) throw new Error((await r.json()).error);
 
-      // Sync items: batch replace
-      const fieldKeys = [...document.querySelectorAll('#cs-field-pool input:checked')].map(el => el.value);
-      const mediaKeys = [...document.querySelectorAll('#cs-media-pool input:checked')].map(el => el.value);
-
+      // Sync items: batch replace with proper display_role from select dropdowns
       const items = [];
-      fieldKeys.forEach((key, i) => {
-        items.push({ item_type: 'field', item_key: key, sort_order: i, display_role: 'body' });
+      document.querySelectorAll('#cs-field-pool .cs-pool-item-row').forEach((row, i) => {
+        const cb = row.querySelector('input[type="checkbox"]');
+        if (!cb?.checked) return;
+        const role = row.querySelector('.cs-role-select')?.value || this._defaultRoleForField(cb.value);
+        items.push({ item_type: 'field', item_key: cb.value, sort_order: i, display_role: role });
       });
-      mediaKeys.forEach((key, i) => {
-        items.push({ item_type: 'media', item_key: key, sort_order: i + 100, display_role: 'hero_image' });
+      document.querySelectorAll('#cs-media-pool .cs-pool-item-row').forEach((row, i) => {
+        const cb = row.querySelector('input[type="checkbox"]');
+        if (!cb?.checked) return;
+        const role = row.querySelector('.cs-role-select')?.value || this._defaultRoleForMedia(cb.value);
+        items.push({ item_type: 'media', item_key: cb.value, sort_order: i + 100, display_role: role });
       });
 
       await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}/items/batch`, {
