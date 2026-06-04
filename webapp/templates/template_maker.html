@@ -28,8 +28,11 @@
   <span>模板制作</span>
   <span class="spacer"></span>
   <span class="od-status" id="template-status">未保存</span>
-  <input id="template-name" placeholder="模板名称" style="width:180px;background:transparent;color:var(--white);border-color:rgba(255,255,255,0.3);font-size:13px">
-  <button class="btn btn-accent btn-sm" onclick="TemplateMaker.save()">保存模板</button>
+  <input id="template-name" placeholder="模板名称" style="width:140px;background:transparent;color:var(--white);border-color:rgba(255,255,255,0.3);font-size:13px">
+  <button class="btn btn-accent btn-sm" onclick="TemplateMaker.save()">保存</button>
+  <select id="existing-template-select" style="width:140px;background:transparent;color:var(--white);border-color:rgba(255,255,255,0.3);font-size:12px;padding:3px 6px;border-radius:4px">
+    <option value="">-- 选择已有模板 --</option>
+  </select>
 </header>
 
 <div class="main-layout" data-od-id="tm-main">
@@ -87,27 +90,12 @@ const TemplateMaker = {
     this._tplId = tplId || `custom_${Date.now()}`;
     this._isEditing = !!tplId;
 
+    // 加载模板列表到下拉框
+    await this._loadTemplateList(tplId);
+
     // 加载已有模板
     if (tplId) {
-      try {
-        const r = await fetch(`/api/templates/${encodeURIComponent(tplId)}`);
-        if (r.ok) {
-          const tpl = await r.json();
-          const json = (typeof tpl.template_json === 'string') ? JSON.parse(tpl.template_json) : tpl.template_json;
-          this._regions = json.regions || [];
-          // 填充 canvas 和背景设置
-          const canvas = json.canvas || {};
-          document.getElementById('canvas-w').value = canvas.width || 900;
-          document.getElementById('canvas-h').value = canvas.height || 1200;
-          const bg = json.background || {};
-          document.getElementById('bg-type').value = bg.type || 'color';
-          document.getElementById('bg-value').value = bg.value || '#FFFFFF';
-          document.getElementById('template-name').value = tpl.template_name || '';
-          document.getElementById('template-status').textContent = '已加载';
-        }
-      } catch (e) {
-        document.getElementById('template-status').textContent = '加载失败';
-      }
+      await this._loadTemplate(tplId);
     }
 
     // 没有模板则用默认
@@ -118,8 +106,53 @@ const TemplateMaker = {
       ];
     }
 
+    document.getElementById('existing-template-select').addEventListener('change', (e) => {
+      if (!e.target.value) return;
+      if (confirm('加载此模板将覆盖当前编辑内容，确定？')) {
+        window.location.search = `?template_id=${encodeURIComponent(e.target.value)}`;
+      }
+    });
+
     this._renderAll();
     this._preview();
+  },
+
+  async _loadTemplateList(selectedId) {
+    try {
+      const r = await fetch('/api/templates');
+      if (!r.ok) return;
+      const data = await r.json();
+      const templates = data.templates || [];
+      const sel = document.getElementById('existing-template-select');
+      templates.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.template_id;
+        opt.textContent = t.template_name;
+        if (t.template_id === selectedId) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    } catch (e) { /* non-blocking */ }
+  },
+
+  async _loadTemplate(tplId) {
+    try {
+      const r = await fetch(`/api/templates/${encodeURIComponent(tplId)}`);
+      if (r.ok) {
+        const tpl = await r.json();
+        const json = (typeof tpl.template_json === 'string') ? JSON.parse(tpl.template_json) : tpl.template_json;
+        this._regions = json.regions || [];
+        const canvas = json.canvas || {};
+        document.getElementById('canvas-w').value = canvas.width || 900;
+        document.getElementById('canvas-h').value = canvas.height || 1200;
+        const bg = json.background || {};
+        document.getElementById('bg-type').value = bg.type || 'color';
+        document.getElementById('bg-value').value = bg.value || '#FFFFFF';
+        document.getElementById('template-name').value = tpl.template_name || '';
+        document.getElementById('template-status').textContent = '已加载';
+      }
+    } catch (e) {
+      document.getElementById('template-status').textContent = '加载失败';
+    }
   },
 
   _renderAll() {
