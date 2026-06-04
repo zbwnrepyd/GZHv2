@@ -59,8 +59,7 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - CSS 共享设计系统在 `webapp/static/css/gzh2-base.css`（变量、顶栏、按钮、面板布局）；`editor.css` 只定义研究台/定稿台专属样式，不重复定义 :root 变量和 .btn 基类；image-studio 使用独立的 `studio.css`（变量名不同但颜色值对齐）
 - `canvas/` 主路径不用 fabric.js；使用 HTML/CSS 源码编辑器 + iframe 预览，右侧展示当前页完整 HTML+CSS 并实时渲染。左侧含模板系统（全局共享，`localStorage` key `aistartups.templates`，默认模板 JSON 在 `canvas/default-templates.json`）
 - 卡片制作台左侧公司名是只读项目状态，来自定稿台跳转或 `?company=<公司名>`；不要恢复可输入公司名框
-- 左侧“卡片每一页”和“图片夹”是互斥手风琴，长内容在各自面板内滚动；背景水印控件放在图片夹内，导出按钮保持常驻，不放进折叠区
-- 卡片制作台返回按钮应回到当前公司的定稿台 `/editor?company=<公司名>`；研究台定稿进度以 8 张为总数
+- 卡片制作台返回按钮应回到当前公司的定稿台 `/editor?company=<公司名>`
 - 数据库用sqlite3标准库，不用ORM
 - 网页抓取用本地 trafilatura（`webapp/firecrawl_local.py`），不依赖外部 API
 - 环境变量只读取系统环境变量和项目根目录 `.env`；不要读取或恢复用户目录 `~/.env`
@@ -68,8 +67,8 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - 成本目标 < $0.20/次研究
 - 默认 8 张卡片配置，卡片数量和内容可在「卡片设置」中自由编排。卡片7为竞争格局（壁垒 + 生态位分析 + 竞品列表），卡片8为总结（机遇）。L3 prompt 已将壁垒 `moat` 和生态位 `ecosystem_niche` 拆为独立字段
 - 研究主流程不依赖 n8n；不要新增 n8n 工作流作为主路径
-- 定稿台主流程：卡片设置 → 文字定稿 → 图片定稿 → 进入排版。旧「内容定稿（四列逐行选择·标准版/商业版/传播版/定稿输入）」保留在「高级/兼容入口」作为旧版兼容
-- `hook_paragraph_1/2/3` 只在左侧“传播钩子文案”入口展示，不写入知识卡片，也不参与卡片确认保存
+- 定稿台主流程：卡片设置 → 文字定稿 → 图片定稿 → 进入排版。旧版内容定稿、钩子文案、数据库字段面板已删除，不再保留兼容入口
+- `hook_paragraph_1/2/3` 是 research 表中的字段（可作普通字段使用），不写入知识卡片
 - 定稿保存走 `final_fields` 表，按 `(company_name, field_key)` 唯一键；不绑定卡片索引。旧 `final_content` 表仅用于旧版兼容入口
 - canvas Markdown 解析必须保留远程/本地 Markdown 图片 URL，并兼容首页、公司介绍、主产品里的无标签正文
 - L3 任一版本字段提取失败时，任务应失败且不写入假成功记录
@@ -81,13 +80,13 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - 卡片2 `office` 槽位默认使用公司位置地图：OSM 瓦片本地拼接 + HTML pin/legend 生成 PNG，并默认选中；Google Street View/Tavily 办公室图只作为后续候选变体，不抢默认选中
 - 图片定稿台两类槽位两种界面：①采集图片类（logo/office/product/competitors）→ 三栏布局，中间栏上部预览/搜索切换 + 下部工具栏（搜索/采集/AI生图/上传）；②图表类（flywheel/timeline/positioning_charts）→ 中间栏 iframe 实时预览（Frappe Charts / SVG）+ 下部功能区 bar（调参+重置+渲染保存），无搜索框
 - 本地 Python SVG 模板上传只允许本机请求并要求 `X-Template-Upload-Intent: local-dev`；不要开放远程上传
-- 飞轮/时间线/竞争格局/生态位图可在图片定稿台手动调参后渲染生成（chart_competitive/chart_ecosystem 走 `/api/image-studio/.../preview` 实时预览 + `/api/image-studio/.../render-svg` 渲染 PNG）；SVG/HTML 渲染需要 Playwright
-- 卡片制作台中间栏下方可展开参数调节 bar（手风琴式，单段展开）：排版/颜色/间距/布局滑块，实时注入 iframe 预览；参数持久化 localStorage key `aistartups.paramTuning`
-- iframe 内文字始终可双击编辑（Enter 完成，Escape 取消），自动保存到 SourceEditor
+- 模板制作（/template-maker）：新建/编辑模板，右上角下拉框选择已有模板进行修改。编辑内置模板时自动创建副本（不修改原内置模板）。保存区分新建（POST）和更新（PATCH）
+- 飞轮/时间线/竞争格局/生态位图可在图片定稿台手动调参后渲染生成（chart_competitive/chart_ecosystem 走 `/api/image-studio/.../preview` 实时预览 + `/api/image-studio/.../render-svg` 渲染 PNG）；SVG/HTML 渲染需要 Playwright（chart_competitive/chart_ecosystem 走 `/api/image-studio/.../preview` 实时预览 + `/api/image-studio/.../render-svg` 渲染 PNG）；SVG/HTML 渲染需要 Playwright
+- 排版中心（/layout）：选中卡片→选择模板→点击图层→右侧属性面板调节位置/尺寸/字体/颜色。选中图层后 iframe 内高亮区域边框，文字区域可点击编辑（contentEditable），编辑内容跨渲染保持。模板渲染器支持 Markdown（`#`→h1/`##`→h2/`**`→粗体）
 - 国内环境访问 Tavily 和 YouTube API 需配 HTTPS_PROXY（在 `.env` 手动配置）。Tavily 使用显式 `proxies=` 传参并支持超时后换 Key；超时配置在 `pipeline.py`
 - Pexels（200 req/h，支持中文）和 Unsplash（50 req/h，英文关键词）API Key 通过环境变量配置，用于图片定稿台手动搜索
 - 图片自动采集不再使用 Lorem Flickr / Picsum 通用图；搜不到真实图片时标记 `failed`，进入图片定稿台手动补
-- 定稿台左侧结构：卡片设置、文字定稿、图片定稿、进入排版（主流程）；高级/兼容入口（旧版内容定稿、传播钩子文案、原始字段查看）。每个面板点击后占据中右全区域，互斥切换。卡片设置和文字定稿内容渲染在中右 overlay 容器内
+- 定稿台左侧结构：卡片设置、文字定稿、图片定稿、进入排版。每个面板点击后占据中右全区域，互斥切换。旧版内容定稿/钩子文案/数据库字段面板已删除
 - 研究台要展示 Tavily/GitHub/YouTube/官网抓取的链路状态与数量；公司库点击一条只展开该公司研究信息，点另一条时其他行折叠
 
 ## 参考
