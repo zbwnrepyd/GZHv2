@@ -176,9 +176,7 @@ const LayoutApp = {
 
   /* ── 区域点击 → 属性面板 ── */
   _bindRegionClicks() {
-    // 简化版：点击属性面板中的区域名称来选中
-    this._activeRegionId = null;
-    this._renderPropertyPanel(null);
+    // 绑定 iframe 内区域点击（如果有的话）；不做任何会清除选中状态的事
   },
 
   /* ── 图层列表 ── */
@@ -275,7 +273,13 @@ const LayoutApp = {
       overrides: this._layoutOverrides,
     };
 
-    this._renderPreview();
+    // Range sliders: debounce preview. Number/color: immediate.
+    if (el.type === 'range') {
+      clearTimeout(this._previewDebounce);
+      this._previewDebounce = setTimeout(() => this._renderPreview(), 60);
+    } else {
+      this._renderPreview();
+    }
     // Keep active region visible in layer list without rebuilding property panel
     document.querySelectorAll('.layer-item').forEach(li =>
       li.classList.toggle('active', li.dataset.regionId === this._activeRegionId));
