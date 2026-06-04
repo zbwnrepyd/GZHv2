@@ -665,7 +665,8 @@ function renderPageGeneric(cardIndex, cardData, opts = {}) {
   let displayImage = cardData?._selectedImage || '';
   const assetKey = RENDERER_CARD_ASSET_MAP[cardIndex];
   if (!displayImage) {
-    const assets = cardData?._assets || {};
+    const allAssets = cardData?._allAssets || cardData?._assets || {};
+    const assets = allAssets;
     const asset = assetKey ? assets[assetKey] : null;
     if (asset && asset.local_path && asset.status === 'ready') {
       displayImage = asset.local_path;

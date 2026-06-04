@@ -8,8 +8,9 @@ from pathlib import Path
 
 
 ASSET_KEYS = [
-    "logo", "office", "product_main", "products_other",
-    "competitors", "flywheel", "timeline", "positioning_charts",
+    "logo", "website_screenshot", "office", "product_main", "products_other",
+    "competitors", "competitors_logo_strip", "flywheel", "timeline",
+    "chart_competitive", "chart_ecosystem",
 ]
 
 CARD_ASSET_MAP = {
@@ -22,10 +23,13 @@ CARD_ASSET_MAP = {
     7: "competitors",
 }
 
-# 每个 asset_key 对应的卡片索引。positioning_charts 先挂在卡片6图片定稿里，
-# 不替换卡片6现有的 flywheel 主资产。
+# 每个 asset_key 对应的卡片索引。
+# chart_competitive / chart_ecosystem 同属卡片7，不替换卡片7现有的 competitors 主资产。
 ASSET_TO_CARD = {v: k for k, v in CARD_ASSET_MAP.items()}
-ASSET_TO_CARD["positioning_charts"] = 6
+ASSET_TO_CARD["website_screenshot"] = 2
+ASSET_TO_CARD["competitors_logo_strip"] = 7
+ASSET_TO_CARD["chart_competitive"] = 7
+ASSET_TO_CARD["chart_ecosystem"] = 7
 
 
 def init_assets_db(db_path: str):
@@ -76,9 +80,46 @@ def _get_db(db_path: str):
         conn.close()
 
 
+def _migrate_positioning_charts(conn: sqlite3.Connection, company_name: str):
+    """将旧的 positioning_charts 行迁移为 chart_competitive。
+    旧 positioning_charts 同时包含竞争格局+生态位图，现拆分为两个独立 slot。
+    竞争格局图继承旧数据（变体库也一并迁移），生态位图从空开始。"""
+    old = conn.execute(
+        "SELECT id FROM company_assets WHERE company_name=? AND asset_key='positioning_charts'",
+        (company_name,),
+    ).fetchone()
+    if not old:
+        return
+
+    # 如果 chart_competitive 已有数据则不覆盖
+    existing = conn.execute(
+        "SELECT id FROM company_assets WHERE company_name=? AND asset_key='chart_competitive'",
+        (company_name,),
+    ).fetchone()
+    if existing:
+        # 两边都有了，删掉旧行即可
+        conn.execute("DELETE FROM company_assets WHERE company_name=? AND asset_key='positioning_charts'",
+                     (company_name,))
+        return
+
+    # 将 positioning_charts 行重命名为 chart_competitive
+    conn.execute(
+        """UPDATE company_assets SET asset_key='chart_competitive', card_index=7
+           WHERE company_name=? AND asset_key='positioning_charts'""",
+        (company_name,),
+    )
+    # 同步迁移 image_variants 表
+    conn.execute(
+        """UPDATE image_variants SET asset_key='chart_competitive'
+           WHERE company_name=? AND asset_key='positioning_charts'""",
+        (company_name,),
+    )
+
+
 def ensure_assets_rows(db_path: str, company_name: str):
-    """确保某公司有全部 7 条资产行（幂等）"""
+    """确保某公司有全部需求资产行（幂等）"""
     with _get_db(db_path) as conn:
+        _migrate_positioning_charts(conn, company_name)
         for key in ASSET_KEYS:
             card_index = ASSET_TO_CARD.get(key, 0)
             conn.execute(

@@ -11,6 +11,7 @@ from asset_store import (
     list_variants, insert_variant, select_variant, delete_variant,
     update_variant_scores,
 )
+from asset_resolver import resolve_company_assets
 from asset_pipeline import (
     collect_all_assets, _download, _variant_path, _render_osm_map,
     _company_image_dir, _image_url_path, _variant_url_path,
@@ -20,7 +21,7 @@ from infographic import (
     generate_flywheel_from_markdown, generate_timeline_from_markdown,
     render_with_template, extract_flywheel_json, extract_timeline_json,
     build_competitive_landscape_svg, build_stack_positioning_svg,
-    render_competitive_landscape, render_stack_positioning,
+    render_competitive_landscape, render_stack_positioning, _html_to_png,
 )
 from infographic_templates import get_all as get_all_templates, get as get_template, upload as upload_template, delete as delete_template
 from image_search import search_images
@@ -294,6 +295,36 @@ def _fallback_svg_data(asset_key: str, markdown: str) -> dict | None:
     return None
 
 
+def _generate_card7_charts(company_name: str):
+    """卡片7确认后自动生成竞争格局图 + 产业链生态位图（后台线程）"""
+    try:
+        init_assets_db(config.DB_PATH_ASSETS)
+        ensure_assets_rows(config.DB_PATH_ASSETS, company_name)
+        companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+        dest_dir = _company_image_dir(config.IMAGES_DIR, company_name)
+        os.makedirs(dest_dir, exist_ok=True)
+
+        chart_tasks = [
+            ("chart_competitive", "competitive_landscape"),
+            ("chart_ecosystem", "stack_positioning"),
+        ]
+        for asset_key, _chart_type in chart_tasks:
+            try:
+                dest = os.path.join(dest_dir, f"{asset_key}.png")
+                if asset_key == "chart_competitive":
+                    ok = render_competitive_landscape(companies, company_name, dest)
+                else:
+                    ok = render_stack_positioning(companies, company_name, dest)
+                if ok:
+                    upsert_asset(config.DB_PATH_ASSETS, company_name, asset_key,
+                                local_path=_image_url_path(company_name, f"{asset_key}.png"),
+                                source_type="svg_render", status="ready")
+            except Exception:
+                pass  # 单张图失败不影响另一张
+    except Exception:
+        pass  # 静默失败，用户可在图片定稿台手动生成
+
+
 def _load_all_scored_companies(research_db_path: str) -> list[dict]:
     """加载所有有评分的公司数据（用于散点图）"""
     import sqlite3
@@ -301,12 +332,85 @@ def _load_all_scored_companies(research_db_path: str) -> list[dict]:
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         "SELECT DISTINCT company_name, score_defensibility, score_incumbent_attention, "
-        "score_value_capture, stack_layer "
+        "score_value_capture, funding_stage_score, stack_layer "
         "FROM research WHERE version='standard' "
         "AND score_defensibility IS NOT NULL AND score_value_capture IS NOT NULL"
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def _default_chart_params(asset_key: str) -> dict:
+    """Default editable params for generated chart demands."""
+    base = {
+        "theme": "dark",
+        "accent_color": "#29B8D4",
+        "title_size": 16,
+        "axis_size": 12,
+        "label_size": 10,
+        "point_size": 10,
+        "show_label": True,
+        "subtitle": "",
+        "note": "",
+        "width": 800,
+        "height": 600,
+    }
+    if asset_key == "chart_competitive":
+        base.update({
+            "title": "AI 创业公司竞争格局图",
+            "x_label": "Defensibility",
+            "y_label": "Incumbent Attention",
+            "x_split": 5,
+            "y_split": 5,
+            "quadrant_tl": "Sweet Spot",
+            "quadrant_tr": "Kill Zone",
+            "quadrant_bl": "Waiting Room",
+            "quadrant_br": "Battlefield",
+            "bubble_min": 8,
+            "bubble_max": 42,
+        })
+    elif asset_key == "chart_ecosystem":
+        base.update({
+            "title": "AI 产业链生态位图",
+            "x_label": "Stack Layer",
+            "y_label": "Value Capture",
+            "value_threshold": 7,
+            "stack_labels": ["基础设施", "基础模型", "中间件", "垂直应用", "分发渠道"],
+            "stack_colors": ["#4FC3F7", "#BA68C8", "#FFB74D", "#81C784", "#E57373"],
+            "jitter": 0.16,
+        })
+    elif asset_key == "flywheel":
+        base.update({
+            "title": "飞轮图",
+            "template_id": "flywheel_circular",
+            "radius": 200,
+            "node_radius": 48,
+            "arrow_curve": 40,
+            "label_size": 16,
+            "desc_size": 12,
+            "show_desc": True,
+        })
+    elif asset_key == "timeline":
+        base.update({
+            "title": "时间线图",
+            "template_id": "timeline_left_axis",
+            "row_h": 90,
+            "axis_x": 160,
+            "node_size": 6,
+            "title_size": 18,
+            "desc_size": 13,
+            "wrap_text": True,
+        })
+    return base
+
+
+def _chart_type_for_asset(asset_key: str) -> str:
+    return {
+        "chart_competitive": "competitive_landscape",
+        "chart_ecosystem": "stack_positioning",
+        "flywheel": "flywheel",
+        "timeline": "timeline",
+    }.get(asset_key, "")
 
 
 def _load_svg_data(company: str, asset_key: str, markdown: str) -> tuple[dict | None, bool]:
@@ -414,6 +518,11 @@ def save_final_card():
         if card_index in (3, 6):
             _pre_extract_svg_data(company_name, card_index)
 
+        # 卡片7确认时自动生成竞争格局图 + 产业链生态位图
+        if card_index == 7:
+            threading.Thread(target=_generate_card7_charts,
+                           args=(company_name,), daemon=True).start()
+
         return jsonify({"status": "ok", "card_index": card_index})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -518,6 +627,20 @@ def image_assets(filename):
 
 # ── API：资产系统 ──────────────────────────────────────────────
 
+@app.route("/api/assets/resolved")
+def get_resolved_assets():
+    """Return layout-ready card assets through the stable resolver contract."""
+    company = (request.args.get("company") or request.args.get("company_name") or "").strip()
+    if not company:
+        return jsonify({"error": "缺少 company 参数"}), 400
+    try:
+        init_assets_db(config.DB_PATH_ASSETS)
+        ensure_assets_rows(config.DB_PATH_ASSETS, company)
+        return jsonify(resolve_company_assets(config.DB_PATH_ASSETS, company))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/assets/<company>")
 def get_company_assets(company: str):
     """获取某公司全部资产"""
@@ -560,24 +683,44 @@ def collect_assets(company: str):
 
 @app.route("/api/assets/generate/<company>/<asset_key>", methods=["POST"])
 def generate_asset(company: str, asset_key: str):
-    """生成信息图（flywheel 或 timeline）"""
-    if asset_key not in ("flywheel", "timeline"):
-        return jsonify({"error": f"不支持的 asset_key: {asset_key}，仅支持 flywheel/timeline"}), 400
+    """生成信息图（flywheel / timeline / chart_competitive / chart_ecosystem）"""
+    if asset_key not in ("flywheel", "timeline", "chart_competitive", "chart_ecosystem"):
+        return jsonify({"error": f"不支持的 asset_key: {asset_key}，仅支持 flywheel/timeline/chart_competitive/chart_ecosystem"}), 400
 
     try:
-        # 获取对应卡片的 markdown
-        card_index = 6 if asset_key == "flywheel" else 3
-        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
-        if not markdown:
-            return jsonify({"error": f"未找到公司 {company} 卡片 {card_index} 的定稿内容"}), 404
-
-        # 确保资产行存在
         ensure_assets_rows(config.DB_PATH_ASSETS, company)
 
         # 输出路径
         dest_dir = _company_image_dir(config.IMAGES_DIR, company)
         os.makedirs(dest_dir, exist_ok=True)
         dest = os.path.join(dest_dir, f"{asset_key}.png")
+
+        # ── chart_competitive / chart_ecosystem：直接查库画散点图，无需 LLM ──
+        if asset_key in ("chart_competitive", "chart_ecosystem"):
+            companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+            if asset_key == "chart_competitive":
+                ok = render_competitive_landscape(companies, company, dest)
+            else:
+                ok = render_stack_positioning(companies, company, dest)
+            if not ok:
+                upsert_asset(config.DB_PATH_ASSETS, company, asset_key, status="failed",
+                            meta={"error": "散点图渲染失败"})
+                return jsonify({"error": "生成失败"}), 500
+            upsert_asset(config.DB_PATH_ASSETS, company, asset_key,
+                        local_path=_image_url_path(company, f"{asset_key}.png"),
+                        source_type="svg_render", status="ready")
+            return jsonify({
+                "status": "ok",
+                "company_name": company,
+                "asset_key": asset_key,
+                "local_path": _image_url_path(company, f"{asset_key}.png"),
+            })
+
+        # ── flywheel / timeline：需要 markdown + LLM 提取 ──
+        card_index = 6 if asset_key == "flywheel" else 3
+        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+        if not markdown:
+            return jsonify({"error": f"未找到公司 {company} 卡片 {card_index} 的定稿内容"}), 404
 
         # 包装 deepseek 调用
         def ds_call(system_prompt, user_message, temperature=0.1, max_tokens=2048):
@@ -747,6 +890,67 @@ def delete_svg_template(template_id: str):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/image-studio/<company>/<asset_key>/preview", methods=["POST"])
+def preview_chart_html(company: str, asset_key: str):
+    """返回图表 HTML 字符串供前端 iframe srcdoc 实时预览（不经过 Playwright）"""
+    if asset_key not in ("chart_competitive", "chart_ecosystem"):
+        return jsonify({"error": "仅支持 chart_competitive / chart_ecosystem"}), 400
+
+    try:
+        body = request.get_json() or {}
+        params = _default_chart_params(asset_key)
+        params.update(body.get("params", {}) or {})
+        companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+        if asset_key == "chart_competitive":
+            html = build_competitive_landscape_svg(companies, company, params)
+        else:
+            html = build_stack_positioning_svg(companies, company, params)
+        return app.response_class(html, mimetype="text/html")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/chart-data", methods=["POST"])
+def get_generated_chart_data(company: str, asset_key: str):
+    """返回生成图的可编辑数据结构，供参数检查器使用。"""
+    if asset_key not in ("chart_competitive", "chart_ecosystem", "flywheel", "timeline"):
+        return jsonify({"error": "仅支持生成图 asset_key"}), 400
+
+    try:
+        params = _default_chart_params(asset_key)
+        payload = {
+            "company_name": company,
+            "asset_key": asset_key,
+            "chart_type": _chart_type_for_asset(asset_key),
+            "params": params,
+            "companies": [],
+            "data": {},
+            "templates": [],
+        }
+
+        if asset_key in ("chart_competitive", "chart_ecosystem"):
+            companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+            payload["companies"] = companies
+            payload["data"] = {
+                "highlight": company,
+                "has_highlight": any(c.get("company_name") == company for c in companies),
+            }
+            return jsonify(payload)
+
+        card_index = 6 if asset_key == "flywheel" else 3
+        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+        data = {}
+        cached = False
+        if markdown:
+            data, cached = _load_svg_data(company, asset_key, markdown)
+        payload["data"] = data or {}
+        payload["cached"] = cached
+        payload["templates"] = [t for t in get_all_templates() if t.get("asset_key") == asset_key]
+        return jsonify(payload)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/svg-templates/preview", methods=["POST"])
 def preview_svg_template():
     """用指定模板+参数+数据渲染纯 SVG（不截图），返回 SVG 字符串供前端实时预览"""
@@ -834,9 +1038,10 @@ def get_image_studio_overview(company: str):
         assets = get_assets(config.DB_PATH_ASSETS, company)
 
         slots = []
-        for asset_key in ["logo", "office", "timeline", "product_main",
-                          "products_other", "flywheel", "positioning_charts",
-                          "competitors"]:
+        for asset_key in ["logo", "website_screenshot", "office", "product_main",
+                          "products_other", "competitors", "competitors_logo_strip",
+                          "chart_competitive", "chart_ecosystem",
+                          "flywheel", "timeline"]:
             asset = assets.get(asset_key, {})
             variants = list_variants(config.DB_PATH_ASSETS, company, asset_key)
             selected = next((v for v in variants if v.get("is_selected")), None)
@@ -1047,11 +1252,14 @@ def generate_search_queries(company: str, asset_key: str):
         summary = card_markdown[:1500]
 
         card_topics = {
+            "website_screenshot": "官网截图/首页截图",
             "office": "公司办公室/办公场景",
             "product_main": "主产品界面/使用场景",
             "products_other": "其他产品/功能截图",
-            "positioning_charts": "竞争格局/生态位/商业模式图",
+            "chart_competitive": "竞争格局矩阵图",
+            "chart_ecosystem": "产业链生态位图",
             "competitors": "竞品分析/行业格局",
+            "competitors_logo_strip": "三个竞品 Logo 横向拼图",
         }
         topic = card_topics.get(asset_key, "产品配图")
 
@@ -1089,6 +1297,11 @@ Markdown 摘要：{summary}
     except Exception as e:
         # fallback: 返回默认查询词
         fallbacks = {
+            "website_screenshot": [
+                {"en": "technology company website homepage screenshot", "zh": "科技 公司 官网 首页 截图"},
+                {"en": "startup website product homepage", "zh": "创业公司 官网 产品 首页"},
+                {"en": "software company landing page interface", "zh": "软件 公司 官网 界面"},
+            ],
             "office": [
                 {"en": "modern office workspace technology", "zh": "科技公司 办公室 团队"},
                 {"en": "startup office interior", "zh": "创业公司 办公环境"},
@@ -1104,15 +1317,25 @@ Markdown 摘要：{summary}
                 {"en": "technology tool dashboard", "zh": "科技 工具 界面"},
                 {"en": "digital product showcase", "zh": "数字 产品 展示"},
             ],
-            "positioning_charts": [
-                {"en": "competitive landscape matrix", "zh": "竞争格局 矩阵 图"},
+            "chart_competitive": [
+                {"en": "competitive landscape matrix chart", "zh": "竞争格局 矩阵 图"},
                 {"en": "market positioning bubble chart", "zh": "市场定位 气泡图"},
+                {"en": "startup competition analysis", "zh": "创业公司 竞争 分析"},
+            ],
+            "chart_ecosystem": [
                 {"en": "value chain ecosystem map", "zh": "产业链 生态位 图"},
+                {"en": "AI stack layer diagram", "zh": "AI 技术栈 层级 图"},
+                {"en": "industry value chain analysis", "zh": "产业 价值链 分析"},
             ],
             "competitors": [
                 {"en": "technology startup competition", "zh": "科技 创业公司 行业"},
                 {"en": "market landscape comparison", "zh": "市场 格局 对比"},
                 {"en": "business competition analysis", "zh": "商业 竞争 分析"},
+            ],
+            "competitors_logo_strip": [
+                {"en": "competitor company logos", "zh": "竞品 公司 Logo"},
+                {"en": "startup brand logo comparison", "zh": "创业公司 品牌 Logo 对比"},
+                {"en": "technology company logo strip", "zh": "科技公司 Logo 横排"},
             ],
         }
         return jsonify({"queries": fallbacks.get(asset_key, [
@@ -1284,8 +1507,8 @@ def extract_svg_data(company: str, asset_key: str):
 @app.route("/api/image-studio/<company>/<asset_key>/render-svg", methods=["POST"])
 def render_svg_variant(company: str, asset_key: str):
     """使用指定模板渲染 SVG → PNG 变体"""
-    if asset_key not in ("flywheel", "timeline", "positioning_charts"):
-        return jsonify({"error": "仅支持 flywheel / timeline / positioning_charts"}), 400
+    if asset_key not in ("flywheel", "timeline", "chart_competitive", "chart_ecosystem"):
+        return jsonify({"error": "仅支持 flywheel / timeline / chart_competitive / chart_ecosystem"}), 400
 
     try:
         body = request.get_json()
@@ -1300,15 +1523,14 @@ def render_svg_variant(company: str, asset_key: str):
         os.makedirs(variant_dir, exist_ok=True)
         dest = os.path.join(variant_dir, f"{asset_key}__{suffix}.png")
 
-        # ── positioning_charts：无需 LLM，直接查库画散点图 ──
-        if asset_key == "positioning_charts":
+        # ── chart_competitive / chart_ecosystem：无需 LLM，直接查库画散点图 ──
+        if asset_key in ("chart_competitive", "chart_ecosystem"):
             companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
-            if template_id == "competitive_landscape":
+            chart_type = "competitive_landscape" if asset_key == "chart_competitive" else "stack_positioning"
+            if chart_type == "competitive_landscape":
                 ok = render_competitive_landscape(companies, company, dest, params)
-            elif template_id == "stack_positioning":
-                ok = render_stack_positioning(companies, company, dest, params)
             else:
-                return jsonify({"error": f"未知图表类型: {template_id}"}), 400
+                ok = render_stack_positioning(companies, company, dest, params)
             if not ok:
                 return jsonify({"error": "散点图渲染失败"}), 500
             init_assets_db(config.DB_PATH_ASSETS)
@@ -1316,10 +1538,10 @@ def render_svg_variant(company: str, asset_key: str):
                 config.DB_PATH_ASSETS, company, asset_key,
                 local_path=_variant_url_path(company, f"{asset_key}__{suffix}.png"),
                 source_type="svg_render",
-                prompt=f"chart={template_id}",
+                prompt=f"chart={chart_type}",
                 **_quality_kwargs_for_variant(
                     company, asset_key, dest, "svg_render",
-                    prompt=f"chart={template_id}",
+                    prompt=f"chart={chart_type}",
                 ),
             )
             select_variant(config.DB_PATH_ASSETS, company, asset_key, vid)
@@ -1359,6 +1581,52 @@ def render_svg_variant(company: str, asset_key: str):
         )
         select_variant(config.DB_PATH_ASSETS, company, asset_key, vid)
 
+        return jsonify({
+            "variant_id": vid,
+            "local_path": _variant_url_path(company, f"{asset_key}__{suffix}.png"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image-studio/<company>/<asset_key>/render-html", methods=["POST"])
+def render_echarts_html_variant(company: str, asset_key: str):
+    """Render hand-edited ECharts HTML into a PNG variant."""
+    if asset_key not in ("chart_competitive", "chart_ecosystem"):
+        return jsonify({"error": "仅支持 chart_competitive / chart_ecosystem"}), 400
+
+    try:
+        body = request.get_json() or {}
+        html = (body.get("html") or "").strip()
+        params = body.get("params") or {}
+        if not html:
+            return jsonify({"error": "缺少 html"}), 400
+        if "echarts" not in html.lower():
+            return jsonify({"error": "HTML 中未检测到 ECharts 代码"}), 400
+
+        width = int(params.get("width") or body.get("width") or 800)
+        height = int(params.get("height") or body.get("height") or 600)
+        width = max(480, min(width, 1600))
+        height = max(360, min(height, 1400))
+
+        suffix = f"manual_echarts_{int(time.time())}"
+        variant_dir = _company_image_dir(config.IMAGES_DIR, company, "variants")
+        os.makedirs(variant_dir, exist_ok=True)
+        dest = os.path.join(variant_dir, f"{asset_key}__{suffix}.png")
+        _html_to_png(html, dest, width=width, height=height, scale=2)
+
+        init_assets_db(config.DB_PATH_ASSETS)
+        vid = insert_variant(
+            config.DB_PATH_ASSETS, company, asset_key,
+            local_path=_variant_url_path(company, f"{asset_key}__{suffix}.png"),
+            source_type="echarts_html",
+            prompt="manual_echarts_html",
+            **_quality_kwargs_for_variant(
+                company, asset_key, dest, "echarts_html",
+                prompt="manual_echarts_html",
+            ),
+        )
+        select_variant(config.DB_PATH_ASSETS, company, asset_key, vid)
         return jsonify({
             "variant_id": vid,
             "local_path": _variant_url_path(company, f"{asset_key}__{suffix}.png"),

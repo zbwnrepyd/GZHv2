@@ -1,4 +1,42 @@
 /* studio-app.js — 图片定稿台主控制器 v3 */
+const DEMAND_LABELS = {
+  logo: 'Logo',
+  website_screenshot: '官网截图',
+  office: '办公室或地图',
+  product_main: '主产品截图',
+  products_other: '其他产品截图',
+  competitors: '竞品截图',
+  competitors_logo_strip: '三个竞品 Logo 横排图',
+  chart_competitive: 'AI 创业公司竞争格局图',
+  chart_ecosystem: 'AI 产业链生态位图',
+  flywheel: '飞轮图',
+  timeline: '时间线图',
+};
+
+const DEMAND_META = {
+  logo: { type: '抓取图', usage: '官网 / Clearbit' },
+  website_screenshot: { type: '抓取图', usage: '官网首页' },
+  office: { type: '抓取图', usage: '地图 / 办公场景' },
+  product_main: { type: '抓取图', usage: '产品页 / 搜索' },
+  products_other: { type: '抓取图', usage: '多产品候选' },
+  competitors: { type: '抓取图', usage: '竞品截图' },
+  competitors_logo_strip: { type: '生成图', usage: '16:9 Logo 拼图' },
+  chart_competitive: { type: '生成图', usage: 'ECharts' },
+  chart_ecosystem: { type: '生成图', usage: 'ECharts' },
+  flywheel: { type: '生成图', usage: 'SVG' },
+  timeline: { type: '生成图', usage: 'SVG' },
+};
+
+const DEMAND_ORDER = [
+  'logo', 'website_screenshot', 'office', 'product_main', 'products_other',
+  'competitors', 'competitors_logo_strip', 'chart_competitive', 'chart_ecosystem', 'flywheel', 'timeline',
+];
+
+const GENERATED_DEMANDS = ['chart_competitive', 'chart_ecosystem', 'flywheel', 'timeline'];
+const AUTO_GENERATED_IMAGE_DEMANDS = ['competitors_logo_strip'];
+
+window.DEMAND_LABELS = DEMAND_LABELS;
+
 const StudioApp = {
   _company: '',
   _slots: [],
@@ -49,7 +87,7 @@ const StudioApp = {
       const target = this._slots.find(s => s.asset_key === slotParam);
       if (target) this._selectSlot(target);
     } else {
-      const editable = this._slots.filter(s => s.asset_key !== 'logo' && s.asset_key !== 'flywheel' && s.asset_key !== 'timeline');
+      const editable = this._slots.filter(s => s.asset_key !== 'logo');
       if (editable.length) this._selectSlot(editable[0]);
     }
   },
@@ -96,29 +134,19 @@ const StudioApp = {
     const list = document.getElementById('slot-list');
     if (!list) return;
 
-    const labels = {
-      logo: '卡片1 — Logo',
-      office: '卡片2 — 公司形象',
-      timeline: '卡片3 — 时间线',
-      product_main: '卡片4 — 主产品',
-      products_other: '卡片5 — 其他产品',
-      flywheel: '卡片6 — 增长飞轮',
-      positioning_charts: '卡片6 — 竞争/生态位图',
-      competitors: '卡片7 — 竞争格局',
-    };
-
-    const isSvgSlot = (key) => key === 'flywheel' || key === 'timeline';
-
-    list.innerHTML = this._slots.map(s => {
+    const ordered = DEMAND_ORDER.map(key => this._slots.find(s => s.asset_key === key)).filter(Boolean);
+    list.innerHTML = ordered.map(s => {
+      const meta = DEMAND_META[s.asset_key] || { type: '图片', usage: '' };
+      const isGenerated = GENERATED_DEMANDS.includes(s.asset_key) || AUTO_GENERATED_IMAGE_DEMANDS.includes(s.asset_key);
       const thumbHtml = s.local_path
         ? `<img src="${this._escape(s.local_path)}" alt="">`
-        : `<div class="slot-thumb placeholder">${isSvgSlot(s.asset_key) ? '&#9881;' : '&#128247;'}</div>`;
+        : `<div class="slot-thumb placeholder">${isGenerated ? '&#9881;' : '&#128247;'}</div>`;
 
       let metaText;
-      if (isSvgSlot(s.asset_key)) {
-        metaText = s.status === 'ready' ? 'SVG 信息图 · 已就绪' : 'SVG 信息图 · 待生成';
+      if (isGenerated) {
+        metaText = `${meta.type} · ${meta.usage} · ${s.status === 'ready' ? '已确定' : '待生成'}`;
       } else {
-        metaText = s.status === 'ready' ? '已就绪' : '待配图';
+        metaText = `${meta.type} · ${meta.usage} · ${s.status === 'ready' ? '已确定' : '待配图'}`;
         if (s.variant_count > 0) metaText += ` · ${s.variant_count} 变体`;
       }
 
@@ -126,7 +154,7 @@ const StudioApp = {
         <li class="slot-item" data-key="${s.asset_key}">
           <div class="slot-thumb">${thumbHtml}</div>
           <div class="slot-info">
-            <div class="slot-label">${labels[s.asset_key] || s.asset_key}</div>
+            <div class="slot-label">${DEMAND_LABELS[s.asset_key] || s.asset_key}</div>
             <div class="slot-meta">${metaText}</div>
           </div>
           <span class="slot-badge ${s.status}"></span>
@@ -151,40 +179,27 @@ const StudioApp = {
       el.classList.toggle('active', el.dataset.key === slot.asset_key);
     });
 
-    // 设置上下文
-    SearchPanel.setContext(this._company, slot.asset_key);
-    VariantSidebar.setContext(this._company, slot.asset_key);
-
-    // 图表类槽位统一处理（SVG 信息图 + 散点图）
-    const CHART_SLOTS = ['flywheel', 'timeline', 'positioning_charts'];
-    if (CHART_SLOTS.includes(slot.asset_key)) {
-      SearchPanel.hideAll();
-      this._showChartSlot(slot);
+    if (GENERATED_DEMANDS.includes(slot.asset_key)) {
+      await WorkspaceChart.mount({
+        company: this._company,
+        slot,
+        editorArea: document.getElementById('editor-area'),
+        candidatePanel: document.getElementById('candidate-panel'),
+        onRefresh: () => this._refreshSlots(),
+        onToast: (msg, type) => this._toast(msg, type),
+      });
       return;
     }
 
-    // Logo 只读：仅显示预览，隐藏搜索和工具栏
-    if (slot.asset_key === 'logo') {
-      SearchPanel.showPreviewOnly(slot.local_path || '');
-      return;
-    }
-
-    // 可编辑槽位：显示全部 UI，预填搜索词但不自动搜索
-    SearchPanel.showAll();
-    SearchPanel.setSlotImage(slot.local_path || '');
-
-    let queries = QueryGen.get(this._company, slot.asset_key);
-    if (!queries) {
-      const markdown = await this._loadCardMarkdown(slot.card_index);
-      if (markdown) {
-        queries = await QueryGen.fetch(this._company, slot.asset_key, markdown);
-      }
-      if (!queries) {
-        queries = QueryGen.fallback(slot.asset_key);
-      }
-    }
-    SearchPanel.setQueries(queries);
-    // 不自动搜索——用户点搜索按钮或按回车才搜
+    await WorkspaceImage.mount({
+      company: this._company,
+      slot,
+      editorArea: document.getElementById('editor-area'),
+      candidatePanel: document.getElementById('candidate-panel'),
+      onRefresh: () => this._refreshSlots(),
+      onToast: (msg, type) => this._toast(msg, type),
+      loadCardMarkdown: (cardIndex) => this._loadCardMarkdown(cardIndex),
+    });
   },
 
   /* ── SVG 槽位 ── */
@@ -200,9 +215,9 @@ const StudioApp = {
     this._activeSlot = slot;
     await VariantSidebar.setContext(this._company, slot.asset_key);
 
-    const isPositioning = slot.asset_key === 'positioning_charts';
+    const isChartSlot = slot.asset_key === 'chart_competitive' || slot.asset_key === 'chart_ecosystem';
 
-    if (isPositioning) {
+    if (isChartSlot) {
       this._renderChartUI(slot, null);
     } else {
       // flywheel / timeline: 加载模板
@@ -242,7 +257,7 @@ const StudioApp = {
     stage?.classList.remove('hidden');
     if (!stage) return;
 
-    const isPositioning = slot.asset_key === 'positioning_charts';
+    const isChartSlot = slot.asset_key === 'chart_competitive' || slot.asset_key === 'chart_ecosystem';
     stage.innerHTML = `<iframe id="chart-preview-iframe" style="width:100%;height:100%;border:none;background:#fff"></iframe>`;
 
     // 功能区 bar
@@ -251,11 +266,11 @@ const StudioApp = {
       toolbar.classList.remove('hidden');
       toolbar.innerHTML = `<div class="chart-func-bar">
         <div class="chart-func-bar-header">图表调节</div>
-        <div class="chart-func-bar-body">${isPositioning ? this._positioningChartBar() : this._svgTemplateBar(templates)}</div>
+        <div class="chart-func-bar-body">${isChartSlot ? this._chartRenderBar(slot) : this._svgTemplateBar(templates)}</div>
       </div>`;
     }
 
-    if (!isPositioning && templates) {
+    if (!isChartSlot && templates) {
       document.querySelectorAll('.bar-tpl-tab').forEach(btn => {
         btn.addEventListener('click', () => {
           const t = templates.find(x => x.id === btn.dataset.tplId);
@@ -270,8 +285,8 @@ const StudioApp = {
       });
     }
     this._bindChartRenderButtons();
-    if (!isPositioning && this._svDataByKey[slot.asset_key]) this._updateChartPreview();
-    else if (isPositioning) this._updateChartPreview();
+    if (!isChartSlot && this._svDataByKey[slot.asset_key]) this._updateChartPreview();
+    else if (isChartSlot) this._updateChartPreview();
   },
 
   _updateChartPreview() {
@@ -284,11 +299,14 @@ const StudioApp = {
     if (!iframe || !this._activeSlot) return;
     const slot = this._activeSlot;
     try {
-      if (slot.asset_key === 'positioning_charts') {
-        const r = await fetch('/api/companies');
-        const companies = r.ok ? await r.json() : [];
+      if (slot.asset_key === 'chart_competitive' || slot.asset_key === 'chart_ecosystem') {
         const params = this._svParams || {};
-        iframe.srcdoc = this._buildScatterPreview('competitive_landscape', companies, params);
+        const r = await fetch(
+          `/api/image-studio/${encodeURIComponent(this._company)}/${encodeURIComponent(slot.asset_key)}/preview`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ params: params }) }
+        );
+        if (r.ok) iframe.srcdoc = await r.text();
       } else {
         const svgData = this._svDataByKey[slot.asset_key];
         if (!svgData || !this._svSelectedTpl) return;
@@ -351,12 +369,12 @@ echarts.init(document.getElementById('chart')).setOption({
 </script></body></html>`;
   },
 
-  _positioningChartBar() {
+  _chartRenderBar(slot) {
     const p = this._svParams || {};
     if (!('accent_color' in p)) { p.accent_color = '#29B8D4'; p.point_size = 10; p.title_size = 16; p.axis_size = 12; p.theme = 'dark'; p.show_label = true; }
-    if (!('_chartType' in p)) p._chartType = 'competitive_landscape';
     this._svParams = p;
-    const sel = (t) => p._chartType === t ? 'style="background:#29B8D4;color:#fff;border-color:#29B8D4"' : '';
+    const chartType = slot.asset_key === 'chart_competitive' ? 'competitive_landscape' : 'stack_positioning';
+    const chartLabel = slot.asset_key === 'chart_competitive' ? '竞争格局矩阵' : 'AI Stack 定位图';
     return `
       <div class="bar-controls">
         <div class="bar-control-row">
@@ -381,10 +399,9 @@ echarts.init(document.getElementById('chart')).setOption({
           </label>
         </div>
         <div class="bar-actions">
-          <button class="bar-chart-type-btn" data-chart="competitive_landscape" ${sel('competitive_landscape')}>竞争格局矩阵</button>
-          <button class="bar-chart-type-btn" data-chart="stack_positioning" ${sel('stack_positioning')}>AI Stack 定位图</button>
+          <span class="chart-type-label" style="font-size:11px;color:var(--ink-muted);margin-right:8px">${chartLabel}</span>
           <button class="bar-btn-reset" onclick="StudioApp._resetChartParams()">重置</button>
-          <button class="bar-btn-render" onclick="StudioApp._renderChart(StudioApp._svParams._chartType||'competitive_landscape')">渲染保存</button>
+          <button class="bar-btn-render" onclick="StudioApp._renderChart('${chartType}')">渲染保存</button>
           <span class="chart-status"></span>
         </div>
       </div>`;
@@ -398,7 +415,7 @@ echarts.init(document.getElementById('chart')).setOption({
   },
 
   _resetChartParams() {
-    this._svParams = { accent_color:'#29B8D4', point_size:10, title_size:16, axis_size:12, theme:'dark', show_label:true, _chartType: this._svParams?._chartType||'competitive_landscape' };
+    this._svParams = { accent_color:'#29B8D4', point_size:10, title_size:16, axis_size:12, theme:'dark', show_label:true };
     this._renderChartUI(this._activeSlot, null);
     this._updateChartPreview();
   },
@@ -459,19 +476,8 @@ echarts.init(document.getElementById('chart')).setOption({
 
   /* 绑定图表按钮事件 */
   _bindChartRenderButtons() {
-    // 图表类型切换
-    document.querySelectorAll('.bar-chart-type-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (!this._svParams) this._svParams = {};
-        this._svParams._chartType = btn.dataset.chart;
-        document.querySelectorAll('.bar-chart-type-btn').forEach(b => {
-          b.style.background = b.dataset.chart === btn.dataset.chart ? '#29B8D4' : '#fff';
-          b.style.color = b.dataset.chart === btn.dataset.chart ? '#fff' : '';
-          b.style.borderColor = b.dataset.chart === btn.dataset.chart ? '#29B8D4' : '';
-        });
-        this._updateChartPreview();
-      });
-    });
+    // 图表类型不再需要切换（每个 slot 对应一种图表类型）
+    // 渲染保存按钮通过 onclick 内联绑定
   },
 
   async _renderChart(templateId) {

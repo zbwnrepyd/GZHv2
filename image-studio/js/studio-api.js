@@ -89,6 +89,46 @@ const StudioAPI = {
     return r.json();
   },
 
+  async chartData(company, assetKey) {
+    const r = await fetch(`/api/image-studio/${encodeURIComponent(company)}/${assetKey}/chart-data`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!r.ok) throw new Error(await _err(r));
+    return r.json();
+  },
+
+  async previewChart(company, assetKey, params, data) {
+    const r = await fetch(`/api/image-studio/${encodeURIComponent(company)}/${assetKey}/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ params, data }),
+    });
+    if (!r.ok) throw new Error(await _err(r));
+    return r.text();
+  },
+
+  async renderChart(company, assetKey, templateId, params) {
+    const r = await fetch(`/api/image-studio/${encodeURIComponent(company)}/${assetKey}/render-svg`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template_id: templateId, params }),
+    });
+    if (!r.ok) throw new Error(await _err(r));
+    return r.json();
+  },
+
+  async renderChartHtml(company, assetKey, html, params) {
+    const r = await fetch(`/api/image-studio/${encodeURIComponent(company)}/${assetKey}/render-html`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html, params }),
+    });
+    if (!r.ok) throw new Error(await _err(r));
+    return r.json();
+  },
+
   async generateImage(company, assetKey, prompt) {
     const r = await fetch('/api/generate-image', {
       method: 'POST',

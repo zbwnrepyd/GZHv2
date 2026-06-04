@@ -20,16 +20,20 @@ const VERSION_LABELS = {
 const VERSIONS = ['standard', 'business', 'spread'];
 
 const SLOT_LABELS = {
-  logo: '卡片1 — Logo',
-  office: '卡片2 — 公司形象',
-  timeline: '卡片3 — 时间线',
-  product_main: '卡片4 — 主产品',
-  products_other: '卡片5 — 其他产品',
-  flywheel: '卡片6 — 增长飞轮',
-  competitors: '卡片7 — 竞争格局',
+  logo: 'Logo',
+  website_screenshot: '官网截图',
+  office: '办公室或地图',
+  product_main: '主产品截图',
+  products_other: '其他产品截图',
+  competitors: '竞品截图',
+  competitors_logo_strip: '三个竞品 Logo 横排图',
+  chart_competitive: 'AI 创业公司竞争格局图',
+  chart_ecosystem: 'AI 产业链生态位图',
+  flywheel: '飞轮图',
+  timeline: '时间线图',
 };
 
-const SLOT_ORDER = ['logo', 'office', 'timeline', 'product_main', 'products_other', 'flywheel', 'competitors'];
+const SLOT_ORDER = ['logo', 'website_screenshot', 'office', 'product_main', 'products_other', 'competitors', 'competitors_logo_strip', 'chart_competitive', 'chart_ecosystem', 'flywheel', 'timeline'];
 
 const EditorApp = {
   companyName: '',

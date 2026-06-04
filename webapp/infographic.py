@@ -29,6 +29,9 @@ FLYWHEEL_SVG = Template("""\
       <stop offset="0%" stop-color="#29B8D4"/>
       <stop offset="100%" stop-color="#1A8FA8"/>
     </linearGradient>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <polygon points="0,0 10,4 0,8" fill="#29B8D4" opacity="0.6"/>
+    </marker>
   </defs>
 
   <!-- 背景 -->
@@ -358,28 +361,6 @@ def render_with_template(
     return os.path.getsize(dest) > 512
 
 
-def render_flywheel(data: dict, dest: str) -> bool:
-    """从 JSON 渲染飞轮 SVG → PNG，返回是否成功"""
-    try:
-        svg = _build_flywheel_svg(data)
-        _svg_to_png(svg, dest, width=800, height=800)
-        return os.path.getsize(dest) > 512
-    except Exception:
-        return False
-
-
-def render_timeline(data: dict, dest: str) -> bool:
-    """从 JSON 渲染时间线 SVG → PNG，返回是否成功"""
-    try:
-        svg = _build_timeline_svg(data)
-        n = len(data.get("events", []))
-        total_h = 60 + n * 90 + 40
-        _svg_to_png(svg, dest, width=800, height=total_h)
-        return os.path.getsize(dest) > 512
-    except Exception:
-        return False
-
-
 def generate_flywheel_from_markdown(markdown: str, dest: str, deepseek_call) -> bool:
     """从 Markdown 提取 → 渲染飞轮 PNG"""
     data = extract_flywheel_json(markdown, deepseek_call)
@@ -397,53 +378,314 @@ def generate_timeline_from_markdown(markdown: str, dest: str, deepseek_call) -> 
 
 
 # ═══════════════════════════════════════════════════════════════
-# ECharts 散点图 + ZRender 信息图
+# ECharts 散点图 — 竞争格局矩阵 + 产业链生态位图
 # ═══════════════════════════════════════════════════════════════
 
 _ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
-_ZRENDER_CDN = "https://cdn.jsdelivr.net/npm/zrender@5.6.1/dist/zrender.js"
 
-_STACK_LABELS = ["Infrastructure", "Foundation Model", "Middleware", "Vertical App", "Distribution"]
+_STACK_LABELS = ["基础设施", "基础模型", "中间件", "垂直应用", "分发渠道"]
+_STACK_LAYER_COLORS = ["#4FC3F7", "#BA68C8", "#FFB74D", "#81C784", "#E57373"]
 
 
-def _build_echarts_scatter(title: str, x_label: str, y_label: str,
-                           datasets: list[dict], height: int = 560,
-                           params: dict | None = None) -> str:
-    """ECharts 散点图 HTML"""
+def _chart_empty_html(title: str, message: str = "暂无可用图表数据",
+                      params: dict | None = None) -> str:
     p = params or {}
-    accent = p.get("accent_color", "#29B8D4")
-    pt_size = p.get("point_size", 10)
-    t_size = p.get("title_size", 16)
-    a_size = p.get("axis_size", 12)
     theme = p.get("theme", "dark")
-    show_label = p.get("show_label", "true")
-
-    series_json = json.dumps(datasets, ensure_ascii=False)
+    bg = "#0B1629" if theme == "dark" else "#fff"
+    text_color = "#fff" if theme == "dark" else "#1B2A4A"
+    muted = "rgba(255,255,255,0.52)" if theme == "dark" else "#64748b"
+    accent = p.get("accent_color", "#29B8D4")
+    safe_title = _html_escape(p.get("title") or title)
+    safe_message = _html_escape(message)
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
-  body{{margin:0;width:800px;height:600px;overflow:hidden;background:{'#0B1629' if theme=='dark' else '#fff'}}}
-  #chart{{width:800px;height:600px}}
+  body{{margin:0;width:800px;height:600px;overflow:hidden;background:{bg};
+    font-family:'Instrument Sans','Noto Sans SC','PingFang SC',sans-serif;color:{text_color}}}
+  .wrap{{width:800px;height:600px;display:flex;align-items:center;justify-content:center;position:relative}}
+  .grid{{position:absolute;inset:0;background-image:linear-gradient(rgba(41,184,212,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(41,184,212,.08) 1px,transparent 1px);background-size:40px 40px;opacity:.35}}
+  .panel{{position:relative;text-align:center;border:1px solid rgba(41,184,212,.28);border-radius:8px;padding:34px 48px;background:rgba(255,255,255,.035)}}
+  h1{{margin:0 0 12px;font-size:22px;letter-spacing:0;color:{text_color}}}
+  p{{margin:0;color:{muted};font-size:14px}}
+  .bar{{width:72px;height:2px;background:{accent};margin:0 auto 18px}}
 </style></head><body>
-<div id="chart"></div>
+<div class="wrap"><div class="grid"></div><div class="panel"><div class="bar"></div><h1>{safe_title}</h1><p>{safe_message}</p></div></div>
+</body></html>"""
+
+
+def _html_escape(value: object) -> str:
+    return str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def _echarts_fit_style(bg: str) -> str:
+    return f"""
+  html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:{bg}}}
+  body{{display:flex;align-items:center;justify-content:center}}
+  #chart-frame{{width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;background:{bg}}}
+  #chart{{width:800px;height:600px;flex:0 0 auto;transform-origin:center center}}
+  #chart>div:first-child,#chart>div:first-child>canvas{{transform-origin:center center}}
+  #chart>div:first-child>canvas{{display:block;width:100%!important;height:100%!important;object-fit:contain}}
+"""
+
+
+def _echarts_fit_script(chart_var: str = "chart") -> str:
+    return f"""
+function fitChartCanvas(){{
+  var frame=document.getElementById('chart-frame');
+  var chartEl=document.getElementById('chart');
+  if(!frame||!chartEl) return;
+  var scale=Math.min(frame.clientWidth/800, frame.clientHeight/600);
+  if(!isFinite(scale)||scale<=0) scale=1;
+  chartEl.style.transform='scale('+scale+')';
+  if({chart_var}&&{chart_var}.resize) {chart_var}.resize();
+}}
+window.addEventListener('resize', fitChartCanvas);
+fitChartCanvas();
+"""
+
+
+def _build_competitive_landscape_html(
+    companies: list[dict], highlight: str,
+    params: dict | None = None,
+) -> str:
+    """竞争格局矩阵 HTML — 四象限 + 气泡大小按融资阶段缩放 + 主公司高亮"""
+    p = params or {}
+    accent = p.get("accent_color", "#29B8D4")
+    pt_base = p.get("point_size", 10)
+    t_size = p.get("title_size", 16)
+    a_size = p.get("axis_size", 12)
+    theme = p.get("theme", "dark")
+    show_label = p.get("show_label", True)
+
+    hi_data, ot_data = [], []
+    for c in companies:
+        n = str(c.get("company_name", ""))
+        dx = float(c.get("score_defensibility") or 0)
+        dy = float(c.get("score_incumbent_attention") or 0)
+        if dx == 0 and dy == 0:
+            continue
+        fs = float(c.get("funding_stage_score") or 0)
+        sz = max(6, fs * 4 + 6) if fs > 0 else pt_base
+        (hi_data if n == highlight else ot_data).append({
+            "name": n, "value": [dx, dy, sz, n],
+        })
+    ds_json = json.dumps([
+        {"name": highlight, "data": hi_data},
+        {"name": "其他公司", "data": ot_data},
+    ], ensure_ascii=False)
+    no_data_graphic = "" if (hi_data or ot_data) else f""",
+    {{type:'text',left:'center',top:'middle',style:{{text:{json.dumps("暂无可用图表数据", ensure_ascii=False)},fill:'{accent}',fontSize:18,fontWeight:700,textAlign:'center'}}}}"""
+
+    bg = "#0B1629" if theme == "dark" else "#fff"
+    text_color = "#fff" if theme == "dark" else "#333"
+    muted = "rgba(255,255,255,0.5)" if theme == "dark" else "#999"
+    line_color = "rgba(255,255,255,0.12)" if theme == "dark" else "#e0e0e0"
+    quad_label_color = "rgba(255,255,255,0.18)" if theme == "dark" else "rgba(0,0,0,0.08)"
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+{_echarts_fit_style(bg)}
+</style></head><body>
+<div id="chart-frame"><div id="chart"></div></div>
 <script src="{_ECHARTS_CDN}"></script>
 <script>
-var ds={series_json};
-var series=ds.map(function(d){{return{{name:d.name,type:'scatter',data:d.values.map(function(v){{return[v.x,v.y,v.name]}}),
-  symbolSize:{pt_size},
-  label:{{show:{show_label},formatter:function(p){{return p.value[2]||''}},fontSize:10,color:'{"rgba(255,255,255,0.6)" if theme=="dark" else "#666"}'}},
-  emphasis:{{focus:'series'}}
-}}}});
+var ds={ds_json};
+var hiName={json.dumps(highlight, ensure_ascii=False)};
+var series=ds.map(function(d){{
+  return{{
+    name:d.name, type:'scatter', data:d.data,
+    symbolSize:function(val){{return val[2]||{pt_base};}},
+    label:{{
+      show:{json.dumps(show_label)},
+      formatter:function(p){{return p.value[3]||'';}},
+      fontSize:10,
+      color:'{muted}',
+      position:'right',
+      distance:6,
+    }},
+    emphasis:{{focus:'series'}},
+    itemStyle:{{borderColor:'rgba(0,0,0,0.3)',borderWidth:0.5}},
+  }};
+}});
+// 主公司用 accent 色，其他用灰色系
+series[0].itemStyle=series[0].itemStyle||{{}};
+series[0].itemStyle.color='{accent}';
+if(series[1]) series[1].itemStyle.color='rgba(255,255,255,0.25)';
+
 var opt={{
-  title:{{text:'{title}',left:'center',textStyle:{{color:'{"#fff" if theme=="dark" else "#333"}',fontSize:{t_size},fontWeight:700}}}},
-  tooltip:{{formatter:function(p){{return p.value[2]+'<br/>'+p.seriesName+'<br/>('+p.value[0]+', '+p.value[1]+')'}}}},
-  legend:{{bottom:10,textStyle:{{color:'{"rgba(255,255,255,0.5)" if theme=="dark" else "#999"}',fontSize:11}}}},
+  title:{{text:{json.dumps(p.get("title") or "竞争格局矩阵", ensure_ascii=False)},subtext:{json.dumps(p.get("subtitle") or "", ensure_ascii=False)},left:'center',textStyle:{{color:'{text_color}',fontSize:{t_size},fontWeight:700}},subtextStyle:{{color:'{muted}',fontSize:11}}}},
+  tooltip:{{
+    formatter:function(p){{return p.value[3]+'<br/>Defensibility: '+p.value[0]+'<br/>Incumbent Attention: '+p.value[1];}}
+  }},
+  legend:{{bottom:10,textStyle:{{color:'{muted}',fontSize:11}}}},
   grid:{{left:70,right:40,top:60,bottom:50}},
-  xAxis:{{name:'{x_label}',nameTextStyle:{{color:'{"rgba(255,255,255,0.5)" if theme=="dark" else "#999"}',fontSize:{a_size}}},axisLine:{{lineStyle:{{color:'{"rgba(255,255,255,0.15)" if theme=="dark" else "#ddd"}'}}}},splitLine:{{lineStyle:{{color:'{"rgba(255,255,255,0.06)" if theme=="dark" else "#f0f0f0"}'}}}}}},
-  yAxis:{{name:'{y_label}',nameTextStyle:{{color:'{"rgba(255,255,255,0.5)" if theme=="dark" else "#999"}',fontSize:{a_size}}},axisLine:{{lineStyle:{{color:'{"rgba(255,255,255,0.15)" if theme=="dark" else "#ddd"}'}}}},splitLine:{{lineStyle:{{color:'{"rgba(255,255,255,0.06)" if theme=="dark" else "#f0f0f0"}'}}}}}},
-  color:["{accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF"]
-}};if({str(theme=='dark').lower()})opt.backgroundColor='#0B1629';
-echarts.init(document.getElementById('chart')).setOption(opt);
+  xAxis:{{
+    name:'Defensibility', min:0, max:10,
+    nameTextStyle:{{color:'{muted}',fontSize:{a_size}}},
+    axisLine:{{lineStyle:{{color:'{line_color}'}}}},
+    splitLine:{{lineStyle:{{color:'rgba(255,255,255,0.06)'}}}},
+    splitNumber:10,
+  }},
+  yAxis:{{
+    name:'Incumbent Attention', min:0, max:10,
+    nameTextStyle:{{color:'{muted}',fontSize:{a_size}}},
+    axisLine:{{lineStyle:{{color:'{line_color}'}}}},
+    splitLine:{{lineStyle:{{color:'rgba(255,255,255,0.06)'}}}},
+    splitNumber:10,
+  }},
+  backgroundColor:'{bg}',
+  color:["{accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF"],
+  // 四象限分割线 + 标签
+  markLine:{{
+    silent:true, symbol:'none',
+    lineStyle:{{color:'rgba(255,255,255,0.15)',type:'dashed',width:1}},
+    data:[
+      {{xAxis:5,label:{{show:false}}}},
+      {{yAxis:5,label:{{show:false}}}},
+    ],
+  }},
+  graphic:[
+    {{type:'text',left:62,top:52,style:{{text:{json.dumps(p.get("quadrant_tl") or "Sweet Spot", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:13,fontWeight:600}}}},
+    {{type:'text',right:32,top:52,style:{{text:{json.dumps(p.get("quadrant_tr") or "Kill Zone", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:13,fontWeight:600}}}},
+    {{type:'text',left:62,bottom:42,style:{{text:{json.dumps(p.get("quadrant_bl") or "Waiting Room", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:13,fontWeight:600}}}},
+    {{type:'text',right:32,bottom:42,style:{{text:{json.dumps(p.get("quadrant_br") or "Battlefield", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:13,fontWeight:600}}}}{no_data_graphic},
+  ],
+}};
+var chart=echarts.init(document.getElementById('chart'));
+chart.setOption(opt);
+{_echarts_fit_script("chart")}
+</script></body></html>"""
+
+
+def _build_ecosystem_positioning_html(
+    companies: list[dict], highlight: str,
+    params: dict | None = None,
+) -> str:
+    """产业链生态位图 HTML — 离散X轴中文标签 + 层级颜色 + 高价值截留区"""
+    p = params or {}
+    accent = p.get("accent_color", "#29B8D4")
+    pt_base = p.get("point_size", 10)
+    t_size = p.get("title_size", 16)
+    a_size = p.get("axis_size", 12)
+    theme = p.get("theme", "dark")
+    show_label = p.get("show_label", True)
+
+    st_map = {"infrastructure": 0, "foundation_model": 1, "middleware": 2, "vertical_app": 3, "distribution": 4}
+    st_labels = _STACK_LABELS
+    st_colors = _STACK_LAYER_COLORS
+
+    # 按 stack_layer 分组
+    groups = {label: [] for label in st_labels}
+    for c in companies:
+        n = str(c.get("company_name", ""))
+        sl = str(c.get("stack_layer") or "vertical_app")
+        sx = st_map.get(sl, 3)
+        dy = float(c.get("score_value_capture") or 0)
+        if dy == 0:
+            continue
+        fs = float(c.get("funding_stage_score") or 0)
+        sz = max(6, fs * 4 + 6) if fs > 0 else pt_base
+        label = st_labels[sx] if 0 <= sx < len(st_labels) else st_labels[3]
+        groups[label].append({
+            "name": n, "value": [sx, dy, sz, n],
+            "is_highlight": n == highlight,
+        })
+    ds = []
+    for idx, label in enumerate(st_labels):
+        items = groups[label]
+        if not items:
+            continue
+        ds.append({
+            "name": label,
+            "data": items,
+            "color": st_colors[idx] if idx < len(st_colors) else "#81C784",
+        })
+
+    ds_json = json.dumps(ds, ensure_ascii=False)
+    no_data_graphic = "" if ds else f"graphic:[{{type:'text',left:'center',top:'middle',style:{{text:{json.dumps('暂无可用图表数据', ensure_ascii=False)},fill:'{accent}',fontSize:18,fontWeight:700,textAlign:'center'}}}}],"
+    bg = "#0B1629" if theme == "dark" else "#fff"
+    text_color = "#fff" if theme == "dark" else "#333"
+    muted = "rgba(255,255,255,0.5)" if theme == "dark" else "#999"
+    line_color = "rgba(255,255,255,0.12)" if theme == "dark" else "#e0e0e0"
+    hi_color = accent
+    hi_border = "rgba(255,255,255,0.6)"
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+{_echarts_fit_style(bg)}
+</style></head><body>
+<div id="chart-frame"><div id="chart"></div></div>
+<script src="{_ECHARTS_CDN}"></script>
+<script>
+var ds={ds_json};
+var hiName={json.dumps(highlight, ensure_ascii=False)};
+var series=ds.map(function(d){{
+  return{{
+    name:d.name, type:'scatter', data:d.data,
+    symbolSize:function(val){{return val[2]||{pt_base};}},
+    label:{{
+      show:{json.dumps(show_label)},
+      formatter:function(p){{return p.value[3]||'';}},
+      fontSize:10,
+      color:'{muted}',
+      position:'top',
+      distance:8,
+    }},
+    emphasis:{{focus:'series'}},
+    itemStyle:{{
+      color:d.color,
+      borderColor:function(p){{return p.dataIndex!=null&&d.data[p.dataIndex]&&d.data[p.dataIndex].is_highlight?'{hi_border}':'rgba(0,0,0,0.3)';}},
+      borderWidth:function(p){{return p.dataIndex!=null&&d.data[p.dataIndex]&&d.data[p.dataIndex].is_highlight?2.5:0.5;}},
+    }},
+  }};
+}});
+
+var opt={{
+  title:{{text:{json.dumps(p.get("title") or "AI Stack 定位图", ensure_ascii=False)},subtext:{json.dumps(p.get("subtitle") or "", ensure_ascii=False)},left:'center',textStyle:{{color:'{text_color}',fontSize:{t_size},fontWeight:700}},subtextStyle:{{color:'{muted}',fontSize:11}}}},
+  tooltip:{{
+    formatter:function(p){{return p.value[3]+'<br/>Stack: '+p.seriesName+'<br/>Value Capture: '+p.value[1];}}
+  }},
+  legend:{{bottom:10,textStyle:{{color:'{muted}',fontSize:11}}}},
+  grid:{{left:70,right:40,top:60,bottom:50}},
+  xAxis:{{
+    name:'Stack Layer', type:'category',
+    data:{json.dumps(st_labels, ensure_ascii=False)},
+    nameTextStyle:{{color:'{muted}',fontSize:{a_size}}},
+    axisLine:{{lineStyle:{{color:'{line_color}'}}}},
+    axisLabel:{{color:'{muted}',fontSize:11}},
+    splitLine:{{show:false}},
+  }},
+  yAxis:{{
+    name:'Value Capture', min:0, max:10,
+    nameTextStyle:{{color:'{muted}',fontSize:{a_size}}},
+    axisLine:{{lineStyle:{{color:'{line_color}'}}}},
+    splitLine:{{lineStyle:{{color:'rgba(255,255,255,0.06)'}}}},
+    splitNumber:10,
+  }},
+  backgroundColor:'{bg}',
+  {no_data_graphic}
+  // 高价值截留区（y≥7 绿色半透明带）
+  markLine:{{
+    silent:true, symbol:'none',
+    lineStyle:{{color:'rgba(129,199,132,0.25)',type:'solid',width:0}},
+    data:[
+      {{yAxis:{float(p.get("value_threshold") or 7)},label:{{show:true,formatter:{json.dumps("高价值截留区 ≥" + str(p.get("value_threshold") or 7), ensure_ascii=False)},position:'end',color:'{muted}',fontSize:10}},lineStyle:{{color:'rgba(129,199,132,0.3)',type:'dashed',width:1.5}}}},
+    ],
+  }},
+  // 高价值区域背景
+  markArea:{{
+    silent:true,
+    data:[[
+      {{yAxis:{float(p.get("value_threshold") or 7)},itemStyle:{{color:'rgba(129,199,132,0.05)'}}}},
+      {{yAxis:10}},
+    ]],
+  }},
+}};
+var chart=echarts.init(document.getElementById('chart'));
+chart.setOption(opt);
+{_echarts_fit_script("chart")}
 </script></body></html>"""
 
 
@@ -512,33 +754,14 @@ evs.forEach(function(e,i){{
 
 def build_competitive_landscape_svg(companies: list[dict], highlight: str,
                                      params: dict | None = None) -> str:
-    hi, ot = [], []
-    for c in companies:
-        n = str(c.get("company_name", ""))
-        dx = float(c.get("score_defensibility") or 0)
-        dy = float(c.get("score_incumbent_attention") or 0)
-        if dx == 0 and dy == 0: continue
-        (hi if n == highlight else ot).append({"name": n, "values": [{"x": dx, "y": dy, "name": n}]})
-    ds = []
-    if hi: ds.append({"name": highlight, "values": [v["values"][0] for v in hi]})
-    if ot: ds.append({"name": "其他公司", "values": [v["values"][0] for v in ot]})
-    return _build_echarts_scatter("竞争格局矩阵", "Defensibility", "Incumbent Attention", ds, params=params)
+    """竞争格局矩阵 HTML（ECharts 四象限散点图）"""
+    return _build_competitive_landscape_html(companies, highlight, params)
 
 
 def build_stack_positioning_svg(companies: list[dict], highlight: str,
                                  params: dict | None = None) -> str:
-    st_map = {"infrastructure": 1, "foundation_model": 2, "middleware": 3, "vertical_app": 4, "distribution": 5}
-    hi, ot = [], []
-    for c in companies:
-        n = str(c.get("company_name", ""))
-        sx = st_map.get(str(c.get("stack_layer") or "vertical_app"), 3)
-        dy = float(c.get("score_value_capture") or 0)
-        if dy == 0: continue
-        (hi if n == highlight else ot).append({"name": n, "values": [{"x": sx, "y": dy, "name": n}]})
-    ds = []
-    if hi: ds.append({"name": highlight, "values": [v["values"][0] for v in hi]})
-    if ot: ds.append({"name": "其他公司", "values": [v["values"][0] for v in ot]})
-    return _build_echarts_scatter("AI Stack 定位图", "Stack Layer", "Value Capture", ds, params=params)
+    """产业链生态位图 HTML（ECharts 离散轴散点图）"""
+    return _build_ecosystem_positioning_html(companies, highlight, params)
 
 
 def render_competitive_landscape(companies: list[dict], highlight: str, dest: str,
@@ -562,24 +785,26 @@ def render_stack_positioning(companies: list[dict], highlight: str, dest: str,
 
 
 # ═══════════════════════════════════════════════════════════════
-# ZRender 飞轮 / 时间线（替换原 SVG 模板渲染）
+# 飞轮 / 时间线渲染（SVG 模板 → Playwright PNG）
 # ═══════════════════════════════════════════════════════════════
 
 def render_flywheel(data: dict, dest: str) -> bool:
+    """从 JSON 渲染飞轮 SVG → PNG，返回是否成功"""
     try:
-        html = _build_zrender_flywheel(data)
-        _html_to_png(html, dest, width=800, height=800, scale=2)
+        svg = _build_flywheel_svg(data)
+        _svg_to_png(svg, dest, width=800, height=800)
         return os.path.getsize(dest) > 512
     except Exception:
         return False
 
 
 def render_timeline(data: dict, dest: str) -> bool:
+    """从 JSON 渲染时间线 SVG → PNG，返回是否成功"""
     try:
-        html = _build_zrender_timeline(data)
+        svg = _build_timeline_svg(data)
         n = len(data.get("events", []))
         total_h = 60 + n * 90 + 40
-        _html_to_png(html, dest, width=800, height=total_h, scale=2)
+        _svg_to_png(svg, dest, width=800, height=total_h)
         return os.path.getsize(dest) > 512
     except Exception:
         return False

@@ -208,6 +208,54 @@ def _persist_local_candidate(
     return passed
 
 
+def _persist_generated_candidate(
+    db_path: str,
+    company_name: str,
+    asset_key: str,
+    dest: str,
+    source_type: str,
+    source_url: str = "",
+    prompt: str = "",
+    meta: dict | None = None,
+) -> int:
+    """Persist a trusted locally generated image without scraped-image rejection rules."""
+    from asset_store import insert_variant
+
+    candidate = ImageCandidate(
+        company_name=company_name,
+        asset_key=asset_key,
+        image_url=_variant_browser_path(company_name, dest),
+        source_page="",
+        source_type=source_type,
+        title=prompt,
+        local_path=dest,
+        meta=meta or {},
+    )
+    inspect_local_image(candidate)
+    candidate.quality_score = 1.0
+    candidate.relevance_score = 1.0
+    candidate.source_score = 1.0
+    candidate.final_score = 1.0
+    return insert_variant(
+        db_path,
+        company_name,
+        asset_key,
+        local_path=_variant_browser_path(company_name, dest),
+        source_type=source_type,
+        source_url=source_url,
+        prompt=prompt,
+        width=candidate.width,
+        height=candidate.height,
+        file_size=candidate.file_size,
+        aspect_ratio=candidate.aspect_ratio,
+        quality_score=candidate.quality_score,
+        relevance_score=candidate.relevance_score,
+        source_score=candidate.source_score,
+        final_score=candidate.final_score,
+        meta=candidate.meta,
+    )
+
+
 def _collect_downloaded_candidate(
     db_path: str,
     images_root: str,
@@ -1274,6 +1322,47 @@ def _composite_grid(image_paths: list[str], dest: str, tile_size: int = 200,
     canvas.save(dest, "PNG")
 
 
+def _compose_competitor_logo_strip(logos: list[dict], dest: str,
+                                   width: int = 1280, height: int = 720):
+    """Compose up to three competitor logos into a 16:9 horizontal strip."""
+    from PIL import Image, ImageDraw
+
+    canvas = Image.new("RGB", (width, height), (255, 255, 255))
+    draw = ImageDraw.Draw(canvas)
+    margin_x = 90
+    slot_gap = 36
+    slot_count = 3
+    slot_w = (width - margin_x * 2 - slot_gap * (slot_count - 1)) // slot_count
+    slot_h = 430
+    top = 120
+    label_y = top + slot_h + 36
+
+    for i, item in enumerate(logos[:slot_count]):
+        left = margin_x + i * (slot_w + slot_gap)
+        draw.rounded_rectangle(
+            [left, top, left + slot_w, top + slot_h],
+            radius=18,
+            fill=(248, 250, 252),
+            outline=(226, 232, 240),
+            width=2,
+        )
+        img = Image.open(item["path"]).convert("RGBA")
+        img.thumbnail((slot_w - 88, slot_h - 120), Image.LANCZOS)
+        x = left + (slot_w - img.width) // 2
+        y = top + (slot_h - img.height) // 2 - 8
+        canvas.paste(img, (x, y), img)
+        name = str(item.get("name") or f"竞品{i + 1}")[:28]
+        try:
+            bbox = draw.textbbox((0, 0), name)
+            text_w = bbox[2] - bbox[0]
+        except Exception:
+            text_w = len(name) * 10
+        draw.text((left + (slot_w - text_w) // 2, label_y), name, fill=(30, 41, 59))
+
+    draw.text((margin_x, 54), "Competitor Logos", fill=(15, 23, 42))
+    canvas.save(dest, "PNG")
+
+
 # ═══════════════════════════════════════════════════════════════
 # 图片采集管道 — 多源变体采集器
 # ═══════════════════════════════════════════════════════════════
@@ -1610,6 +1699,56 @@ def _collect_competitors_variants(db_path: str, images_root: str, company_name: 
     return count
 
 
+def _collect_competitor_logo_strip_variants(db_path: str, images_root: str, company_name: str,
+                                            query_config: dict) -> int:
+    """Card 7: one 16:9 horizontal strip made from up to three competitor logos."""
+    comp_items = (query_config.get("per_comp") or [])[:3]
+    if not comp_items:
+        return 0
+
+    logos = []
+    tmp_paths = []
+    for i, item in enumerate(comp_items):
+        name = item.get("name", f"competitor-{i + 1}")
+        url_domain = urlparse(item.get("playwright_url") or "").netloc.replace("www.", "")
+        domain = url_domain or _guess_domain(name)
+        if not domain:
+            continue
+        dest = _variant_path(images_root, company_name, "competitors_logo_strip", f"comp{i}_logo")
+        logo_urls = [
+            f"https://logo.clearbit.com/{domain}",
+            f"https://www.google.com/s2/favicons?domain={domain}&sz=256",
+        ]
+        for logo_url in logo_urls:
+            if _download(logo_url, dest):
+                logos.append({"name": name, "path": dest, "source_url": logo_url})
+                tmp_paths.append(dest)
+                break
+
+    if not logos:
+        return 0
+
+    dest = _variant_path(images_root, company_name, "competitors_logo_strip", "logo_strip")
+    _compose_competitor_logo_strip(logos, dest, width=1280, height=720)
+    names = " / ".join(item["name"] for item in logos)
+    variant_id = _persist_generated_candidate(
+        db_path,
+        company_name,
+        "competitors_logo_strip",
+        dest,
+        "logo_strip",
+        source_url=";".join(item.get("source_url", "") for item in logos),
+        prompt=names,
+        meta={"layout": "horizontal_16_9", "competitors": [item["name"] for item in logos]},
+    )
+    for tmp in tmp_paths:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    return 1 if variant_id else 0
+
+
 # 管道入口
 def collect_image_variants_pipeline(
     db_path: str, images_root: str, company_name: str,
@@ -1633,6 +1772,8 @@ def collect_image_variants_pipeline(
         ("products_other", "卡片5：其他产品截图", lambda: _collect_products_other_variants(
             db_path, images_root, company_name, query_config.get("products_other", {}))),
         ("competitors", "卡片7：竞争格局截图", lambda: _collect_competitors_variants(
+            db_path, images_root, company_name, query_config.get("competitors", {}))),
+        ("competitors_logo_strip", "卡片7：三个竞品 Logo 横排图", lambda: _collect_competitor_logo_strip_variants(
             db_path, images_root, company_name, query_config.get("competitors", {}))),
     ]
 

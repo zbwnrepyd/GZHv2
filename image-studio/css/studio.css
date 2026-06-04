@@ -511,6 +511,446 @@ a:hover { text-decoration: underline; }
   color: var(--accent);
 }
 
+/* ── 需求式工作区 ── */
+.demand-workspace {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+  background: var(--surface);
+}
+.chart-workspace.echarts-workspace {
+  grid-template-rows: auto minmax(260px, 1fr) minmax(190px, 34vh) auto;
+}
+.workspace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.workspace-header h2 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0;
+}
+.workspace-header p {
+  margin: 2px 0 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.workspace-status {
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-light);
+  color: var(--ink-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.workspace-status.ready {
+  color: #15803d;
+  border-color: rgba(74,222,128,.45);
+  background: rgba(74,222,128,.12);
+}
+.chart-preview-stage {
+  min-height: 0;
+  padding: 18px 20px 18px 18px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.chart-preview-stage iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+}
+.chart-workspace.echarts-workspace .chart-preview-stage iframe {
+  min-height: 0;
+}
+.chart-param-bottom {
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.chart-param-bottom .param-inspector-compact {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+}
+.param-compact-tabs {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.param-compact-tabs button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin: 0 0 5px;
+  padding: 6px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-secondary);
+  font: 600 11px/1.3 var(--font);
+  text-align: left;
+  cursor: pointer;
+}
+.param-compact-tabs button.active {
+  border-color: rgba(41,184,212,.45);
+  background: var(--surface);
+  color: var(--ink);
+}
+.param-compact-tabs b {
+  min-width: 17px;
+  height: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(15,23,42,.06);
+  color: var(--ink-muted);
+  font: 700 10px/1 var(--font-mono);
+}
+.param-compact-fields {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 7px 9px;
+  align-content: start;
+}
+.param-compact-fields .param-field {
+  gap: 4px;
+  font-size: 10px;
+}
+.param-compact-fields .param-field input[type="text"],
+.param-compact-fields .param-field textarea,
+.param-compact-fields .param-field select {
+  min-height: 28px;
+  padding: 5px 7px;
+  font-size: 11px;
+}
+.param-compact-fields .param-field textarea {
+  min-height: 48px;
+}
+.param-compact-fields .param-field input[type="range"] {
+  height: 18px;
+}
+.param-compact-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 7px 9px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.param-compact-actions button {
+  min-width: 58px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.workspace-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.workspace-secondary {
+  padding: 6px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-secondary);
+  cursor: pointer;
+}
+
+/* ── 生成图参数检查器 ── */
+.param-panel {
+  width: clamp(340px, 34vw, 410px);
+  margin-right: 12px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.chart-right-dock {
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(260px, 1fr) minmax(220px, 36vh);
+  min-height: 0;
+  background: var(--surface);
+}
+.chart-right-dock.code-only {
+  grid-template-rows: 1fr;
+}
+.chart-param-host {
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+.param-inspector {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+}
+.param-inspector-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.param-inspector-head h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.param-inspector-head span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+.param-groups {
+  overflow-y: auto;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.param-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.param-group.open {
+  border-color: rgba(41,184,212,.55);
+}
+.param-group-title {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 10px;
+  border: 0;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 600 12px/1.4 var(--font);
+  cursor: pointer;
+}
+.param-group.open .param-group-title {
+  background: var(--accent-dim);
+}
+.param-group-body {
+  display: none;
+  padding: 10px;
+  gap: 9px;
+}
+.param-group.open .param-group-body {
+  display: grid;
+}
+.param-field {
+  display: grid;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--ink-secondary);
+}
+.param-field.compact,
+.param-field.inline {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+.param-field.inline {
+  display: flex;
+  gap: 8px;
+}
+.param-field b {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+.param-field input[type="text"],
+.param-field textarea,
+.param-field select {
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 12px/1.4 var(--font);
+  padding: 7px 8px;
+}
+.param-field textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+.param-field input[type="range"] {
+  width: 100%;
+}
+.param-empty,
+.param-loading,
+.param-error {
+  padding: 18px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  text-align: center;
+}
+.param-inspector-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+.param-inspector-actions button {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-param-secondary,
+.btn-param-primary {
+  border: 1px solid var(--border-light);
+  background: var(--surface);
+  color: var(--ink-secondary);
+}
+.btn-param-primary {
+  color: var(--accent);
+  border-color: rgba(41,184,212,.55);
+  background: var(--accent-dim);
+}
+.btn-param-confirm {
+  grid-column: 1 / -1;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.echarts-code-panel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: #0B1220;
+  color: #E5E7EB;
+}
+.echarts-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(148,163,184,.22);
+}
+.echarts-code-head h3 {
+  margin: 0;
+  color: #F8FAFC;
+  font-size: 12px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.echarts-code-head span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: #94A3B8;
+}
+.echarts-code-head button {
+  padding: 6px 10px;
+  border: 1px solid rgba(41,184,212,.6);
+  border-radius: var(--radius-sm);
+  background: rgba(41,184,212,.12);
+  color: #67E8F9;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.echarts-code-head button:hover {
+  background: rgba(41,184,212,.22);
+}
+.chart-code-editor-wrap {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: #0B1220;
+}
+.chart-code-highlight,
+.chart-code-editor {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 12px;
+  font: 11px/1.55 var(--font-mono);
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+}
+.chart-code-highlight {
+  margin: 0;
+  border: 0;
+  color: #CBD5E1;
+  pointer-events: none;
+}
+.chart-code-editor {
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: #67E8F9;
+  -webkit-text-fill-color: transparent;
+}
+.chart-code-editor::selection {
+  background: rgba(103,232,249,.28);
+}
+.tok-comment { color: #64748B; }
+.tok-tag { color: #60A5FA; }
+.tok-string { color: #A7F3D0; }
+.tok-keyword { color: #C4B5FD; font-weight: 700; }
+.tok-api { color: #F9E2AF; }
+
+@media (min-width: 1300px) {
+  .chart-param-bottom .param-inspector-compact {
+    grid-template-columns: 128px minmax(0, 1fr) 124px;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .param-compact-actions {
+    grid-column: auto;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
+}
+
 /* ── 空态 ── */
 .empty-state {
   display: flex; flex-direction: column;
@@ -709,6 +1149,14 @@ a:hover { text-decoration: underline; }
 @media (max-width: 1100px) {
   .overview-panel { width: 200px; }
   .candidate-panel { width: 280px; }
+  body.chart-mode .overview-panel { display: none; }
+  body.chart-mode .param-panel {
+    width: clamp(300px, 42vw, 360px);
+    margin-right: 8px;
+  }
+  body.chart-mode .chart-preview-stage {
+    padding: 12px;
+  }
 }
 
 /* ── 图表功能区 Bar ── */

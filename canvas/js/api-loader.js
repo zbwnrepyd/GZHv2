@@ -80,7 +80,11 @@ async function loadFromAPI(company) {
 async function loadSingleCardFromAPI(company, cardIndex) {
   const result = await loadFromAPI(company);
   const cardData = result.allCardData[cardIndex] || {};
-  cardData._assets = await loadAssetsFromAPI(company);
+  const resolved = await loadResolvedAssetsFromAPI(company);
+  const assets = resolved ? flattenResolvedAssets(resolved) : await loadAssetsFromAPI(company);
+  cardData._assets = assets;
+  cardData._allAssets = assets;
+  cardData._resolvedCardAssets = resolved?.card_assets?.[`card_${cardIndex}`] || {};
   return cardData;
 }
 
@@ -97,7 +101,16 @@ const CARD_ASSET_MAP = {
   7: "competitors",
 };
 
+const DEMAND_ASSET_KEYS = [
+  "logo", "website_screenshot", "office", "product_main", "products_other",
+  "competitors", "competitors_logo_strip", "chart_competitive", "chart_ecosystem", "flywheel", "timeline",
+];
+
 async function loadAssetsFromAPI(company) {
+  const resolved = await loadResolvedAssetsFromAPI(company);
+  if (resolved) {
+    return flattenResolvedAssets(resolved);
+  }
   try {
     const resp = await fetch(`/api/assets/${encodeURIComponent(company)}`);
     if (!resp.ok) return {};
@@ -108,13 +121,40 @@ async function loadAssetsFromAPI(company) {
   }
 }
 
+async function loadResolvedAssetsFromAPI(company) {
+  try {
+    const resp = await fetch(`/api/assets/resolved?company=${encodeURIComponent(company)}`);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+function flattenResolvedAssets(resolved) {
+  const out = {};
+  const cardAssets = resolved?.card_assets || {};
+  Object.values(cardAssets).forEach((slots) => {
+    Object.entries(slots || {}).forEach(([assetKey, asset]) => {
+      if (!asset) return;
+      const localPath = asset.local_path || asset.url || '';
+      out[assetKey] = { ...asset, local_path: localPath, url: asset.url || localPath };
+    });
+  });
+  return out;
+}
+
 // asset_key → 中文标签
 const ASSET_LABELS = {
   logo: "Logo",
-  office: "办公室/地图",
+  website_screenshot: "官网截图",
+  office: "办公室或地图",
   product_main: "主产品截图",
-  products_other: "其他产品",
-  competitors: "竞品 Logo",
-  flywheel: "增长飞轮",
-  timeline: "发展时间线",
+  products_other: "其他产品截图",
+  competitors: "竞品截图",
+  competitors_logo_strip: "三个竞品 Logo 横排图",
+  chart_competitive: "AI 创业公司竞争格局图",
+  chart_ecosystem: "AI 产业链生态位图",
+  flywheel: "飞轮图",
+  timeline: "时间线图",
 };

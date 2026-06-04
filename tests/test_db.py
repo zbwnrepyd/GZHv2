@@ -208,11 +208,34 @@ class AssetVariantTests(unittest.TestCase):
 
         self.assertFalse(selected)
 
-    def test_positioning_charts_asset_is_attached_to_card_6(self):
+    def test_chart_slots_attached_to_card_7(self):
+        """chart_competitive 和 chart_ecosystem 同属卡片7"""
         assets = asset_store.get_assets(self.db_path, "DemoCo")
 
-        self.assertIn("positioning_charts", assets)
-        self.assertEqual(assets["positioning_charts"]["card_index"], 6)
+        self.assertIn("chart_competitive", assets)
+        self.assertEqual(assets["chart_competitive"]["card_index"], 7)
+        self.assertIn("chart_ecosystem", assets)
+        self.assertEqual(assets["chart_ecosystem"]["card_index"], 7)
+        # 旧 positioning_charts 已被迁移删除
+        self.assertNotIn("positioning_charts", assets)
+
+    def test_demand_based_assets_include_website_screenshot(self):
+        assets = asset_store.get_assets(self.db_path, "DemoCo")
+
+        self.assertIn("website_screenshot", assets)
+        self.assertEqual(assets["website_screenshot"]["card_index"], 2)
+
+    def test_demand_asset_count_is_eleven(self):
+        assets = asset_store.get_assets(self.db_path, "DemoCo")
+        expected = {
+            "logo", "website_screenshot", "office", "product_main",
+            "products_other", "competitors", "competitors_logo_strip", "chart_competitive",
+            "chart_ecosystem", "flywheel", "timeline",
+        }
+
+        self.assertEqual(set(assets), expected)
+
+    def test_office_asset_starts_missing(self):
         demo_asset = asset_store.get_asset(self.db_path, "DemoCo", "office")
         self.assertEqual(demo_asset["status"], "missing")
         self.assertIsNone(demo_asset["local_path"])

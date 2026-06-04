@@ -24,7 +24,7 @@ console.log(JSON.stringify(result));
     return json.loads(output)
 
 
-def run_api_loader(api_json: dict, company: str = "Cursor") -> dict:
+def run_api_loader(api_json: dict, company: str = "Cursor", resolved_json=None) -> dict:
     parser_path = os.path.join(ROOT, "canvas", "js", "markdown-parser.js")
     loader_path = os.path.join(ROOT, "canvas", "js", "api-loader.js")
     script = f"""
@@ -33,10 +33,20 @@ const vm = require('vm');
 const parserCode = fs.readFileSync({json.dumps(parser_path)}, 'utf8');
 const loaderCode = fs.readFileSync({json.dumps(loader_path)}, 'utf8');
 const context = {{
-  fetch: async (url) => ({{
-    ok: true,
-    json: async () => ({json.dumps(api_json, ensure_ascii=False)}),
-  }}),
+  fetch: async (url) => {{
+    if (String(url).startsWith('/api/assets/resolved')) {{
+      const resolved = {json.dumps(resolved_json, ensure_ascii=False)};
+      if (resolved === null) return {{ ok: false, status: 404, json: async () => ({{ error: 'missing' }}) }};
+      return {{ ok: true, json: async () => resolved }};
+    }}
+    if (String(url).startsWith('/api/assets/')) {{
+      return {{ ok: true, json: async () => ({{ assets: {{}} }}) }};
+    }}
+    return {{
+      ok: true,
+      json: async () => ({json.dumps(api_json, ensure_ascii=False)}),
+    }};
+  }},
   console,
 }};
 vm.createContext(context);
@@ -460,6 +470,81 @@ class CanvasParserTests(unittest.TestCase):
         self.assertEqual(loaded["allCardData"]["4"]["主产品名"], "Cursor")
         self.assertEqual(loaded["allCardData"]["4"]["产品定义"], "AI 代码编辑器")
         self.assertEqual(loaded["allCardData"]["4"]["_image"], "/static/cursor.png")
+
+    def test_single_card_loader_prefers_resolved_assets(self):
+        parser_path = os.path.join(ROOT, "canvas", "js", "markdown-parser.js")
+        loader_path = os.path.join(ROOT, "canvas", "js", "api-loader.js")
+        final_json = {
+            "company_name": "Cursor",
+            "confirmed_count": 1,
+            "cards": {
+                "4": {
+                    "fields": {
+                        "main_product_name": "Cursor",
+                    },
+                }
+            },
+        }
+        resolved_json = {
+            "company_name": "Cursor",
+            "card_spec_version": "v1",
+            "card_assets": {
+                "card_1": {},
+                "card_2": {},
+                "card_3": {},
+                "card_4": {
+                    "product_main": {
+                        "url": "/images/Cursor/variants/product__best.png",
+                        "local_path": "/images/Cursor/variants/product__best.png",
+                        "kind": "image",
+                        "variant_type": "ratio_16_9",
+                        "status": "fallback",
+                        "width": 1600,
+                        "height": 900,
+                    }
+                },
+                "card_7": {
+                    "competitors_logo_strip": {
+                        "url": "/images/Cursor/variants/logos.png",
+                        "local_path": "/images/Cursor/variants/logos.png",
+                        "kind": "image",
+                        "variant_type": "ratio_16_9",
+                        "status": "selected",
+                    }
+                },
+                "card_8": {},
+            },
+        }
+        script = f"""
+const fs = require('fs');
+const vm = require('vm');
+const parserCode = fs.readFileSync({json.dumps(parser_path)}, 'utf8');
+const loaderCode = fs.readFileSync({json.dumps(loader_path)}, 'utf8');
+const context = {{
+  fetch: async (url) => {{
+    if (String(url).startsWith('/api/assets/resolved')) {{
+      return {{ ok: true, json: async () => ({json.dumps(resolved_json, ensure_ascii=False)}) }};
+    }}
+    return {{ ok: true, json: async () => ({json.dumps(final_json, ensure_ascii=False)}) }};
+  }},
+  console,
+}};
+vm.createContext(context);
+vm.runInContext(parserCode, context);
+vm.runInContext(loaderCode, context);
+context.loadSingleCardFromAPI('Cursor', 4).then((result) => {{
+  console.log(JSON.stringify(result));
+}}).catch((err) => {{
+  console.error(err && err.stack ? err.stack : err);
+  process.exit(1);
+}});
+"""
+        output = subprocess.check_output(["node", "-e", script], text=True)
+        loaded = json.loads(output)
+
+        self.assertEqual(loaded["_assets"]["product_main"]["local_path"], "/images/Cursor/variants/product__best.png")
+        self.assertEqual(loaded["_assets"]["competitors_logo_strip"]["local_path"], "/images/Cursor/variants/logos.png")
+        self.assertEqual(loaded["_resolvedCardAssets"]["product_main"]["variant_type"], "ratio_16_9")
 
     def test_api_loader_keeps_remote_markdown_images_for_folder(self):
         api_json = {

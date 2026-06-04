@@ -73,7 +73,9 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("renderCardSource", html)
         self.assertIn("fonts.googleapis.com", html)
         self.assertIn("Bebas+Neue", html)
-        self.assertIn("cardData._assets = await loadAssetsFromAPI(company)", api_loader_js)
+        self.assertIn("loadResolvedAssetsFromAPI(company)", api_loader_js)
+        self.assertIn("cardData._allAssets = assets", api_loader_js)
+        self.assertIn("cardData._resolvedCardAssets", api_loader_js)
 
     def test_screenshot_cli_exports_multiple_high_resolution_shots(self):
         with open(os.path.join(ROOT, "canvas", "screenshot.js"), encoding="utf-8") as f:
@@ -210,6 +212,84 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn('id="candidate-grid-2col"', sidebar_js)
         self.assertNotIn("<h3>候选</h3>", sidebar_js)
         self.assertIn(".candidate-panel", css)
+
+    def test_image_studio_uses_demand_based_workspaces(self):
+        with open(os.path.join(ROOT, "image-studio", "index.html"), encoding="utf-8") as f:
+            html = f.read()
+        with open(os.path.join(ROOT, "image-studio", "js", "studio-app.js"), encoding="utf-8") as f:
+            app_js = f.read()
+        with open(os.path.join(ROOT, "image-studio", "js", "workspace-chart.js"), encoding="utf-8") as f:
+            chart_js = f.read()
+        with open(os.path.join(ROOT, "image-studio", "js", "param-inspector.js"), encoding="utf-8") as f:
+            inspector_js = f.read()
+        with open(os.path.join(ROOT, "image-studio", "css", "studio.css"), encoding="utf-8") as f:
+            css = f.read()
+        with open(os.path.join(ROOT, "webapp", "infographic.py"), encoding="utf-8") as f:
+            infographic_py = f.read()
+
+        self.assertIn("workspace-image.js", html)
+        self.assertIn("workspace-chart.js", html)
+        self.assertIn("param-inspector.js", html)
+        self.assertIn("DEMAND_LABELS", app_js)
+        self.assertIn("website_screenshot", app_js)
+        self.assertIn("competitors_logo_strip", app_js)
+        self.assertIn("数据与文字", inspector_js)
+        self.assertIn("画布与版式", inspector_js)
+        self.assertIn("字体与颜色", inspector_js)
+        self.assertIn("图表专属", inspector_js)
+        self.assertIn("输出版本", inspector_js)
+        self.assertIn(".demand-workspace", css)
+        self.assertIn(".param-inspector", css)
+        self.assertIn("echarts-code-panel", chart_js)
+        self.assertIn("chart-code-editor", chart_js)
+        self.assertIn("chart-code-highlight", chart_js)
+        self.assertIn("_syncCodeHighlight", chart_js)
+        self.assertIn("chart-param-bottom", chart_js)
+        self.assertIn("mode: 'compact'", chart_js)
+        self.assertIn("this._syncCodeHighlight(textarea.value)", chart_js)
+        self.assertIn("this._applyCodePreview();", chart_js)
+        self.assertNotIn("data-chart-code-action=\"apply\"", chart_js)
+        self.assertIn("renderChartHtml", chart_js)
+        self.assertIn("svg{display:block;max-width:86%;max-height:86%", chart_js)
+        self.assertIn("param-inspector-compact", inspector_js)
+        self.assertIn("param-compact-tabs", inspector_js)
+        self.assertIn(".chart-param-bottom", css)
+        self.assertIn(".param-inspector-compact", css)
+        self.assertIn(".chart-code-highlight", css)
+        self.assertIn(".tok-keyword", css)
+        self.assertIn(".chart-right-dock", css)
+        self.assertIn(".echarts-code-panel", css)
+        self.assertIn(".chart-workspace.echarts-workspace .chart-preview-stage iframe", css)
+        self.assertIn("min-height: 0", css)
+        self.assertIn("chart-frame", infographic_py)
+        self.assertIn("fitChartCanvas", infographic_py)
+        self.assertIn("transform='scale('", infographic_py)
+        self.assertIn("object-fit:contain", infographic_py)
+
+    def test_canvas_image_folder_supports_all_asset_keys(self):
+        with open(os.path.join(ROOT, "canvas", "card-renderer.html"), encoding="utf-8") as f:
+            html = f.read()
+        with open(os.path.join(ROOT, "canvas", "js", "api-loader.js"), encoding="utf-8") as f:
+            api_loader = f.read()
+        with open(os.path.join(ROOT, "canvas", "js", "html-card-renderer.js"), encoding="utf-8") as f:
+            renderer = f.read()
+
+        self.assertIn("renderAllCompanyAssets", html)
+        self.assertIn("website_screenshot", api_loader)
+        self.assertIn("competitors_logo_strip", api_loader)
+        self.assertIn("chart_competitive", api_loader)
+        self.assertIn("chart_ecosystem", api_loader)
+        self.assertIn("allAssets", renderer)
+
+    def test_card_spec_freezes_current_eight_card_asset_contract(self):
+        with open(os.path.join(ROOT, "docs", "card-spec.md"), encoding="utf-8") as f:
+            spec = f.read()
+
+        self.assertIn("card_spec_version = v1", spec)
+        self.assertIn("`card_8`", spec)
+        self.assertIn("`competitors_logo_strip`", spec)
+        self.assertIn("`chart_competitive`", spec)
+        self.assertIn("GET /api/assets/resolved", spec)
 
     def test_card2_map_is_main_collection_path(self):
         with open(os.path.join(ROOT, "webapp", "asset_pipeline.py"), encoding="utf-8") as f:

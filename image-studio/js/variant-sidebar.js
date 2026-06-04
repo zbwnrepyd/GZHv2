@@ -104,7 +104,8 @@ const VariantSidebar = {
         const srcLabel = { web_pexels: 'Pexels', web_unsplash: 'Unsplash', web_tavily: 'Tavily',
                            import_upload: '上传', import_url: 'URL', api_generate: 'AI', osm_map: '地图',
                            official_og_image: 'OG', product_hunt: 'PH', playwright: '截图',
-                           street_view: 'Street View', clearbit: 'Clearbit' }[v.source_type] || v.source_type;
+                           street_view: 'Street View', clearbit: 'Clearbit',
+                           logo_strip: 'Logo拼图' }[v.source_type] || v.source_type;
         const dimensions = v.width && v.height ? `${v.width}×${v.height}` : '';
         const score = Number(v.final_score || 0).toFixed(1);
         const rejectReason = v.reject_reason ? `<div class="thumb-reject" title="${this._escape(v.reject_reason)}">${this._escape(v.reject_reason)}</div>` : '';

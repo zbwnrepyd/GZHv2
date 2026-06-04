@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import sqlite3
 import sys
 import tempfile
@@ -236,6 +237,109 @@ class ImageRouteTests(unittest.TestCase):
         self.assertEqual(payload["variants"][0]["width"], 1200)
         self.assertAlmostEqual(payload["variants"][0]["final_score"], 86.5)
 
+    def test_image_studio_overview_uses_demand_order(self):
+        response = self.client.get("/api/image-studio/DemoCo")
+
+        self.assertEqual(response.status_code, 200)
+        keys = [slot["asset_key"] for slot in response.get_json()["slots"]]
+        self.assertEqual(keys, [
+            "logo", "website_screenshot", "office", "product_main",
+            "products_other", "competitors", "competitors_logo_strip", "chart_competitive",
+            "chart_ecosystem", "flywheel", "timeline",
+        ])
+
+    def test_resolved_assets_flattens_card_assets_and_prefers_selected_variant(self):
+        asset_store.ensure_assets_rows(self.assets_db_path, "DemoCo")
+        selected_logo_id = asset_store.insert_variant(
+            self.assets_db_path, "DemoCo", "logo",
+            local_path="/images/DemoCo/variants/logo__selected.png",
+            source_type="upload",
+            width=512, height=512, aspect_ratio=1.0,
+            final_score=0.4,
+        )
+        asset_store.insert_variant(
+            self.assets_db_path, "DemoCo", "logo",
+            local_path="/images/DemoCo/variants/logo__higher.png",
+            source_type="clearbit",
+            width=512, height=512, aspect_ratio=1.0,
+            final_score=0.9,
+        )
+        asset_store.select_variant(self.assets_db_path, "DemoCo", "logo", selected_logo_id)
+        asset_store.insert_variant(
+            self.assets_db_path, "DemoCo", "product_main",
+            local_path="/images/DemoCo/variants/product__low.png",
+            source_type="playwright",
+            width=1200, height=900, aspect_ratio=1.333,
+            final_score=0.2,
+        )
+        asset_store.insert_variant(
+            self.assets_db_path, "DemoCo", "product_main",
+            local_path="/images/DemoCo/variants/product__best.png",
+            source_type="playwright",
+            width=1600, height=900, aspect_ratio=1.777,
+            final_score=0.8,
+        )
+
+        response = self.client.get("/api/assets/resolved?company=DemoCo")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["company_name"], "DemoCo")
+        self.assertEqual(payload["card_spec_version"], "v1")
+        self.assertEqual(payload["card_assets"]["card_1"]["logo"]["url"], "/images/DemoCo/variants/logo__selected.png")
+        self.assertEqual(payload["card_assets"]["card_1"]["logo"]["status"], "selected")
+        self.assertEqual(payload["card_assets"]["card_1"]["logo"]["variant_id"], selected_logo_id)
+        self.assertEqual(payload["card_assets"]["card_4"]["product_main"]["url"], "/images/DemoCo/variants/product__best.png")
+        self.assertEqual(payload["card_assets"]["card_4"]["product_main"]["status"], "fallback")
+        self.assertEqual(payload["card_assets"]["card_4"]["product_main"]["variant_type"], "ratio_16_9")
+        self.assertEqual(payload["card_assets"]["card_3"]["timeline"]["status"], "placeholder")
+        self.assertEqual(payload["card_assets"]["card_3"]["timeline"]["kind"], "chart")
+        self.assertEqual(payload["card_assets"]["card_8"], {})
+
+    def test_chart_data_endpoint_returns_editable_competitive_payload(self):
+        response = self.client.post("/api/image-studio/DemoCo/chart_competitive/chart-data")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["asset_key"], "chart_competitive")
+        self.assertEqual(data["chart_type"], "competitive_landscape")
+        self.assertIn("companies", data)
+        self.assertIn("params", data)
+        self.assertIn("title", data["params"])
+
+    def test_chart_preview_returns_html_even_without_scored_companies(self):
+        with patch.object(app_module, "_load_all_scored_companies", return_value=[]):
+            response = self.client.post(
+                "/api/image-studio/DemoCo/chart_competitive/preview",
+                json={"params": {"title": "竞争格局图"}},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("<!DOCTYPE html>", html)
+        self.assertIn("暂无可用图表数据", html)
+        self.assertIn("echarts.init", html)
+
+    def test_render_html_endpoint_records_hand_edited_echarts_variant(self):
+        def fake_html_to_png(html, dest, width=800, height=600, scale=2):
+            Image.new("RGB", (width, height), (20, 30, 40)).save(dest)
+
+        html = "<!doctype html><html><body><script>const echarts = window.echarts || {};</script></body></html>"
+        with patch.object(app_module, "_html_to_png", side_effect=fake_html_to_png):
+            response = self.client.post(
+                "/api/image-studio/DemoCo/chart_competitive/render-html",
+                json={"html": html, "params": {"width": 900, "height": 500}},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        variants = asset_store.list_variants(self.assets_db_path, "DemoCo", "chart_competitive")
+        self.assertEqual(payload["variant_id"], variants[0]["id"])
+        self.assertEqual(variants[0]["source_type"], "echarts_html")
+        self.assertEqual(variants[0]["width"], 900)
+        self.assertEqual(variants[0]["height"], 500)
+        self.assertTrue(variants[0]["is_selected"])
+
     def test_rescore_endpoint_updates_scores_and_selects_best_variant(self):
         low_id = asset_store.insert_variant(
             self.assets_db_path,
@@ -448,6 +552,47 @@ class AssetPathSafetyTests(unittest.TestCase):
         self.assertIn("street_view", {v["source_type"] for v in variants})
         self.assertIn("web_tavily", {v["source_type"] for v in variants})
         render_map.assert_called_once()
+
+    def test_competitor_logo_strip_collection_creates_single_16_9_variant(self):
+        assets_db_path = init_sqlite("init_assets_db.sql")
+        self.addCleanup(lambda: os.path.exists(assets_db_path) and os.remove(assets_db_path))
+        asset_store.ensure_assets_rows(assets_db_path, "DemoCo")
+
+        colors = [(235, 85, 85), (85, 150, 235), (85, 190, 120)]
+
+        def fake_download(url, dest, timeout=15):
+            idx = int(re.search(r"comp(\d+)_logo", dest).group(1))
+            Image.new("RGB", (240, 120), colors[idx]).save(dest)
+            return True
+
+        query_config = {
+            "per_comp": [
+                {"name": "Alpha", "playwright_url": "https://alpha.example"},
+                {"name": "Beta", "playwright_url": "https://beta.example"},
+                {"name": "Gamma", "playwright_url": "https://gamma.example"},
+            ]
+        }
+
+        with tempfile.TemporaryDirectory() as images_root:
+            with patch.object(asset_pipeline, "_download", side_effect=fake_download):
+                count = asset_pipeline._collect_competitor_logo_strip_variants(
+                    assets_db_path,
+                    images_root,
+                    "DemoCo",
+                    query_config,
+                )
+            variants = asset_store.list_variants(assets_db_path, "DemoCo", "competitors_logo_strip")
+            local_file = os.path.join(images_root, "DemoCo", "variants", os.path.basename(variants[0]["local_path"]))
+            with Image.open(local_file) as img:
+                size = img.size
+
+        self.assertEqual(count, 1)
+        self.assertEqual(len(variants), 1)
+        self.assertEqual(variants[0]["source_type"], "logo_strip")
+        self.assertEqual(size, (1280, 720))
+        self.assertEqual(variants[0]["width"], 1280)
+        self.assertEqual(variants[0]["height"], 720)
+        self.assertIn("Alpha", variants[0]["prompt"])
 
     def test_tavily_collector_scores_all_candidates_and_records_rejections(self):
         assets_db_path = init_sqlite("init_assets_db.sql")

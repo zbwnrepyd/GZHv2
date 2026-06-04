@@ -817,6 +817,7 @@ const Workbench = {
       for (let i = 1; i <= 8; i++) {
         if (!this.allCardData[i]) this.allCardData[i] = {};
         this.allCardData[i]._assets = assets;
+        this.allCardData[i]._allAssets = assets;
       }
 
       this.currentCard = Number(Object.keys(this.allCardData)[0] || 1);
@@ -866,27 +867,33 @@ const Workbench = {
   collectImages() {
     const images = [];
     const seen = new Set();
-    const add = (cardIndex, src, source) => {
+    const add = (cardIndex, src, source, assetKey = '') => {
       if (!src || seen.has(src)) return;
       seen.add(src);
-      images.push({ cardIndex, src, source });
+      images.push({ cardIndex, src, source, assetKey });
     };
 
     // 服务器资产
     const assets = this.allCardData[1]?._assets || {};
-    for (const [assetKey, asset] of Object.entries(assets)) {
-      if (asset && asset.local_path && asset.status === 'ready') {
-        const cardIndex = Object.entries(CARD_ASSET_MAP).find(([, v]) => v === assetKey)?.[0];
-        const label = ASSET_LABELS[assetKey] || assetKey;
-        add(Number(cardIndex) || 0, asset.local_path, label);
-      }
-    }
+    this.renderAllCompanyAssets(assets, add);
 
     for (const [cardIndex, data] of Object.entries(this.allCardData || {})) {
       add(Number(cardIndex), data?._image, '定稿图片');
     }
 
     return images;
+  },
+
+  renderAllCompanyAssets(assets, add) {
+    const keys = Array.isArray(DEMAND_ASSET_KEYS) ? DEMAND_ASSET_KEYS : Object.keys(assets || {});
+    for (const assetKey of keys) {
+      const asset = assets ? assets[assetKey] : null;
+      if (asset && asset.local_path && asset.status === 'ready') {
+        const cardIndex = Object.entries(CARD_ASSET_MAP).find(([, v]) => v === assetKey)?.[0];
+        const label = ASSET_LABELS[assetKey] || assetKey;
+        add(Number(cardIndex) || 0, asset.local_path, label, assetKey);
+      }
+    }
   },
 
   renderImageFolder() {
@@ -902,9 +909,9 @@ const Workbench = {
     }
 
     folder.innerHTML = images.map((image, index) => `
-      <button class="image-tile" data-card="${image.cardIndex}" title="卡片 ${image.cardIndex} · ${this.esc(image.source)}">
+      <button class="image-tile" data-card="${image.cardIndex}" data-asset-key="${this.escAttr(image.assetKey || '')}" title="${image.cardIndex ? `卡片 ${image.cardIndex} · ` : ''}${this.esc(image.source)}">
         <img class="image-thumb" src="${this.escAttr(image.src)}" alt="">
-        <div class="image-meta">${image.cardIndex} · ${this.esc(image.source || `图片${index + 1}`)}</div>
+        <div class="image-meta">${image.cardIndex ? `${image.cardIndex} · ` : ''}${this.esc(image.source || `图片${index + 1}`)}</div>
       </button>
     `).join('');
 
@@ -1029,6 +1036,7 @@ const Workbench = {
       for (let i = 1; i <= 8; i++) {
         if (!this.allCardData[i]) this.allCardData[i] = {};
         this.allCardData[i]._assets = assets;
+        this.allCardData[i]._allAssets = assets;
       }
     }
 

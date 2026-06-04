@@ -3,7 +3,7 @@
 CREATE TABLE IF NOT EXISTS company_assets (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   company_name TEXT    NOT NULL,
-  asset_key    TEXT    NOT NULL,  -- logo|office|product_main|products_other|competitors|flywheel|timeline|positioning_charts
+  asset_key    TEXT    NOT NULL,  -- logo|website_screenshot|office|product_main|products_other|competitors|competitors_logo_strip|flywheel|timeline|chart_competitive|chart_ecosystem
   card_index   INTEGER NOT NULL,
   local_path   TEXT,
   source_type  TEXT,              -- favicon|web_search|screenshot|composite|svg_render|api_generate
