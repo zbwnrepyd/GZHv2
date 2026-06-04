@@ -25,7 +25,19 @@
 
 <main id="editor-workbench">
   <aside id="editor-left-pane">
-    <!-- GZHv2 手风琴1：卡片设置 -->
+    <!-- 手风琴1：字段定稿（主流程入口，默认展开） -->
+    <div class="accordion-section" data-od-id="editor-field-finalize">
+      <div class="accordion-header open" data-section="field-finalize">
+        <span class="arrow">&#9654;</span> 字段定稿
+      </div>
+      <div class="accordion-body open" data-section="field-finalize" data-od-id="editor-field-finalize-body">
+        <div id="field-finalize-content" data-od-id="editor-field-finalize-content">
+          <!-- 由 field-finalize-panel.js 动态渲染 -->
+        </div>
+      </div>
+    </div>
+
+    <!-- 手风琴2：卡片设置 -->
     <div class="accordion-section" data-od-id="editor-card-settings">
       <div class="accordion-header" data-section="card-settings">
         <span class="arrow">&#9654;</span> 卡片设置
@@ -37,24 +49,12 @@
       </div>
     </div>
 
-    <!-- GZHv2 手风琴2：字段定稿 -->
-    <div class="accordion-section" data-od-id="editor-field-finalize">
-      <div class="accordion-header" data-section="field-finalize">
-        <span class="arrow">&#9654;</span> 字段定稿
-      </div>
-      <div class="accordion-body" data-section="field-finalize" data-od-id="editor-field-finalize-body">
-        <div id="field-finalize-content" data-od-id="editor-field-finalize-content">
-          <!-- 由 field-finalize-panel.js 动态渲染 -->
-        </div>
-      </div>
-    </div>
-
-    <!-- 手风琴3：内容定稿（旧版，保留兼容） -->
+    <!-- 手风琴3：内容定稿（旧版 1-8 卡，兼容入口） -->
     <div class="accordion-section">
-      <div class="accordion-header open" data-section="content">
-        <span class="arrow">&#9654;</span> 内容定稿
+      <div class="accordion-header" data-section="content">
+        <span class="arrow">&#9654;</span> 内容定稿（旧版 1-8 卡）
       </div>
-      <div class="accordion-body open" data-section="content">
+      <div class="accordion-body" data-section="content">
         <div id="editor-card-nav">
           <button class="editor-card-btn" data-card="1">卡片1·首页</button>
           <button class="editor-card-btn" data-card="2">卡片2·公司介绍</button>
