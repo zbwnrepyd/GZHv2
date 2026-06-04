@@ -319,16 +319,68 @@ const LayoutApp = {
   },
 
   _exportPNG() {
-    this._startExport();
+    this._showExportDialog();
   },
 
-  async _startExport() {
+  _showExportDialog() {
+    if (document.getElementById('export-dialog-overlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'export-dialog-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999;display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML = `
+      <div style="background:var(--surface-1, #fff);border-radius:12px;padding:24px;min-width:360px;max-width:420px;box-shadow:0 8px 40px rgba(0,0,0,.2)">
+        <h3 style="margin:0 0 16px;font-size:16px;color:var(--text, #1B2A4A)">导出卡片</h3>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <label style="font-size:13px;color:var(--text-muted, #556B82)">
+            导出范围
+            <select id="export-range" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--border, #E2E4E9);border-radius:6px;font-size:13px">
+              <option value="current">当前卡片</option>
+              <option value="all">全部启用卡片</option>
+            </select>
+          </label>
+          <label style="font-size:13px;color:var(--text-muted, #556B82)">
+            格式
+            <select id="export-format" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--border, #E2E4E9);border-radius:6px;font-size:13px">
+              <option value="png">PNG（单个文件）</option>
+              <option value="zip">ZIP（打包下载）</option>
+            </select>
+          </label>
+          <label style="font-size:13px;color:var(--text-muted, #556B82)">
+            倍率
+            <select id="export-scale" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--border, #E2E4E9);border-radius:6px;font-size:13px">
+              <option value="1">1x</option>
+              <option value="2" selected>2x</option>
+              <option value="3">3x</option>
+            </select>
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
+          <button id="export-dialog-cancel" style="padding:7px 16px;border:1px solid var(--border, #E2E4E9);border-radius:6px;background:var(--surface-1, #fff);font-size:13px;cursor:pointer">取消</button>
+          <button id="export-dialog-confirm" style="padding:7px 20px;border:none;border-radius:6px;background:var(--cyan, #29B8D4);color:#fff;font-size:13px;font-weight:600;cursor:pointer">开始导出</button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#export-dialog-cancel').onclick = () => overlay.remove();
+    overlay.querySelector('#export-dialog-confirm').onclick = () => {
+      const range = document.getElementById('export-range').value;
+      const format = document.getElementById('export-format').value;
+      const scale = parseInt(document.getElementById('export-scale').value);
+      overlay.remove();
+      this._startExport({ range, format, scale });
+    };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  },
+
+  async _startExport(opts = {}) {
     try {
       this._setStatus('导出中');
       const payload = {
-        card_ids: this._activeCardId ? [this._activeCardId] : undefined,
-        format: 'png',
-        scale: 3,
+        card_ids: opts.range === 'current' && this._activeCardId ? [this._activeCardId] : undefined,
+        format: opts.format || 'png',
+        scale: opts.scale || 2,
       };
       const r = await fetch(`/api/export/${encodeURIComponent(this._company)}`, {
         method: 'POST',
