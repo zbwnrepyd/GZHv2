@@ -187,7 +187,7 @@ const LayoutApp = {
     const template = this._effectiveTemplate();
     const regions = template.regions || [];
     el.innerHTML = regions.map((r, i) => `
-      <div class="layer-item" data-region-id="${r.id}">
+      <div class="layer-item${r.id === this._activeRegionId ? ' active' : ''}" data-region-id="${r.id}">
         <span class="layer-dot" style="background:${r.type==='text'?'#29B8D4':r.type==='image'?'#81C784':'#C4B5FD'}"></span>
         <span class="layer-name">${this._esc(r.id)}</span>
         <span class="layer-role">${r.role || r.type || ''}</span>
@@ -196,15 +196,16 @@ const LayoutApp = {
 
     el.querySelectorAll('.layer-item').forEach(item => {
       item.addEventListener('click', () => {
-        this._activeRegionId = item.dataset.regionId;
         this._selectRegion(item.dataset.regionId);
-        document.querySelectorAll('.layer-item').forEach(li => li.classList.remove('active'));
-        item.classList.add('active');
       });
     });
   },
 
   _selectRegion(regionId) {
+    this._activeRegionId = regionId;
+    // 更新图层列表 active 状态（不重建 DOM）
+    document.querySelectorAll('.layer-item').forEach(li =>
+      li.classList.toggle('active', li.dataset.regionId === regionId));
     const template = this._effectiveTemplate();
     const region = (template.regions || []).find(r => r.id === regionId);
     this._renderPropertyPanel(region);
@@ -275,8 +276,12 @@ const LayoutApp = {
     };
 
     this._renderPreview();
-    this._renderLayerList();
-    this._selectRegion(rid);
+    // Keep active region visible in layer list without rebuilding property panel
+    document.querySelectorAll('.layer-item').forEach(li =>
+      li.classList.toggle('active', li.dataset.regionId === this._activeRegionId));
+    // Update the displayed value text next to range sliders
+    const valSpan = el.nextElementSibling;
+    if (valSpan && el.type === 'range') valSpan.textContent = el.value;
   },
 
   /* ── 应用模板 ── */
