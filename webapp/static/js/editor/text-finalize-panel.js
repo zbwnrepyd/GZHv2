@@ -1,78 +1,149 @@
 /* text-finalize-panel.js — 文字定稿面板
-   功能：按字段分组，三版本对比，点击采用，编辑定稿 */
+   按卡片组织：加载卡片编排 → 每张卡片显示其包含的字段 → 三版本对比 → 点击采用 → 编辑定稿 */
 
 const VERSION_LABELS_TF = { standard: '标准版', business: '商业版', spread: '传播版' };
 
 const TextFinalizePanel = {
   _company: '',
-  _groups: [],
+  _cards: [],
+  _fieldsByKey: {},       // field_key → { label, versions, final_value, status }
+  _activeCardId: null,
 
   async init(company) {
     if (this._loaded && this._company === company) return;
     this._company = company;
-    await this._loadFields();
+    this._activeCardId = null;
+    await Promise.all([this._loadCards(), this._loadFields()]);
     this._render();
     this._loaded = true;
   },
 
+  async _loadCards() {
+    try {
+      const r = await fetch(`/api/card-config/${encodeURIComponent(this._company)}`);
+      const d = await r.json();
+      this._cards = (d.cards || []).filter(c => c.enabled !== false);
+    } catch { this._cards = []; }
+  },
+
   async _loadFields() {
+    this._fieldsByKey = {};
     try {
       const r = await fetch(`/api/fields/${encodeURIComponent(this._company)}`);
       const d = await r.json();
-      this._groups = d.groups || [];
-    } catch { this._groups = []; }
+      (d.groups || []).forEach(g => {
+        (g.fields || []).forEach(f => {
+          this._fieldsByKey[f.field_key] = {
+            label: f.field_label || f.field_key,
+            versions: f.versions || {},
+            final_value: f.final_value || '',
+            status: f.status || 'draft',
+          };
+        });
+      });
+    } catch { /* empty */ }
   },
 
   _render() {
     const root = document.getElementById('text-finalize-mode-content');
     if (!root) return;
 
-    const confirmedCount = this._groups.reduce((sum, g) =>
-      sum + (g.fields || []).filter(f => f.status === 'confirmed').length, 0);
-    const totalCount = this._groups.reduce((sum, g) => sum + (g.fields || []).length, 0);
+    if (!this._cards.length) {
+      root.innerHTML = '<div class="tf-empty-state">暂无卡片编排数据，请先在「卡片设置」中配置卡片</div>';
+      return;
+    }
+
+    // 默认选中第一张卡片
+    if (!this._activeCardId || !this._cards.find(c => c.card_id === this._activeCardId)) {
+      this._activeCardId = this._cards[0].card_id;
+    }
+
+    const confirmedCount = Object.values(this._fieldsByKey).filter(f => f.status === 'confirmed').length;
+    const totalCount = Object.keys(this._fieldsByKey).length;
 
     root.innerHTML = `
       <div class="tf-top-bar">
         <span class="tf-progress">${confirmedCount}/${totalCount} 已定稿</span>
         <button class="tf-btn-confirm-all" id="tf-btn-confirm-all">全部定稿</button>
       </div>
-      <div class="tf-groups">
-        ${this._groups.map(g => this._groupSection(g)).join('')}
+      <div class="tf-card-tabs">
+        ${this._cards.map(c => this._cardTab(c)).join('')}
+      </div>
+      <div class="tf-card-content" id="tf-card-content">
+        ${this._cardContent(this._activeCardId)}
       </div>
     `;
 
     document.getElementById('tf-btn-confirm-all')?.addEventListener('click', () => this._confirmAll());
+    document.querySelectorAll('.tf-card-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        this._activeCardId = tab.dataset.cardId;
+        this._render();
+      });
+    });
     this._bindRowEvents();
   },
 
-  _groupSection(group) {
-    const fields = group.fields || [];
+  _cardTab(card) {
+    const active = card.card_id === this._activeCardId ? ' active' : '';
+    const items = card.items || [];
+    const fieldCount = items.filter(i => i.item_type === 'field').length;
+    const cardFields = items.filter(i => i.item_type === 'field');
+    const confirmed = cardFields.every(i => (this._fieldsByKey[i.item_key] || {}).status === 'confirmed');
+    const dot = cardFields.length ? (confirmed ? '·' : '○') : '';
     return `
-      <div class="tf-group">
-        <h3 class="tf-group-title">${this._esc(group.group_label)}</h3>
-        <div class="tf-fields">
-          ${fields.map(f => this._fieldCard(f)).join('')}
-        </div>
+      <button class="tf-card-tab${active}" data-card-id="${card.card_id}">
+        <span class="tf-card-tab-idx">${card.card_index || ''}</span>
+        <span class="tf-card-tab-title">${this._esc(card.card_title)}</span>
+        <span class="tf-card-tab-meta">${fieldCount}项 ${dot}</span>
+      </button>`;
+  },
+
+  _cardContent(cardId) {
+    const card = this._cards.find(c => c.card_id === cardId);
+    if (!card) return '<p class="tf-empty-hint">未找到卡片</p>';
+
+    const items = card.items || [];
+    const fieldItems = items.filter(i => i.item_type === 'field');
+
+    if (!fieldItems.length) {
+      return `<div class="tf-card-empty">
+        <p>这张卡片没有分配字段。</p>
+        <p>请先在「卡片设置」中为「${this._esc(card.card_title)}」添加字段。</p>
+      </div>`;
+    }
+
+    return `
+      <div class="tf-card-header">
+        <h3 class="tf-card-name">${this._esc(card.card_title)}</h3>
+        <span class="tf-card-subtitle">${fieldItems.length} 个字段 · 下方逐个定稿</span>
+      </div>
+      <div class="tf-fields">
+        ${fieldItems.map(item => this._fieldCard(item, card)).join('')}
       </div>`;
   },
 
-  _fieldCard(field) {
-    const versions = field.versions || {};
-    const finalVal = field.final_value || '';
-    const confirmed = field.status === 'confirmed';
+  _fieldCard(item, card) {
+    const f = this._fieldsByKey[item.item_key];
+    if (!f) return '';
+
+    const versions = f.versions || {};
+    const finalVal = f.final_value || '';
+    const confirmed = f.status === 'confirmed';
     const hasVersions = Object.keys(versions).length > 0;
 
     return `
-      <div class="tf-field-card ${confirmed ? 'confirmed' : ''}" data-field="${field.field_key}">
+      <div class="tf-field-card ${confirmed ? 'confirmed' : ''}" data-field="${item.item_key}">
         <div class="tf-field-head">
-          <span class="tf-field-label">${this._esc(field.field_label)}</span>
+          <span class="tf-field-label">${this._esc(f.label)}</span>
+          <span class="tf-field-role">${this._esc(item.display_role || 'body')}</span>
           <span class="tf-field-dot ${confirmed ? 'confirmed' : 'draft'}" title="${confirmed ? '已定稿' : '未定稿'}"></span>
         </div>
 
         ${hasVersions ? `
         <div class="tf-versions">
           ${Object.entries(versions).map(([ver, val]) => `
-            <div class="tf-version-card" data-field="${field.field_key}" data-value="${this._escAttr(val)}"
+            <div class="tf-version-card" data-field="${item.item_key}" data-value="${this._escAttr(val)}"
                  title="点击采用${VERSION_LABELS_TF[ver] || ver}版本">
               <span class="tf-ver-tag">${VERSION_LABELS_TF[ver] || ver}</span>
               <p class="tf-ver-text">${this._esc(val)}</p>
@@ -81,29 +152,22 @@ const TextFinalizePanel = {
         </div>` : '<p class="tf-empty-hint">暂无研究数据</p>'}
 
         <div class="tf-final-area">
-          <textarea class="tf-final-input" data-field="${field.field_key}" rows="2"
+          <textarea class="tf-final-input" data-field="${item.item_key}" rows="2"
             placeholder="输入定稿内容...">${this._esc(finalVal)}</textarea>
-          <button class="tf-save-btn" data-field-key="${field.field_key}">保存</button>
+          <button class="tf-save-btn" data-field-key="${item.item_key}">保存</button>
         </div>
       </div>`;
   },
 
   _bindRowEvents() {
-    // 采用：点击版本卡片
     document.querySelectorAll('.tf-version-card').forEach(card => {
       card.addEventListener('click', () => {
         const fieldKey = card.dataset.field;
         const value = card.dataset.value || '';
         const textarea = document.querySelector(`.tf-final-input[data-field="${fieldKey}"]`);
-        if (textarea) {
-          textarea.value = value;
-          textarea.classList.add('dirty');
-          textarea.focus();
-        }
+        if (textarea) { textarea.value = value; textarea.classList.add('dirty'); textarea.focus(); }
       });
     });
-
-    // 保存
     document.querySelectorAll('.tf-save-btn').forEach(btn => {
       btn.addEventListener('click', () => this._saveField(btn.dataset.fieldKey));
     });
@@ -113,23 +177,16 @@ const TextFinalizePanel = {
     const textarea = document.querySelector(`.tf-final-input[data-field="${fieldKey}"]`);
     if (!textarea) return;
     const value = textarea.value.trim();
-
     try {
       const r = await fetch(`/api/fields/${encodeURIComponent(this._company)}/${encodeURIComponent(fieldKey)}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ final_value: value, status: 'confirmed' }),
       });
       if (r.ok) {
-        const card = document.querySelector(`.tf-field-card[data-field="${fieldKey}"]`);
-        if (card) { card.classList.add('confirmed'); card.classList.remove('draft'); }
-        const dot = card?.querySelector('.tf-field-dot');
-        if (dot) { dot.classList.add('confirmed'); dot.classList.remove('draft'); }
+        this._fieldsByKey[fieldKey].final_value = value;
+        this._fieldsByKey[fieldKey].status = 'confirmed';
         textarea.classList.remove('dirty');
-        // Update progress
-        const confirmedCount = document.querySelectorAll('.tf-field-card.confirmed').length;
-        const totalCount = document.querySelectorAll('.tf-field-card').length;
-        const progress = document.querySelector('.tf-progress');
-        if (progress) progress.textContent = `${confirmedCount}/${totalCount} 已定稿`;
+        this._render();
       }
     } catch (e) { /* non-blocking */ }
   },

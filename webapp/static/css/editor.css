@@ -572,15 +572,53 @@ input, button, select, textarea { font: inherit; }
 }
 .tf-btn-confirm-all:hover { opacity: .85; }
 
-.tf-groups { display: flex; flex-direction: column; gap: 24px; }
+/* 卡片标签页 */
+.tf-card-tabs {
+  display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.tf-card-tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-1); cursor: pointer; font-size: 13px;
+  transition: border-color .12s, background .12s; font-family: var(--font-body);
+}
+.tf-card-tab:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.tf-card-tab.active {
+  border-color: var(--cyan); background: #E8F7FA; font-weight: 600;
+}
+.tf-card-tab-idx {
+  width: 20px; height: 20px; border-radius: 4px; background: var(--navy);
+  color: var(--white); font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.tf-card-tab-meta { font-size: 11px; color: var(--text-muted); }
 
-.tf-group-title {
-  font-size: 15px; font-weight: 700; color: var(--navy);
-  padding-bottom: 8px; margin: 0 0 12px;
+/* 当前卡片标题 */
+.tf-card-header {
+  display: flex; align-items: baseline; gap: 12px;
+  margin-bottom: 16px; padding-bottom: 10px;
   border-bottom: 2px solid var(--cyan);
+}
+.tf-card-name { font-size: 18px; font-weight: 800; color: var(--navy); margin: 0; }
+.tf-card-subtitle { font-size: 13px; color: var(--text-muted); }
+
+/* 卡片无字段提示 */
+.tf-card-empty {
+  text-align: center; padding: 40px 20px;
+  color: var(--text-muted); font-size: 14px; line-height: 1.8;
 }
 
 .tf-fields { display: flex; flex-direction: column; gap: 14px; }
+
+.tf-field-role {
+  font-size: 10px; color: var(--cyan); background: rgba(41,184,212,.1);
+  padding: 1px 6px; border-radius: 3px; text-transform: uppercase;
+}
+
+.tf-empty-state {
+  text-align: center; padding: 48px 20px;
+  color: var(--text-muted); font-size: 14px;
+}
 
 .tf-field-card {
   padding: 16px; border: 1px solid var(--border); border-radius: var(--radius);
