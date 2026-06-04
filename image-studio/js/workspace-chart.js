@@ -56,7 +56,7 @@ const WorkspaceChart = {
         <div class="chart-preview-stage">
           <iframe id="chart-live-preview" title="${this._esc(label)}预览"></iframe>
         </div>
-        ${isEcharts ? '<div id="chart-param-bottom" class="chart-param-bottom"></div>' : ''}
+        <div id="chart-param-bottom" class="chart-param-bottom"></div>
         <footer class="workspace-footer">
           <button class="workspace-secondary" type="button" data-chart-action="refresh">刷新预览</button>
           <span id="chart-workspace-status">参数变化后自动预览</span>
@@ -65,11 +65,11 @@ const WorkspaceChart = {
   },
 
   _renderInspector(candidatePanel) {
-    const paramHost = this._isEchartsSlot()
-      ? document.getElementById('chart-param-bottom')
-      : candidatePanel;
+    const paramHost = document.getElementById('chart-param-bottom');
     if (this._isEchartsSlot()) {
       candidatePanel.innerHTML = this._rightCodeShell();
+    } else {
+      candidatePanel.innerHTML = this._rightActionShell();
     }
     ParamInspector.render(paramHost, this._schema, this._params, {
       onChange: () => this._schedulePreview(),
@@ -80,8 +80,10 @@ const WorkspaceChart = {
       },
       onRender: () => this._renderVersion(),
       onConfirm: () => this._confirmLatest(),
-    }, this._isEchartsSlot() ? { mode: 'compact' } : {});
+    }, { mode: 'compact' });
     document.querySelector('[data-chart-action="refresh"]')?.addEventListener('click', () => this._updatePreviewNow());
+    document.querySelector('[data-chart-action="render"]')?.addEventListener('click', () => this._renderVersion());
+    document.querySelector('[data-chart-action="confirm"]')?.addEventListener('click', () => this._confirmLatest());
     this._bindCodeEditor();
     this._syncCodeEditor();
   },
@@ -101,6 +103,34 @@ const WorkspaceChart = {
             <textarea id="chart-code-editor" class="chart-code-editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
           </div>
         </section>
+        ${this._confirmDock()}
+      </div>`;
+  },
+
+  _rightActionShell() {
+    return `
+      <div class="chart-right-dock">
+        <section class="chart-action-panel">
+          <div class="echarts-code-head">
+            <div>
+              <h3>图表操作</h3>
+              <span>参数在下方调整，预览实时刷新</span>
+            </div>
+          </div>
+          <div class="chart-action-copy">
+            <p>当前图表使用 SVG 模板渲染。先在下方调整文字、尺寸、颜色和模板参数，再生成 PNG 版本。</p>
+            <p>生成后点击右下角确定图片，会写入图片夹供排版画布使用。</p>
+          </div>
+        </section>
+        ${this._confirmDock()}
+      </div>`;
+  },
+
+  _confirmDock() {
+    return `
+      <div class="chart-confirm-dock">
+        <button class="workspace-secondary" type="button" data-chart-action="render">生成版本</button>
+        <button class="workspace-primary" type="button" data-chart-action="confirm">确定图片</button>
       </div>`;
   },
 
@@ -176,6 +206,7 @@ const WorkspaceChart = {
       }
       this._latestPreviewHtml = html;
       iframe.srcdoc = html;
+      this._syncPreviewAspect();
       this._syncCodeEditor();
       if (status) status.textContent = '预览已更新';
     } catch (e) {
@@ -202,6 +233,15 @@ const WorkspaceChart = {
       body{display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:12px}
       svg{display:block;max-width:86%;max-height:86%;width:auto;height:auto}
     </style></head><body>${svg}</body></html>`;
+  },
+
+  _syncPreviewAspect() {
+    const iframe = document.getElementById('chart-live-preview');
+    if (!iframe) return;
+    const w = Number(this._params.width || this._defaults.width || 900);
+    const h = Number(this._params.height || this._defaults.height || 600);
+    const aspect = w > 0 && h > 0 ? `${w} / ${h}` : '16 / 9';
+    iframe.style.setProperty('--chart-aspect', aspect);
   },
 
   async _renderVersion() {

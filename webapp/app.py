@@ -47,6 +47,37 @@ Path(config.IMAGES_DIR).mkdir(parents=True, exist_ok=True)
 init_assets_db(config.DB_PATH_ASSETS)
 
 
+def _init_new_composition_dbs():
+    """幂等初始化编排数据库和模板数据库（Step 1 新增）"""
+    import sqlite3 as _sqlite3
+    from pathlib import Path as _P
+
+    def _exec_sql_file(db_path: str, sql_filename: str):
+        sql_file = _P(__file__).resolve().parent.parent / "db" / sql_filename
+        if not sql_file.exists():
+            return
+        conn = _sqlite3.connect(db_path)
+        conn.executescript(sql_file.read_text())
+        conn.commit()
+        conn.close()
+
+    # composition_db — 卡片编排
+    _exec_sql_file(config.DB_PATH_COMPOSITION, "init_composition_db.sql")
+
+    # template_db — 模板系统
+    _exec_sql_file(config.DB_PATH_TEMPLATE, "init_template_db.sql")
+
+    # 迁移：research_fields 写入 research_db
+    _exec_sql_file(config.DB_PATH_RESEARCH, "migrations/001_research_fields.sql")
+
+    # 迁移：final_fields 写入 final_db
+    _exec_sql_file(config.DB_PATH_FINAL, "migrations/002_final_fields.sql")
+
+
+# 初始化新数据库
+_init_new_composition_dbs()
+
+
 def _quality_kwargs_for_variant(company: str, asset_key: str, local_file: str,
                                 source_type: str, source_url: str = "",
                                 source_page: str = "", prompt: str = "",
@@ -1003,10 +1034,10 @@ def canvas_page():
     return send_from_directory("../canvas", "card-renderer.html")
 
 
-@app.route("/canvas/card/<company>/<int:card_index>")
-def canvas_card_page(company: str, card_index: int):
-    if card_index < 1 or card_index > 8:
-        return jsonify({"error": "card_index 必须在 1-8 之间"}), 400
+@app.route("/canvas/card/<company>/<card_id>")
+def canvas_card_page(company: str, card_id: str):
+    if not card_id:
+        return jsonify({"error": "缺少 card_id"}), 400
     return send_from_directory("../canvas", "card.html")
 
 
@@ -1719,7 +1750,240 @@ def generate_abstract(company: str):
         return jsonify({"error": str(e)}), 500
 
 
+# ── 注册新路由（GZHv2） ──────────────────────────────────────────
+
+from routes import register_routes
+register_routes(app)
+
+
+# ── GZHv2 页面 ──────────────────────────────────────────────────
+
+@app.route("/layout")
+@app.route("/layout/")
+@app.route("/layout/<company>")
+def layout_page(company: str = None):
+    return render_template("layout.html")
+
+
+@app.route("/template-maker")
+@app.route("/template-maker/")
+def template_maker_page():
+    return render_template("template_maker.html")
+
+
+# ── GZHv2 模板 API ──────────────────────────────────────────────
+
+@app.route("/api/templates")
+def list_card_templates():
+    try:
+        from repositories.template_repo import get_all_templates
+        templates = get_all_templates(config.DB_PATH_TEMPLATE)
+        summaries = [{
+            "template_id": t["template_id"],
+            "template_name": t["template_name"],
+            "canvas_width": t["canvas_width"],
+            "canvas_height": t["canvas_height"],
+            "is_builtin": bool(t.get("is_builtin")),
+        } for t in templates]
+        return jsonify({"templates": summaries})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/templates/<template_id>")
+def get_card_template(template_id: str):
+    try:
+        from repositories.template_repo import get_template
+        t = get_template(config.DB_PATH_TEMPLATE, template_id)
+        if not t:
+            return jsonify({"error": "模板不存在"}), 404
+        return jsonify(t)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/templates", methods=["POST"])
+def create_card_template():
+    try:
+        from services.template_service import save_template
+        data = request.get_json() or {}
+        template_id = data.get("template_id", "")
+        template_name = data.get("template_name", "")
+        template_json = data.get("template_json", {})
+        if not template_id or not template_name:
+            return jsonify({"error": "缺少 template_id 或 template_name"}), 400
+        ok, errors = save_template(config.DB_PATH_TEMPLATE, template_id, template_name, template_json)
+        if not ok:
+            return jsonify({"error": "校验失败", "errors": errors}), 400
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/templates/<template_id>", methods=["PATCH"])
+def update_card_template(template_id: str):
+    try:
+        from services.template_service import validate_template_json
+        from repositories.template_repo import update_template
+        data = request.get_json() or {}
+        updates = {}
+        if "template_name" in data:
+            updates["template_name"] = data.get("template_name")
+        if "template_json" in data:
+            template_json = data.get("template_json") or {}
+            errors = validate_template_json(template_json)
+            if errors:
+                return jsonify({"error": "校验失败", "errors": errors}), 400
+            updates["template_json"] = template_json
+            canvas = template_json.get("canvas", {})
+            bg = template_json.get("background", {})
+            updates["canvas_width"] = canvas.get("width")
+            updates["canvas_height"] = canvas.get("height")
+            updates["background_type"] = bg.get("type")
+            updates["background_value"] = bg.get("value")
+        ok = update_template(config.DB_PATH_TEMPLATE, template_id, **updates)
+        if not ok:
+            return jsonify({"error": "模板不存在、为内置模板或没有可更新字段"}), 404
+        return jsonify({"status": "ok", "template_id": template_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/templates/<template_id>", methods=["DELETE"])
+def delete_card_template(template_id: str):
+    try:
+        from repositories.template_repo import delete_template
+        ok = delete_template(config.DB_PATH_TEMPLATE, template_id)
+        if not ok:
+            return jsonify({"error": "模板不存在或为内置模板"}), 404
+        return jsonify({"status": "ok", "template_id": template_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/templates/<template_id>/duplicate", methods=["POST"])
+def duplicate_card_template(template_id: str):
+    try:
+        from repositories.template_repo import duplicate_template
+        data = request.get_json() or {}
+        new_id = data.get("template_id") or f"{template_id}_copy_{int(time.time())}"
+        new_name = data.get("template_name") or f"{template_id} 副本"
+        row_id = duplicate_template(config.DB_PATH_TEMPLATE, template_id, new_id, new_name)
+        if row_id is None:
+            return jsonify({"error": "模板不存在"}), 404
+        return jsonify({"status": "ok", "template_id": new_id, "id": row_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── GZHv2 排版 API ──────────────────────────────────────────────
+
+@app.route("/api/layout/<company>/<card_id>")
+def get_card_layout(company: str, card_id: str):
+    try:
+        from repositories.layout_repo import get_layout
+        layout = get_layout(config.DB_PATH_TEMPLATE, company, card_id)
+        return jsonify({"company_name": company, "card_id": card_id, "layout": layout})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/layout/<company>/<card_id>", methods=["PATCH"])
+def update_card_layout(company: str, card_id: str):
+    try:
+        from services.layout_service import update_layout_override
+        data = request.get_json() or {}
+        overrides = data.get("overrides", {})
+        template_id = data.get("template_id", "")
+        for region_id, override in overrides.items():
+            update_layout_override(config.DB_PATH_TEMPLATE, company, card_id,
+                                   region_id, override, template_id=template_id)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/layout/<company>/<card_id>/reset", methods=["POST"])
+def reset_card_layout(company: str, card_id: str):
+    try:
+        from repositories.layout_repo import reset_layout
+        ok = reset_layout(config.DB_PATH_TEMPLATE, company, card_id)
+        return jsonify({"status": "ok", "reset": ok})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── GZHv2 导出 API ──────────────────────────────────────────────
+
+@app.route("/api/export/<company>", methods=["POST"])
+def start_export(company: str):
+    """启动导出任务"""
+    try:
+        from services.export_service import create_job, run_export
+        data = request.get_json() or {}
+        card_ids = data.get("card_ids")  # None = 全部启用卡片
+        fmt = data.get("format", "png")
+        scale = data.get("scale", 2)
+
+        job_id = create_job(company, card_ids=card_ids, fmt=fmt, scale=scale)
+        project_root = str(Path(__file__).resolve().parent.parent)
+
+        t = threading.Thread(target=run_export, args=(job_id, project_root), daemon=True)
+        t.start()
+
+        return jsonify({"job_id": job_id, "status": "pending"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/export/<company>/jobs/<job_id>")
+def get_export_status(company: str, job_id: str):
+    """查询导出任务状态"""
+    try:
+        from services.export_service import get_job
+        job = get_job(job_id)
+        if not job:
+            return jsonify({"error": "任务不存在"}), 404
+        return jsonify(job)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/export/<company>/download/<job_id>")
+def download_export(company: str, job_id: str):
+    """下载导出文件"""
+    try:
+        from services.export_service import get_job
+        job = get_job(job_id)
+        if not job:
+            return jsonify({"error": "任务不存在"}), 404
+        if job["status"] != "done":
+            return jsonify({"error": "任务未完成"}), 400
+
+        files = job.get("files", [])
+        if not files:
+            return jsonify({"error": "无文件"}), 404
+
+        # 单文件 PNG 直接返回
+        if len(files) == 1 and files[0].endswith(".png"):
+            return send_from_directory(os.path.dirname(files[0]),
+                                      os.path.basename(files[0]),
+                                      mimetype="image/png")
+
+        # ZIP 或第一个文件
+        first = files[0]
+        return send_from_directory(os.path.dirname(first),
+                                  os.path.basename(first),
+                                  as_attachment=True)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── 启动 ──────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=config.FLASK_PORT, debug=True)
+    app.run(
+        host=os.environ.get("FLASK_HOST", "127.0.0.1"),
+        port=config.FLASK_PORT,
+        debug=os.environ.get("FLASK_DEBUG") == "1",
+    )

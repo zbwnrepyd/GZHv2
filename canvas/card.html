@@ -43,17 +43,22 @@ body { position: relative; overflow: hidden; }
   </article>
 </main>
 <script src="/canvas/js/markdown-parser.js"></script>
+<script src="/canvas/js/render-data-loader.js"></script>
+<script src="/canvas/js/template-renderer.js"></script>
 <script src="/canvas/js/api-loader.js"></script>
 <script src="/canvas/js/html-card-renderer.js"></script>
 <script src="/canvas/js/source-editor.js"></script>
 <script src="/canvas/js/bg-loader.js"></script>
 <script>
 function getRouteCardInfo() {
-  const match = window.location.pathname.match(/\/canvas\/card\/(.+)\/(\d+)$/);
-  if (!match) return { companyName: '', cardIndex: 1 };
+  const match = window.location.pathname.match(/\/canvas\/card\/(.+)\/([^/]+)$/);
+  if (!match) return { companyName: '', cardId: '1', cardIndex: 1 };
+  const cardId = decodeURIComponent(match[2]);
+  const numeric = /^\d+$/.test(cardId) ? Number(cardId) : null;
   return {
     companyName: decodeURIComponent(match[1]),
-    cardIndex: Number(match[2]),
+    cardId,
+    cardIndex: numeric || 1,
   };
 }
 
@@ -101,6 +106,20 @@ window.renderCardPage = function renderCardPage({ companyName, cardIndex, cardDa
   window.renderSourcePreview(source);
 };
 
+window.renderTemplateCardPage = function renderTemplateCardPage({ companyName, cardId, cardData }) {
+  if (!cardData || typeof TemplateRenderer === 'undefined') {
+    throw new Error('TemplateRenderer 不可用');
+  }
+  const sourceMap = SourceEditor ? SourceEditor.loadMap(companyName) : {};
+  const defaultSource = TemplateRenderer.render(cardData);
+  const saved = sourceMap[cardId];
+  const signature = SourceEditor ? SourceEditor.signature(defaultSource) : '';
+  const source = saved && typeof saved === 'object' && saved.signature === signature
+    ? saved.source || defaultSource
+    : defaultSource;
+  window.renderSourcePreview(source);
+};
+
 function fitCardPage() {
   const root = document.getElementById('card-page');
   const viewport = document.documentElement.getBoundingClientRect();
@@ -117,15 +136,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     fitCardPage();
     return;
   }
-  const { companyName, cardIndex } = getRouteCardInfo();
+  const { companyName, cardId, cardIndex } = getRouteCardInfo();
   if (!companyName) return;
   try {
-    const cardData = await loadSingleCardFromAPI(companyName, cardIndex);
-    window.renderCardPage({
-      companyName,
-      cardIndex,
-      cardData,
-    });
+    if (typeof RenderDataLoader !== 'undefined' && cardId) {
+      try {
+        const renderCard = await RenderDataLoader.loadCard(companyName, cardId);
+        window.renderTemplateCardPage({ companyName, cardId, cardData: renderCard });
+        return;
+      } catch (e) {
+        if (!/^\d+$/.test(cardId)) throw e;
+        console.warn('render-data 单卡加载失败，回退旧卡片接口:', e);
+      }
+    }
+    const legacyData = await loadSingleCardFromAPI(companyName, cardIndex);
+    window.renderCardPage({ companyName, cardIndex, cardData: legacyData });
   } catch (error) {
     document.getElementById('card-page').innerHTML = renderEmptyCard(`加载失败：${error.message}`);
   }

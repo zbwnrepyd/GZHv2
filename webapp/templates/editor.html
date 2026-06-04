@@ -23,7 +23,31 @@
 
 <main id="editor-workbench">
   <aside id="editor-left-pane">
-    <!-- 手风琴1：内容定稿 -->
+    <!-- GZHv2 手风琴1：卡片设置 -->
+    <div class="accordion-section">
+      <div class="accordion-header" data-section="card-settings">
+        <span class="arrow">&#9654;</span> 卡片设置
+      </div>
+      <div class="accordion-body" data-section="card-settings">
+        <div id="card-settings-content">
+          <!-- 由 card-settings-panel.js 动态渲染 -->
+        </div>
+      </div>
+    </div>
+
+    <!-- GZHv2 手风琴2：字段定稿 -->
+    <div class="accordion-section">
+      <div class="accordion-header" data-section="field-finalize">
+        <span class="arrow">&#9654;</span> 字段定稿
+      </div>
+      <div class="accordion-body" data-section="field-finalize">
+        <div id="field-finalize-content">
+          <!-- 由 field-finalize-panel.js 动态渲染 -->
+        </div>
+      </div>
+    </div>
+
+    <!-- 手风琴3：内容定稿（旧版，保留兼容） -->
     <div class="accordion-section">
       <div class="accordion-header open" data-section="content">
         <span class="arrow">&#9654;</span> 内容定稿
@@ -80,6 +104,11 @@
           <p class="recollect-hint-editor">研究完成后自动采集，点此手动重试。</p>
         </div>
       </div>
+    </div>
+
+    <!-- GZHv2：进入排版 -->
+    <div class="accordion-section" style="border-top:1px solid var(--line);padding-top:8px">
+      <a id="btn-go-layout" class="go-layout-link" href="#">进入排版 →</a>
     </div>
   </aside>
 
@@ -151,5 +180,28 @@
 <script src="/static/js/api.js"></script>
 <script src="/static/js/confirm.js"></script>
 <script src="/static/js/editor.js"></script>
+
+<!-- GZHv2 新面板 -->
+<script src="/static/js/editor/card-settings-panel.js"></script>
+<script src="/static/js/editor/field-finalize-panel.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const company = new URLSearchParams(window.location.search).get('company') || '';
+  if (!company) return;
+
+  // 进入排版按钮
+  const btnLayout = document.getElementById('btn-go-layout');
+  if (btnLayout) btnLayout.href = `/layout?company=${encodeURIComponent(company)}`;
+
+  // 监听手风琴切换，懒初始化新面板
+  document.querySelectorAll('.accordion-header').forEach(h => {
+    h.addEventListener('click', () => {
+      const section = h.dataset.section;
+      if (section === 'card-settings') CardSettingsPanel.init(company);
+      if (section === 'field-finalize') FieldFinalizePanel.init(company);
+    });
+  });
+});
+</script>
 </body>
 </html>

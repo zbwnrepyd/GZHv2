@@ -69,8 +69,8 @@ function safeName(value) {
   return String(value || 'company').replace(/[/\\?%*:|"<>]/g, '_');
 }
 
-function buildCardUrl(baseUrl, company, cardIndex, bgImagePath, params) {
-  let url = `${baseUrl.replace(/\/$/, '')}/canvas/card/${encodeURIComponent(company)}/${cardIndex}`;
+function buildCardUrl(baseUrl, company, cardId, bgImagePath, params) {
+  let url = `${baseUrl.replace(/\/$/, '')}/canvas/card/${encodeURIComponent(company)}/${encodeURIComponent(cardId)}`;
   const sep = url.includes('?') ? '&' : '?';
   if (bgImagePath) {
     const mime = bgImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
@@ -180,6 +180,27 @@ async function run() {
     console.log('Loaded card parameter overrides.');
   }
 
+  // 从 render-data API 获取启用的卡片列表（GZHv2 动态卡片数）
+  let cards = [];
+  try {
+    const fetch = (await import('node-fetch')).default || globalThis.fetch;
+    const resp = await fetch(`${args.baseUrl.replace(/\/$/, '')}/api/render-data/${encodeURIComponent(company)}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      cards = (data.cards || []).filter(c => c.enabled !== false).sort((a, b) => (a.card_index || 0) - (b.card_index || 0));
+      console.log(`Loaded ${cards.length} enabled cards from render-data API.`);
+    } else {
+      console.warn('render-data API returned', resp.status, '- falling back to legacy 1-8');
+    }
+  } catch (e) {
+    console.warn('Failed to load render-data:', e.message, '- falling back to legacy 1-8');
+  }
+
+  // Fallback: 如果没有从 API 获取到卡片，使用旧的 1..8
+  if (!cards.length) {
+    cards = Array.from({ length: 8 }, (_, i) => ({ card_id: String(i + 1), card_index: i + 1, card_title: `卡片${i + 1}` }));
+  }
+
   const browser = await puppeteer.launch({ headless: 'new' });
   try {
     const page = await browser.newPage();
@@ -189,8 +210,9 @@ async function run() {
       deviceScaleFactor: args.scale,
     });
 
-    for (let cardIndex = 1; cardIndex <= 8; cardIndex += 1) {
-      const url = buildCardUrl(args.baseUrl, company, cardIndex, args.bgImage, params);
+    for (const card of cards) {
+      const cardId = card.card_id || String(card.card_index);
+      const url = buildCardUrl(args.baseUrl, company, cardId, args.bgImage, params);
       await page.goto(url, { waitUntil: 'networkidle0' });
       await waitForCard(page);
       const clip = await cardClip(page);
@@ -198,7 +220,8 @@ async function run() {
         if (shotIndex > 1 && args.shotDelay > 0) {
           await new Promise((resolve) => setTimeout(resolve, args.shotDelay));
         }
-        const filePath = path.join(outDir, shotFileName(safeCompany, cardIndex, shotIndex, args.shots));
+        const filePath = path.join(outDir,
+          `${safeCompany}_${String(card.card_index).padStart(2, '0')}_${safeName(card.card_title || card.card_id)}_${String(shotIndex).padStart(2, '0')}.png`);
         await page.screenshot({ path: filePath, clip });
         console.log(`exported ${filePath}`);
       }

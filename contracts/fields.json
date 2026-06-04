@@ -1,0 +1,92 @@
+{
+  "version": "v1",
+  "description": "字段契约 — 定义系统中所有可用字段的类型、分组和约束。字段不天然属于任何卡片。",
+  "groups": [
+    {
+      "group_key": "basic",
+      "group_label": "基础信息",
+      "fields": [
+        {"field_key": "company_name", "field_label": "公司名", "type": "text", "required": true},
+        {"field_key": "company_type", "field_label": "公司类型", "type": "text", "required": false},
+        {"field_key": "company_def", "field_label": "公司定义", "type": "long_text", "required": true},
+        {"field_key": "location", "field_label": "地理位置", "type": "text", "required": false},
+        {"field_key": "website_url", "field_label": "官网", "type": "url", "required": false}
+      ]
+    },
+    {
+      "group_key": "team",
+      "group_label": "团队与融资",
+      "fields": [
+        {"field_key": "founder_name", "field_label": "创始人", "type": "text"},
+        {"field_key": "founder_edu", "field_label": "学历背景", "type": "text"},
+        {"field_key": "founder_bg", "field_label": "职业背景", "type": "long_text"},
+        {"field_key": "founder_achievement", "field_label": "关键成就", "type": "long_text"},
+        {"field_key": "team_size", "field_label": "团队规模", "type": "text"},
+        {"field_key": "team_highlight", "field_label": "团队亮点", "type": "long_text"},
+        {"field_key": "funding_info", "field_label": "融资信息", "type": "long_text"}
+      ]
+    },
+    {
+      "group_key": "product",
+      "group_label": "产品",
+      "fields": [
+        {"field_key": "main_product_name", "field_label": "主产品名", "type": "text"},
+        {"field_key": "main_product_def", "field_label": "产品定义", "type": "long_text"},
+        {"field_key": "main_product_highlight", "field_label": "亮点功能", "type": "long_text"},
+        {"field_key": "main_product_achievement", "field_label": "产品成绩", "type": "long_text"},
+        {"field_key": "other_products", "field_label": "其他产品", "type": "long_text"}
+      ]
+    },
+    {
+      "group_key": "business",
+      "group_label": "商业模式",
+      "fields": [
+        {"field_key": "revenue_model", "field_label": "盈利方式", "type": "long_text"},
+        {"field_key": "gtm_strategy", "field_label": "GTM 与增长策略", "type": "long_text"},
+        {"field_key": "cold_start", "field_label": "冷启动策略", "type": "long_text"},
+        {"field_key": "customer_segment", "field_label": "客户细分", "type": "text"},
+        {"field_key": "growth_flywheel", "field_label": "增长飞轮", "type": "long_text"},
+        {"field_key": "pricing_model", "field_label": "定价模型", "type": "text"},
+        {"field_key": "inference_cost_exposure", "field_label": "推理成本敞口", "type": "text"}
+      ]
+    },
+    {
+      "group_key": "competition",
+      "group_label": "竞争格局",
+      "fields": [
+        {"field_key": "moat", "field_label": "竞争壁垒", "type": "long_text"},
+        {"field_key": "ecosystem_niche", "field_label": "生态位分析", "type": "long_text"},
+        {"field_key": "competitors", "field_label": "竞品", "type": "long_text"},
+        {"field_key": "score_defensibility", "field_label": "壁垒评分", "type": "number", "min": 0, "max": 10},
+        {"field_key": "score_incumbent_attention", "field_label": "巨头关注度评分", "type": "number", "min": 0, "max": 10},
+        {"field_key": "score_value_capture", "field_label": "价值截留评分", "type": "number", "min": 0, "max": 10},
+        {"field_key": "stack_layer", "field_label": "技术栈层级", "type": "enum", "values": ["infrastructure", "foundation_model", "middleware", "vertical_app", "distribution"]},
+        {"field_key": "funding_stage_score", "field_label": "融资阶段评分", "type": "number", "min": 0, "max": 10},
+        {"field_key": "ai_model_dependency", "field_label": "AI模型依赖度", "type": "enum", "values": ["none", "api_dependent", "fine_tuned", "multi_model", "self_trained"]},
+        {"field_key": "workflow_integration_level", "field_label": "工作流集成层级", "type": "enum", "values": ["standalone", "api_connected", "platform_plugin", "workflow_embedded", "infrastructure"]},
+        {"field_key": "data_flywheel", "field_label": "数据飞轮", "type": "enum", "values": ["none", "weak", "partial", "strong", "dominant"]},
+        {"field_key": "proprietary_data_asset", "field_label": "专有数据资产", "type": "enum", "values": ["none", "public_only", "yes_supplementary", "yes_core", "yes_defensible"]},
+        {"field_key": "incumbent_direct_competitor", "field_label": "巨头直接竞争", "type": "enum", "values": ["none", "adjacent", "indirect", "potential", "direct"]},
+        {"field_key": "customer_segment_type", "field_label": "客户细分类型", "type": "enum", "values": ["b2c", "b2b_smb", "b2b_enterprise", "b2d", "b2g"]}
+      ]
+    },
+    {
+      "group_key": "summary",
+      "group_label": "总结",
+      "fields": [
+        {"field_key": "market_opportunity", "field_label": "赛道机会", "type": "long_text"},
+        {"field_key": "data_confidence", "field_label": "数据可信度", "type": "text"},
+        {"field_key": "timeline_events", "field_label": "发展时间线", "type": "json_text"}
+      ]
+    },
+    {
+      "group_key": "hook",
+      "group_label": "传播钩子",
+      "fields": [
+        {"field_key": "hook_paragraph_1", "field_label": "钩子段落1", "type": "long_text"},
+        {"field_key": "hook_paragraph_2", "field_label": "钩子段落2", "type": "long_text"},
+        {"field_key": "hook_paragraph_3", "field_label": "钩子段落3", "type": "long_text"}
+      ]
+    }
+  ]
+}

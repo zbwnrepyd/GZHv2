@@ -224,14 +224,14 @@ curl -X POST http://127.0.0.1:5050/api/image-studio/Anthropic/flywheel/render-sv
   -d '{"template_id":"flywheel_circular","params":{"radius":200,"accent_color":"#29B8D4","label_size":16}}'
 
 # Generate competitive landscape scatter plot
-curl -X POST http://127.0.0.1:5050/api/image-studio/Anthropic/positioning_charts/render-svg \
+curl -X POST http://127.0.0.1:5050/api/media/Anthropic/chart_competitive/generate \
   -H "Content-Type: application/json" \
-  -d '{"template_id":"competitive_landscape","params":{}}'
+  -d '{}'
 
 # Generate AI stack positioning scatter plot
-curl -X POST http://127.0.0.1:5050/api/image-studio/Anthropic/positioning_charts/render-svg \
+curl -X POST http://127.0.0.1:5050/api/media/Anthropic/chart_ecosystem/generate \
   -H "Content-Type: application/json" \
-  -d '{"template_id":"stack_positioning","params":{}}'
+  -d '{}'
 
 # Upload a local Python SVG template (localhost only)
 curl -X POST http://127.0.0.1:5050/api/svg-templates/upload \
