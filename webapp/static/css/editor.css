@@ -614,8 +614,6 @@ input, button, select, textarea { font: inherit; }
 }
 .tf-ver-text {
   font-size: 14px; color: var(--text); line-height: 1.6;
-  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 /* 无数据提示 */
@@ -628,7 +626,7 @@ input, button, select, textarea { font: inherit; }
 .tf-final-input {
   flex: 1; font-size: 15px; padding: 10px 12px; line-height: 1.6;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
-  resize: vertical; min-height: 48px; font-family: var(--font-body);
+  resize: vertical; font-family: var(--font-body);
   transition: border-color .12s;
 }
 .tf-final-input:focus {
