@@ -1,6 +1,6 @@
-/* field-finalize-panel.js — GZHv2 字段定稿面板
+/* text-finalize-panel.js — GZHv2 字段定稿面板
    功能：按字段分组展示三版本内容，支持编辑定稿 */
-const FieldFinalizePanel = {
+const TextFinalizePanel = {
   _company: '',
   _groups: [],
 
@@ -21,7 +21,7 @@ const FieldFinalizePanel = {
   },
 
   _render() {
-    const root = document.getElementById('field-finalize-mode-content');
+    const root = document.getElementById('text-finalize-mode-content');
     if (!root) return;
 
     root.innerHTML = `
@@ -34,6 +34,14 @@ const FieldFinalizePanel = {
     `;
 
     document.getElementById('ff-btn-confirm-all')?.addEventListener('click', () => this._confirmAll());
+    document.querySelectorAll('.ff-use-version-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const fieldKey = btn.dataset.field;
+        const value = btn.dataset.value || '';
+        const textarea = document.querySelector(`.ff-final-input[data-field="${fieldKey}"]`);
+        if (textarea) { textarea.value = value; textarea.classList.add('dirty'); }
+      });
+    });
     document.querySelectorAll('.ff-save-btn').forEach(btn => {
       btn.addEventListener('click', () => this._saveField(btn.dataset.fieldKey));
     });
@@ -67,6 +75,7 @@ const FieldFinalizePanel = {
             <div class="ff-version-row" data-ver="${ver}">
               <span class="ff-ver-label">${ver}</span>
               <span class="ff-ver-value" title="${this._esc(val)}">${this._esc(val).substring(0, 120)}</span>
+              <button class="ff-use-version-btn" data-field="${field.field_key}" data-value="${this._escAttr(val)}">采用</button>
             </div>
           `).join('')}
         </div>` : ''}
@@ -112,4 +121,5 @@ const FieldFinalizePanel = {
   },
 
   _esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); },
+  _escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); },
 };

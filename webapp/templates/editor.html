@@ -25,74 +25,31 @@
 
 <main id="editor-workbench">
   <aside id="editor-left-pane">
-    <!-- 手风琴1：字段定稿（主流程入口，默认展开） -->
-    <div class="accordion-section" data-od-id="editor-field-finalize">
-      <div class="accordion-header open" data-section="field-finalize">
-        <span class="arrow">&#9654;</span> 字段定稿
-      </div>
-      <div class="accordion-body open" data-section="field-finalize" data-od-id="editor-field-finalize-body">
-        <div id="field-finalize-content" data-od-id="editor-field-finalize-content">
-          <!-- 由 field-finalize-panel.js 动态渲染 -->
-        </div>
-      </div>
-    </div>
-
-    <!-- 手风琴2：卡片设置 -->
+    <!-- 1. 卡片设置（主流程入口，默认展开） -->
     <div class="accordion-section" data-od-id="editor-card-settings">
-      <div class="accordion-header" data-section="card-settings">
+      <div class="accordion-header open" data-section="card-settings">
         <span class="arrow">&#9654;</span> 卡片设置
       </div>
-      <div class="accordion-body" data-section="card-settings" data-od-id="editor-card-settings-body">
+      <div class="accordion-body open" data-section="card-settings" data-od-id="editor-card-settings-body">
         <div id="card-settings-content" data-od-id="editor-card-settings-content">
           <!-- 由 card-settings-panel.js 动态渲染 -->
         </div>
       </div>
     </div>
 
-    <!-- 手风琴3：内容定稿（旧版 1-8 卡，兼容入口） -->
-    <div class="accordion-section">
-      <div class="accordion-header" data-section="content">
-        <span class="arrow">&#9654;</span> 内容定稿（旧版 1-8 卡）
+    <!-- 2. 文字定稿 -->
+    <div class="accordion-section" data-od-id="editor-text-finalize">
+      <div class="accordion-header" data-section="text-finalize">
+        <span class="arrow">&#9654;</span> 文字定稿
       </div>
-      <div class="accordion-body" data-section="content">
-        <div id="editor-card-nav">
-          <button class="editor-card-btn" data-card="1">卡片1·首页</button>
-          <button class="editor-card-btn" data-card="2">卡片2·公司介绍</button>
-          <button class="editor-card-btn" data-card="3">卡片3·发展沿袭</button>
-          <button class="editor-card-btn" data-card="4">卡片4·主产品</button>
-          <button class="editor-card-btn" data-card="5">卡片5·其他产品</button>
-          <button class="editor-card-btn" data-card="6">卡片6·商业模式</button>
-          <button class="editor-card-btn" data-card="7">卡片7·竞争格局</button>
-          <button class="editor-card-btn" data-card="8">卡片8·总结</button>
+      <div class="accordion-body" data-section="text-finalize" data-od-id="editor-text-finalize-body">
+        <div id="text-finalize-content" data-od-id="editor-text-finalize-content">
+          <!-- 由 text-finalize-panel.js 动态渲染 -->
         </div>
       </div>
     </div>
 
-    <!-- 手风琴2：传播钩子文案 -->
-    <div class="accordion-section">
-      <div class="accordion-header" data-section="hook">
-        <span class="arrow">&#9654;</span> 传播钩子文案
-      </div>
-      <div class="accordion-body" data-section="hook">
-        <div id="editor-hook-nav">
-          <button class="editor-card-btn editor-hook-btn active" data-card="hook">钩子文案</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 手风琴3：数据库字段 -->
-    <div class="accordion-section">
-      <div class="accordion-header" data-section="dbfields">
-        <span class="arrow">&#9654;</span> 数据库字段
-      </div>
-      <div class="accordion-body" data-section="dbfields">
-        <div id="editor-dbfields-nav">
-          <button class="editor-card-btn editor-dbfields-btn active" data-card="dbfields">全部字段</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 手风琴4：图片定稿 -->
+    <!-- 3. 图片定稿 -->
     <div class="accordion-section">
       <div class="accordion-header" data-section="image">
         <span class="arrow">&#9654;</span> 图片定稿
@@ -108,7 +65,19 @@
       </div>
     </div>
 
-    <!-- GZHv2：进入排版 -->
+    <!-- 4. 高级 / 兼容入口 -->
+    <div class="accordion-section" data-od-id="editor-advanced">
+      <div class="accordion-header" data-section="advanced">
+        <span class="arrow">&#9654;</span> 高级 / 兼容入口
+      </div>
+      <div class="accordion-body" data-section="advanced">
+        <button class="editor-card-btn" data-legacy="content">旧版内容定稿 (1-8 卡)</button>
+        <button class="editor-card-btn" data-legacy="hook">传播钩子文案</button>
+        <button class="editor-card-btn" data-legacy="dbfields">原始字段查看</button>
+      </div>
+    </div>
+
+    <!-- 5. 进入排版 -->
     <div class="accordion-section" style="border-top:1px solid var(--border);padding-top:8px" data-od-id="editor-goto-layout">
       <a id="btn-go-layout" class="go-layout-link" href="#" data-od-id="editor-btn-go-layout">进入排版 →</a>
     </div>
@@ -165,9 +134,9 @@
     <div id="card-settings-mode-content" class="preview-content"></div>
   </div>
 
-  <!-- 字段定稿模式：占据中右区域 -->
-  <div id="field-finalize-mode">
-    <div id="field-finalize-mode-content" class="preview-content"></div>
+  <!-- 文字定稿模式：占据中右区域 -->
+  <div id="text-finalize-mode">
+    <div id="text-finalize-mode-content" class="preview-content"></div>
   </div>
 
   <!-- 数据库字段模式：占据中右区域 -->
@@ -195,7 +164,7 @@
 
 <!-- GZHv2 新面板 -->
 <script src="/static/js/editor/card-settings-panel.js"></script>
-<script src="/static/js/editor/field-finalize-panel.js"></script>
+<script src="/static/js/editor/text-finalize-panel.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const company = new URLSearchParams(window.location.search).get('company') || '';
@@ -210,7 +179,17 @@ document.addEventListener('DOMContentLoaded', () => {
     h.addEventListener('click', () => {
       const section = h.dataset.section;
       if (section === 'card-settings') CardSettingsPanel.init(company);
-      if (section === 'field-finalize') FieldFinalizePanel.init(company);
+      if (section === 'text-finalize') TextFinalizePanel.init(company);
+    });
+  });
+
+  // 高级/兼容入口：旧版按钮点击
+  document.querySelectorAll('[data-legacy]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const legacy = btn.dataset.legacy;
+      if (legacy === 'content') EditorApp.switchSection('content');
+      if (legacy === 'hook') { EditorApp.switchSection('hook'); EditorApp.showHooks(); }
+      if (legacy === 'dbfields') EditorApp.switchSection('dbfields');
     });
   });
 });

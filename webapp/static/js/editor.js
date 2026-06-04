@@ -71,9 +71,9 @@ const EditorApp = {
     await this.loadStatus();
     await this.loadHookChoices();
     // 默认进入字段定稿（解耦主流程），旧版内容定稿保留为兼容入口
-    this.switchSection('field-finalize');
+    this.switchSection('text-finalize');
     if (this.companyName) {
-      FieldFinalizePanel.init(this.companyName);
+      TextFinalizePanel.init(this.companyName);
     }
   },
 
@@ -139,7 +139,7 @@ const EditorApp = {
       h.classList.toggle('open', h.dataset.section === section);
     });
     document.querySelectorAll('.accordion-body').forEach(b => {
-      if (b.dataset.section === 'card-settings' || b.dataset.section === 'field-finalize') {
+      if (b.dataset.section === 'card-settings' || b.dataset.section === 'text-finalize') {
         b.classList.remove('open');
       } else {
         b.classList.toggle('open', b.dataset.section === section);
@@ -157,7 +157,7 @@ const EditorApp = {
       'hook':           () => { this.showHookMode(); this.showHooks(); },
       'dbfields':       () => { this.showDbFields(); },
       'card-settings':  () => { this.showCardSettingsMode(); },
-      'field-finalize': () => { this.showFieldFinalizeMode(); },
+      'text-finalize': () => { this.showTextFinalizeMode(); },
     };
     const handler = modeHandlers[section];
     if (handler) { handler(); } else { this.showContentMode(); }
@@ -166,7 +166,7 @@ const EditorApp = {
   /* ── 模式切换 ── */
 
   // Shared overlay IDs — single source of truth for all mode methods
-  _OVERLAY_IDS: ['image-studio-frame', 'hook-mode', 'db-fields-mode', 'card-settings-mode', 'field-finalize-mode'],
+  _OVERLAY_IDS: ['image-studio-frame', 'hook-mode', 'db-fields-mode', 'card-settings-mode', 'text-finalize-mode'],
 
   _closeAllOverlays() {
     this._OVERLAY_IDS.forEach(id => document.getElementById(id).classList.remove('open'));
@@ -219,8 +219,8 @@ const EditorApp = {
     this.updateButtons();
   },
 
-  showFieldFinalizeMode() {
-    this._hidePanesShowOverlay('field-finalize-mode');
+  showTextFinalizeMode() {
+    this._hidePanesShowOverlay('text-finalize-mode');
     this.updateMeta();
     this.updateButtons();
   },
@@ -605,7 +605,7 @@ const EditorApp = {
   },
 
   updateButtons() {
-    if (this.currentSection === 'hook' || this.currentSection === 'image' || this.currentSection === 'card-settings' || this.currentSection === 'field-finalize' || this.currentCard === null) {
+    if (this.currentSection === 'hook' || this.currentSection === 'image' || this.currentSection === 'card-settings' || this.currentSection === 'text-finalize' || this.currentCard === null) {
       document.getElementById('btn-prev').disabled = true;
       document.getElementById('btn-next').disabled = true;
       return;
@@ -662,7 +662,7 @@ const EditorApp = {
       'hook':           '传播钩子文案 | 不生成卡片，只供正文开头使用',
       'image':          '图片定稿 | 为卡片搜索和定稿配图',
       'card-settings':  '卡片设置 | 管理卡片结构、字段分配与模板',
-      'field-finalize': '字段定稿 | 逐字段确认三版本内容',
+      'text-finalize': '字段定稿 | 逐字段确认三版本内容',
     };
     const meta = SECTION_META[this.currentSection];
     if (meta) {
