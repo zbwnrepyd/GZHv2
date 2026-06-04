@@ -260,6 +260,11 @@ const StudioApp = {
     const isChartSlot = slot.asset_key === 'chart_competitive' || slot.asset_key === 'chart_ecosystem';
     stage.innerHTML = `<iframe id="chart-preview-iframe" style="width:100%;height:100%;border:none;background:#fff"></iframe>`;
 
+    // ECharts 散点图：立即加载实时预览
+    if (isChartSlot) {
+      this._updateChartPreview();
+    }
+
     // 功能区 bar
     const toolbar = document.getElementById('toolbar-section');
     if (toolbar) {
@@ -445,16 +450,6 @@ echarts.init(document.getElementById('chart')).setOption({
           <button class="btn-chart-render" data-chart="${tpl?.id||''}">生成 SVG</button>
         </div>
       </div>`;
-  },
-
-  _onChartParamChange(el) {
-    const key = el.dataset.chartParam;
-    const val = el.type === 'range' ? parseInt(el.value) : el.value;
-    this._svParams[key] = val;
-    if (el.type === 'range') {
-      const span = el.nextElementSibling;
-      if (span && span.classList.contains('bar-val')) span.textContent = val;
-    }
   },
 
   _svgTemplateControls(templates) {
