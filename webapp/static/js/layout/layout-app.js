@@ -73,13 +73,14 @@ const LayoutApp = {
   _renderCardList() {
     const el = document.getElementById('card-list');
     el.innerHTML = this._cards.map(c => `
-      <div class="card-item" data-card-id="${c.card_id}" id="card-item-${c.card_id}">
-        <span class="idx">${c.card_index}</span>
-        <span>${this._esc(c.card_title)}</span>
+      <div class="layout-card-item" data-card-id="${c.card_id}" id="card-item-${c.card_id}">
+        <span class="layout-card-idx">${c.card_index}</span>
+        <span class="layout-card-title">${this._esc(c.card_title)}</span>
+        <span class="layout-card-badge">${(c.items || []).length}项</span>
       </div>
     `).join('');
 
-    el.querySelectorAll('.card-item').forEach(item => {
+    el.querySelectorAll('.layout-card-item').forEach(item => {
       item.addEventListener('click', () => this._selectCard(item.dataset.cardId));
     });
   },
@@ -95,7 +96,7 @@ const LayoutApp = {
     this._activeCardId = cardId;
     this._activeCard = this._cards.find(c => c.card_id === cardId);
     this._layoutOverrides = JSON.parse(JSON.stringify(this._activeCard?.layout?.overrides || {}));
-    document.querySelectorAll('.card-item').forEach(el =>
+    document.querySelectorAll('.layout-card-item').forEach(el =>
       el.classList.toggle('active', el.dataset.cardId === cardId));
 
     // 同步模板 select
@@ -186,10 +187,10 @@ const LayoutApp = {
     const template = this._effectiveTemplate();
     const regions = template.regions || [];
     el.innerHTML = regions.map((r, i) => `
-      <div class="layer-item" style="padding:2px 0;cursor:pointer;display:flex;gap:6px;align-items:center" data-region-id="${r.id}">
-        <span style="width:8px;height:8px;border-radius:2px;background:${r.type==='text'?'#29B8D4':r.type==='image'?'#81C784':'#999'}"></span>
-        <span>${this._esc(r.id)}</span>
-        <span style="color:var(--ink-muted);margin-left:auto">${r.role || ''}</span>
+      <div class="layer-item" data-region-id="${r.id}">
+        <span class="layer-dot" style="background:${r.type==='text'?'#29B8D4':r.type==='image'?'#81C784':'#C4B5FD'}"></span>
+        <span class="layer-name">${this._esc(r.id)}</span>
+        <span class="layer-role">${r.role || r.type || ''}</span>
       </div>
     `).join('');
 
@@ -197,8 +198,8 @@ const LayoutApp = {
       item.addEventListener('click', () => {
         this._activeRegionId = item.dataset.regionId;
         this._selectRegion(item.dataset.regionId);
-        item.style.fontWeight = '600';
-        setTimeout(() => { item.style.fontWeight = ''; }, 1000);
+        document.querySelectorAll('.layer-item').forEach(li => li.classList.remove('active'));
+        item.classList.add('active');
       });
     });
   },

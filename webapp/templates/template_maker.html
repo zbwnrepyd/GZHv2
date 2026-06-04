@@ -81,13 +81,43 @@ const TemplateMaker = {
   _activeIdx: -1,
   _tplId: '',
 
-  init() {
+  async init() {
     const p = new URLSearchParams(window.location.search);
-    this._tplId = p.get('template_id') || `custom_${Date.now()}`;
-    this._regions = [
-      { id: 'title', type: 'text', role: 'title', x: 68, y: 80, w: 764, h: 90, style: { fontFamily: 'Noto Sans SC', fontSize: 48, fontWeight: 700, color: '#111', textAlign: 'left' } },
-      { id: 'body', type: 'text', role: 'body', x: 68, y: 200, w: 764, h: 900, style: { fontFamily: 'Noto Sans SC', fontSize: 24, fontWeight: 400, color: '#333', lineHeight: 1.55 } },
-    ];
+    const tplId = p.get('template_id');
+    this._tplId = tplId || `custom_${Date.now()}`;
+    this._isEditing = !!tplId;
+
+    // 加载已有模板
+    if (tplId) {
+      try {
+        const r = await fetch(`/api/templates/${encodeURIComponent(tplId)}`);
+        if (r.ok) {
+          const tpl = await r.json();
+          const json = (typeof tpl.template_json === 'string') ? JSON.parse(tpl.template_json) : tpl.template_json;
+          this._regions = json.regions || [];
+          // 填充 canvas 和背景设置
+          const canvas = json.canvas || {};
+          document.getElementById('canvas-w').value = canvas.width || 900;
+          document.getElementById('canvas-h').value = canvas.height || 1200;
+          const bg = json.background || {};
+          document.getElementById('bg-type').value = bg.type || 'color';
+          document.getElementById('bg-value').value = bg.value || '#FFFFFF';
+          document.getElementById('template-name').value = tpl.template_name || '';
+          document.getElementById('template-status').textContent = '已加载';
+        }
+      } catch (e) {
+        document.getElementById('template-status').textContent = '加载失败';
+      }
+    }
+
+    // 没有模板则用默认
+    if (!this._regions.length) {
+      this._regions = [
+        { id: 'title', type: 'text', role: 'title', x: 68, y: 80, w: 764, h: 90, style: { fontFamily: 'Noto Sans SC', fontSize: 48, fontWeight: 700, color: '#111', textAlign: 'left' } },
+        { id: 'body', type: 'text', role: 'body', x: 68, y: 200, w: 764, h: 900, style: { fontFamily: 'Noto Sans SC', fontSize: 24, fontWeight: 400, color: '#333', lineHeight: 1.55 } },
+      ];
+    }
+
     this._renderAll();
     this._preview();
   },
@@ -247,16 +277,19 @@ const TemplateMaker = {
     };
 
     try {
-      const r = await fetch('/api/templates', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const method = this._isEditing ? 'PATCH' : 'POST';
+      const url = this._isEditing
+        ? `/api/templates/${encodeURIComponent(this._tplId)}`
+        : '/api/templates';
+      const r = await fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template_id: this._tplId, template_name: name, template_json: tplJSON }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error + ': ' + (d.errors || []).join(', '));
       const st = document.getElementById('template-status');
       if (st) st.textContent = '已保存';
-      this._validateTemplate();
-      alert(`模板 "${name}" 保存成功！`);
+      alert(`模板 "${name}" 保存成功！${this._isEditing ? '（已更新）' : ''}`);
     } catch (e) { alert('保存失败: ' + e.message); }
   },
 

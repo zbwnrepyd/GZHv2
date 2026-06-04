@@ -11,14 +11,105 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=Instrument+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/gzh2-base.css">
 <style>
-  /* 排版页面特有微调 */
-  .panel-left { width: 240px; }
+  /* 排版页面 */
+  .panel-left { width: 244px; padding: 0; gap: 0; }
+  .panel-right { width: 288px; }
+
+  /* ── 左栏区块 ── */
+  .layout-section {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .layout-section:last-child { border-bottom: none; }
+
+  .layout-section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .layout-section-title {
+    font-size: 11px; font-weight: 700; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .layout-section-title::before {
+    content: ''; width: 3px; height: 12px; border-radius: 2px;
+    background: var(--cyan); display: inline-block;
+  }
+
+  /* ── 卡片列表 ── */
+  .layout-card-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; margin-bottom: 2px; border-radius: 6px;
+    cursor: pointer; font-size: 13px; border: 1px solid transparent;
+    transition: background .12s, border-color .12s;
+  }
+  .layout-card-item:hover { background: rgba(41,184,212,.05); border-color: rgba(41,184,212,.15); }
+  .layout-card-item.active {
+    background: rgba(41,184,212,.1); border-color: var(--cyan);
+    font-weight: 600;
+  }
+  .layout-card-idx {
+    width: 22px; height: 22px; border-radius: 5px;
+    background: var(--navy); color: var(--white);
+    font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .layout-card-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .layout-card-badge {
+    font-size: 9px; padding: 1px 5px; border-radius: 999px;
+    background: var(--surface-2); color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  /* ── 模板选择 ── */
+  .layout-template-select {
+    width: 100%; padding: 7px 8px; font-size: 12px;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface-1); color: var(--text);
+    cursor: pointer;
+    transition: border-color .12s;
+  }
+  .layout-template-select:focus { outline: none; border-color: var(--cyan); }
+
+  /* ── 图层列表 ── */
+  .layer-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; margin-bottom: 1px; border-radius: 5px;
+    cursor: pointer; font-size: 12px; border: 1px solid transparent;
+    transition: background .12s, border-color .12s;
+  }
+  .layer-item:hover { background: rgba(41,184,212,.05); }
+  .layer-item.active {
+    background: rgba(41,184,212,.1); border-color: rgba(41,184,212,.25);
+    font-weight: 600;
+  }
+  .layer-dot {
+    width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0;
+    border: 1px solid rgba(0,0,0,.1);
+  }
+  .layer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .layer-role {
+    font-size: 9px; padding: 1px 5px; border-radius: 999px;
+    background: var(--surface-2); color: var(--text-muted);
+    text-transform: uppercase; flex-shrink: 0;
+  }
+
+  /* ── Canvas 预览区 ── */
   .canvas-stage iframe { pointer-events: none; }
-  .layer-item { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
-  .layer-item:hover { background: rgba(41,184,212,0.06); }
-  .layer-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+  /* ── 属性面板 ── */
   .prop-row { display: flex; gap: 6px; }
   .prop-row label { flex: 1; }
+  .prop-group {
+    margin-bottom: 12px; padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .prop-group:last-child { border-bottom: none; margin-bottom: 0; }
+  .prop-group-title {
+    font-size: 11px; font-weight: 700; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px;
+  }
 </style>
 </head>
 <body data-od-id="page-layout">
@@ -37,17 +128,29 @@
 <div class="main-layout" data-od-id="layout-main">
   <!-- 左：卡片列表 + 模板选择 + 图层 -->
   <aside class="panel panel-left" data-od-id="layout-left">
-    <div class="section-title">卡片列表</div>
-    <div id="card-list"></div>
-
-    <div class="section-title" style="margin-top:16px">模板</div>
-    <select id="template-select"></select>
-    <div class="btn-row">
-      <button class="btn btn-outline btn-sm" id="btn-apply-template">应用模板</button>
+    <div class="layout-section">
+      <div class="layout-section-header">
+        <span class="layout-section-title">卡片列表</span>
+      </div>
+      <div id="card-list"></div>
     </div>
 
-    <div class="section-title" style="margin-top:16px">图层</div>
-    <div id="layer-list"></div>
+    <div class="layout-section">
+      <div class="layout-section-header">
+        <span class="layout-section-title">模板</span>
+      </div>
+      <select class="layout-template-select" id="template-select"></select>
+      <div class="btn-row">
+        <button class="btn btn-outline btn-sm" id="btn-apply-template">应用模板</button>
+      </div>
+    </div>
+
+    <div class="layout-section">
+      <div class="layout-section-header">
+        <span class="layout-section-title">图层</span>
+      </div>
+      <div id="layer-list"></div>
+    </div>
   </aside>
 
   <!-- 中：Canvas 预览 -->
