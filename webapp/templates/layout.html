@@ -38,9 +38,9 @@
 
   /* ── 卡片列表 ── */
   .layout-card-item {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 10px; margin-bottom: 2px; border-radius: 6px;
-    cursor: pointer; font-size: 13px; border: 1px solid transparent;
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 8px; margin-bottom: 1px; border-radius: 5px;
+    cursor: pointer; font-size: 12px; border: 1px solid transparent;
     transition: background .12s, border-color .12s;
   }
   .layout-card-item:hover { background: rgba(41,184,212,.05); border-color: rgba(41,184,212,.15); }
@@ -49,9 +49,9 @@
     font-weight: 600;
   }
   .layout-card-idx {
-    width: 22px; height: 22px; border-radius: 5px;
+    width: 18px; height: 18px; border-radius: 4px;
     background: var(--navy); color: var(--white);
-    font-size: 10px; font-weight: 700;
+    font-size: 9px; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
@@ -62,9 +62,12 @@
     flex-shrink: 0;
   }
 
-  /* ── 模板选择 ── */
+  /* ── 模板选择（选择框 + 按钮同行）── */
+  .layout-template-row {
+    display: flex; gap: 6px; align-items: center;
+  }
   .layout-template-select {
-    width: 100%; padding: 7px 8px; font-size: 12px;
+    flex: 1; padding: 6px 8px; font-size: 12px;
     border: 1px solid var(--border); border-radius: 6px;
     background: var(--surface-1); color: var(--text);
     cursor: pointer;
@@ -139,9 +142,9 @@
       <div class="layout-section-header">
         <span class="layout-section-title">模板</span>
       </div>
-      <select class="layout-template-select" id="template-select"></select>
-      <div class="btn-row">
-        <button class="btn btn-outline btn-sm" id="btn-apply-template">应用模板</button>
+      <div class="layout-template-row">
+        <select class="layout-template-select" id="template-select"></select>
+        <button class="btn btn-outline btn-sm" id="btn-apply-template">应用</button>
       </div>
     </div>
 
