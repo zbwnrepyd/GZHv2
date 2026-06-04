@@ -552,90 +552,93 @@ input, button, select, textarea { font: inherit; }
 }
 #cs-btn-cancel:hover { background: var(--surface-2); }
 
-/* ── 字段定稿面板（ff-*）─────────────────────────── */
-.ff-actions {
-  display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+/* ── 文字定稿面板（tf-*）─────────────────────────── */
+.tf-top-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px; padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
 }
-.ff-btn-confirm-all {
-  padding: 7px 16px; border: 1px solid var(--green); border-radius: var(--radius);
-  background: var(--green); color: var(--white); font-size: 13px; font-weight: 600;
-  cursor: pointer; transition: background .12s;
+.tf-progress { font-size: 14px; color: var(--text-muted); }
+.tf-btn-confirm-all {
+  padding: 7px 20px; border: 1px solid var(--green); border-radius: var(--radius);
+  background: var(--green); color: var(--white); font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: opacity .12s;
 }
-.ff-btn-confirm-all:hover { opacity: .85; }
+.tf-btn-confirm-all:hover { opacity: .85; }
 
-.ff-groups { display: flex; flex-direction: column; gap: 16px; }
-.ff-group {
-  border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--surface-1); overflow: hidden;
-}
-.ff-group-title {
-  font-size: 12px; font-weight: 700; color: var(--navy);
-  padding: 10px 14px; background: var(--surface-2);
-  border-bottom: 1px solid var(--border); margin: 0;
-}
+.tf-groups { display: flex; flex-direction: column; gap: 24px; }
 
-.ff-field-row {
-  padding: 10px 14px; border-bottom: 1px solid var(--border);
-}
-.ff-field-row:last-child { border-bottom: none; }
-.ff-field-row.draft { background: #FFFBF4; }
-.ff-field-row.confirmed { background: #F4FBF6; }
-.ff-field-header {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
-}
-.ff-field-label { font-size: 13px; font-weight: 600; color: var(--text); }
-.ff-field-key {
-  font-size: 10px; font-family: var(--font-mono); color: var(--text-subtle);
-  background: var(--surface-2); padding: 1px 6px; border-radius: 3px;
-}
-.ff-field-type {
-  font-size: 10px; color: var(--text-muted); text-transform: uppercase;
-}
-.ff-status-dot {
-  width: 7px; height: 7px; border-radius: 50%; margin-left: auto; flex-shrink: 0;
-}
-.ff-status-dot.draft { background: #F59E0B; }
-.ff-status-dot.confirmed { background: var(--green); }
-
-.ff-versions {
-  display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;
-}
-.ff-version-row {
-  flex: 1; min-width: 0; padding: 6px 8px; border-radius: 4px;
-  background: var(--surface-2); border: 1px solid var(--border);
-}
-.ff-ver-label {
-  font-size: 10px; font-weight: 600; color: var(--text-muted);
-  text-transform: uppercase; display: block; margin-bottom: 2px;
-}
-.ff-ver-value {
-  font-size: 11px; color: var(--text); line-height: 1.4;
-  overflow: hidden; text-overflow: ellipsis; display: -webkit-box;
-  -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+.tf-group-title {
+  font-size: 15px; font-weight: 700; color: var(--navy);
+  padding-bottom: 8px; margin: 0 0 12px;
+  border-bottom: 2px solid var(--cyan);
 }
 
-.ff-final-row {
-  display: flex; gap: 8px; align-items: flex-start;
+.tf-fields { display: flex; flex-direction: column; gap: 14px; }
+
+.tf-field-card {
+  padding: 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-1); transition: border-color .15s;
 }
-.ff-final-input {
-  flex: 1; font-size: 12px; padding: 6px 8px;
+.tf-field-card:hover { border-color: var(--border-strong); }
+.tf-field-card.confirmed { border-left: 3px solid var(--green); background: #F9FCFA; }
+
+.tf-field-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+}
+.tf-field-label {
+  font-size: 16px; font-weight: 700; color: var(--navy);
+}
+.tf-field-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.tf-field-dot.draft { background: #F59E0B; }
+.tf-field-dot.confirmed { background: var(--green); }
+
+/* 三版本卡片 — 点击采用 */
+.tf-versions {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;
+}
+.tf-version-card {
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2); cursor: pointer;
+  transition: border-color .12s, box-shadow .12s;
+}
+.tf-version-card:hover {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(41,184,212,.15);
+}
+.tf-ver-tag {
+  display: inline-block; font-size: 11px; font-weight: 700; color: var(--cyan);
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px;
+}
+.tf-ver-text {
+  font-size: 14px; color: var(--text); line-height: 1.6;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 无数据提示 */
+.tf-empty-hint { font-size: 13px; color: var(--text-subtle); font-style: italic; padding: 8px 0; }
+
+/* 定稿输入区 */
+.tf-final-area {
+  display: flex; gap: 10px; align-items: flex-start;
+}
+.tf-final-input {
+  flex: 1; font-size: 15px; padding: 10px 12px; line-height: 1.6;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
-  resize: vertical; min-height: 36px; font-family: var(--font-body);
+  resize: vertical; min-height: 48px; font-family: var(--font-body);
+  transition: border-color .12s;
 }
-.ff-final-input:focus {
+.tf-final-input:focus {
   outline: none; border-color: var(--cyan);
   box-shadow: 0 0 0 2px rgba(41,184,212,.12);
 }
-.ff-use-version-btn {
-  padding: 2px 8px; border: 1px solid var(--cyan); border-radius: 3px;
-  background: transparent; color: var(--cyan); font-size: 11px; cursor: pointer;
-  white-space: nowrap; flex-shrink: 0;
-}
-.ff-use-version-btn:hover { background: rgba(41,184,212,.1); }
-.ff-save-btn {
-  padding: 6px 14px; border: 1px solid var(--cyan); border-radius: var(--radius-sm);
-  background: var(--cyan); color: var(--white); font-size: 12px; font-weight: 600;
+.tf-final-input.dirty { border-color: var(--cyan); background: rgba(41,184,212,.03); }
+.tf-save-btn {
+  padding: 10px 20px; border: none; border-radius: var(--radius-sm);
+  background: var(--cyan); color: var(--white); font-size: 14px; font-weight: 600;
   cursor: pointer; white-space: nowrap; flex-shrink: 0;
 }
-.ff-save-btn:hover { background: var(--cyan-hover); }
-.ff-final-input.dirty { border-color: var(--cyan); background: rgba(41,184,212,.04); }
+.tf-save-btn:hover { background: var(--cyan-hover); }

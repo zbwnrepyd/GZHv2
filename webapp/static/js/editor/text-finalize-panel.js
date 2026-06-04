@@ -1,5 +1,8 @@
-/* text-finalize-panel.js — GZHv2 字段定稿面板
-   功能：按字段分组展示三版本内容，支持编辑定稿 */
+/* text-finalize-panel.js — 文字定稿面板
+   功能：按字段分组，三版本对比，点击采用，编辑定稿 */
+
+const VERSION_LABELS_TF = { standard: '标准版', business: '商业版', spread: '传播版' };
+
 const TextFinalizePanel = {
   _company: '',
   _groups: [],
@@ -24,70 +27,90 @@ const TextFinalizePanel = {
     const root = document.getElementById('text-finalize-mode-content');
     if (!root) return;
 
+    const confirmedCount = this._groups.reduce((sum, g) =>
+      sum + (g.fields || []).filter(f => f.status === 'confirmed').length, 0);
+    const totalCount = this._groups.reduce((sum, g) => sum + (g.fields || []).length, 0);
+
     root.innerHTML = `
-      <div class="ff-actions">
-        <button class="ff-btn-confirm-all" id="ff-btn-confirm-all">全部定稿</button>
+      <div class="tf-top-bar">
+        <span class="tf-progress">${confirmedCount}/${totalCount} 已定稿</span>
+        <button class="tf-btn-confirm-all" id="tf-btn-confirm-all">全部定稿</button>
       </div>
-      <div class="ff-groups" id="ff-groups">
+      <div class="tf-groups">
         ${this._groups.map(g => this._groupSection(g)).join('')}
       </div>
     `;
 
-    document.getElementById('ff-btn-confirm-all')?.addEventListener('click', () => this._confirmAll());
-    document.querySelectorAll('.ff-use-version-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const fieldKey = btn.dataset.field;
-        const value = btn.dataset.value || '';
-        const textarea = document.querySelector(`.ff-final-input[data-field="${fieldKey}"]`);
-        if (textarea) { textarea.value = value; textarea.classList.add('dirty'); }
+    document.getElementById('tf-btn-confirm-all')?.addEventListener('click', () => this._confirmAll());
+    this._bindRowEvents();
+  },
+
+  _groupSection(group) {
+    const fields = group.fields || [];
+    return `
+      <div class="tf-group">
+        <h3 class="tf-group-title">${this._esc(group.group_label)}</h3>
+        <div class="tf-fields">
+          ${fields.map(f => this._fieldCard(f)).join('')}
+        </div>
+      </div>`;
+  },
+
+  _fieldCard(field) {
+    const versions = field.versions || {};
+    const finalVal = field.final_value || '';
+    const confirmed = field.status === 'confirmed';
+    const hasVersions = Object.keys(versions).length > 0;
+
+    return `
+      <div class="tf-field-card ${confirmed ? 'confirmed' : ''}" data-field="${field.field_key}">
+        <div class="tf-field-head">
+          <span class="tf-field-label">${this._esc(field.field_label)}</span>
+          <span class="tf-field-dot ${confirmed ? 'confirmed' : 'draft'}" title="${confirmed ? '已定稿' : '未定稿'}"></span>
+        </div>
+
+        ${hasVersions ? `
+        <div class="tf-versions">
+          ${Object.entries(versions).map(([ver, val]) => `
+            <div class="tf-version-card" data-field="${field.field_key}" data-value="${this._escAttr(val)}"
+                 title="点击采用${VERSION_LABELS_TF[ver] || ver}版本">
+              <span class="tf-ver-tag">${VERSION_LABELS_TF[ver] || ver}</span>
+              <p class="tf-ver-text">${this._esc(val)}</p>
+            </div>
+          `).join('')}
+        </div>` : '<p class="tf-empty-hint">暂无研究数据</p>'}
+
+        <div class="tf-final-area">
+          <textarea class="tf-final-input" data-field="${field.field_key}" rows="2"
+            placeholder="输入定稿内容...">${this._esc(finalVal)}</textarea>
+          <button class="tf-save-btn" data-field-key="${field.field_key}">保存</button>
+        </div>
+      </div>`;
+  },
+
+  _bindRowEvents() {
+    // 采用：点击版本卡片
+    document.querySelectorAll('.tf-version-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const fieldKey = card.dataset.field;
+        const value = card.dataset.value || '';
+        const textarea = document.querySelector(`.tf-final-input[data-field="${fieldKey}"]`);
+        if (textarea) {
+          textarea.value = value;
+          textarea.classList.add('dirty');
+          textarea.focus();
+        }
       });
     });
-    document.querySelectorAll('.ff-save-btn').forEach(btn => {
+
+    // 保存
+    document.querySelectorAll('.tf-save-btn').forEach(btn => {
       btn.addEventListener('click', () => this._saveField(btn.dataset.fieldKey));
     });
   },
 
-  _groupSection(group) {
-    return `
-      <div class="ff-group">
-        <h4 class="ff-group-title">${this._esc(group.group_label)}</h4>
-        ${group.fields.map(f => this._fieldRow(f)).join('')}
-      </div>`;
-  },
-
-  _fieldRow(field) {
-    const versions = field.versions || {};
-    const finalVal = field.final_value || '';
-    const statusCls = field.status === 'confirmed' ? 'confirmed' : 'draft';
-    const hasVersions = Object.keys(versions).length > 0;
-
-    return `
-      <div class="ff-field-row ${statusCls}" data-field="${field.field_key}">
-        <div class="ff-field-header">
-          <span class="ff-field-label">${this._esc(field.field_label)}</span>
-          <span class="ff-field-key">${field.field_key}</span>
-          <span class="ff-field-type">${field.type}</span>
-          <span class="ff-status-dot ${statusCls}"></span>
-        </div>
-        ${hasVersions ? `
-        <div class="ff-versions">
-          ${Object.entries(versions).map(([ver, val]) => `
-            <div class="ff-version-row" data-ver="${ver}">
-              <span class="ff-ver-label">${ver}</span>
-              <span class="ff-ver-value" title="${this._esc(val)}">${this._esc(val).substring(0, 120)}</span>
-              <button class="ff-use-version-btn" data-field="${field.field_key}" data-value="${this._escAttr(val)}">采用</button>
-            </div>
-          `).join('')}
-        </div>` : ''}
-        <div class="ff-final-row">
-          <textarea class="ff-final-input" data-field="${field.field_key}" rows="3" placeholder="定稿内容...">${this._esc(finalVal)}</textarea>
-          <button class="ff-save-btn" data-field-key="${field.field_key}">保存</button>
-        </div>
-      </div>`;
-  },
-
   async _saveField(fieldKey) {
-    const textarea = document.querySelector(`.ff-final-input[data-field="${fieldKey}"]`);
+    const textarea = document.querySelector(`.tf-final-input[data-field="${fieldKey}"]`);
     if (!textarea) return;
     const value = textarea.value.trim();
 
@@ -97,17 +120,25 @@ const TextFinalizePanel = {
         body: JSON.stringify({ final_value: value, status: 'confirmed' }),
       });
       if (r.ok) {
-        const dot = document.querySelector(`.ff-field-row[data-field="${fieldKey}"] .ff-status-dot`);
-        if (dot) { dot.classList.remove('draft'); dot.classList.add('confirmed'); }
+        const card = document.querySelector(`.tf-field-card[data-field="${fieldKey}"]`);
+        if (card) { card.classList.add('confirmed'); card.classList.remove('draft'); }
+        const dot = card?.querySelector('.tf-field-dot');
+        if (dot) { dot.classList.add('confirmed'); dot.classList.remove('draft'); }
+        textarea.classList.remove('dirty');
+        // Update progress
+        const confirmedCount = document.querySelectorAll('.tf-field-card.confirmed').length;
+        const totalCount = document.querySelectorAll('.tf-field-card').length;
+        const progress = document.querySelector('.tf-progress');
+        if (progress) progress.textContent = `${confirmedCount}/${totalCount} 已定稿`;
       }
     } catch (e) { /* non-blocking */ }
   },
 
   async _confirmAll() {
-    if (!confirm('确定将所有字段标记为已定稿？')) return;
+    if (!confirm('确定将所有已填写的字段标记为已定稿？')) return;
     try {
       const fieldValues = {};
-      document.querySelectorAll('.ff-final-input').forEach(ta => {
+      document.querySelectorAll('.tf-final-input').forEach(ta => {
         const key = ta.dataset.field;
         if (key && ta.value.trim()) fieldValues[key] = ta.value.trim();
       });
