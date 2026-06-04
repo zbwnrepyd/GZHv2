@@ -3,25 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI初创公司知识卡片 - 研究台</title>
+<title>aistartups.cn — 研究台</title>
+<link rel="icon" type="image/jpeg" href="/images/gzh-logo.jpg">
+<link rel="apple-touch-icon" href="/images/gzh-logo.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=Instrument+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/gzh2-base.css">
 <link rel="stylesheet" href="/static/css/editor.css">
 </head>
 <body>
-<header id="top-bar">
-  <div class="bar-left">
-    <h1 class="logo">aistartups.cn</h1>
-  </div>
-  <div class="bar-center">
-    <span class="status-text">研究台 · 发起研究与管理公司库</span>
-  </div>
-  <div class="bar-right">
-    <a class="top-link" href="/editor">定稿台</a>
-  </div>
+<header id="top-bar" class="top-bar">
+  <a href="/"><img src="/images/gzh-logo.jpg" class="topbar-logo" alt="aistartups.cn"></a>
+  <span class="page-label">研究台</span>
+  <span class="spacer"></span>
+  <a class="top-link" href="/editor">定稿台</a>
 </header>
 
 <main id="research-desk">
   <section class="research-hero">
-    <div class="section-title">开始研究</div>
+    <div class="hero-section-title">开始研究</div>
     <div class="research-inputs">
       <label for="research-company-name">公司名</label>
       <input id="research-company-name" type="text" placeholder="例如 Anthropic">
@@ -44,7 +45,7 @@
   <section class="company-library">
     <div class="library-header">
       <div>
-        <div class="section-title">公司库</div>
+        <div class="hero-section-title">公司库</div>
         <p>按研究时间倒序排列，点击「定稿」进入下一工序。</p>
       </div>
       <button id="btn-refresh-companies" class="btn">刷新</button>

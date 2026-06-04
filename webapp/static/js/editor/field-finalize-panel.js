@@ -5,9 +5,11 @@ const FieldFinalizePanel = {
   _groups: [],
 
   async init(company) {
+    if (this._loaded && this._company === company) return;
     this._company = company;
     await this._loadFields();
     this._render();
+    this._loaded = true;
   },
 
   async _loadFields() {
@@ -19,7 +21,7 @@ const FieldFinalizePanel = {
   },
 
   _render() {
-    const root = document.getElementById('field-finalize-content');
+    const root = document.getElementById('field-finalize-mode-content');
     if (!root) return;
 
     root.innerHTML = `

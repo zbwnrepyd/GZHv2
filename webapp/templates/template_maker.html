@@ -3,63 +3,38 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>模板制作 — GZHv2</title>
+<title>aistartups.cn — 模板制作</title>
+<link rel="icon" type="image/jpeg" href="/images/gzh-logo.jpg">
+<link rel="apple-touch-icon" href="/images/gzh-logo.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=Instrument+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/gzh2-base.css">
 <style>
-  :root {
-    --navy: #111827; --accent: #1E9FB5; --line: rgba(15,23,42,0.10);
-    --ink: #111827; --ink-muted: #667085; --bg: #F3F6FA;
-    font-family: 'Instrument Sans','Noto Sans SC',sans-serif;
-  }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background: var(--bg); height:100vh; overflow:hidden; display:flex; flex-direction:column; }
-
-  .top-bar { display:flex; align-items:center; gap:12px; padding:8px 16px; background:var(--navy); color:#fff; height:42px; font-size:13px; }
-  .top-bar a { color: rgba(255,255,255,0.6); text-decoration:none; }
-
-  .main { display:flex; flex:1; overflow:hidden; }
-  .panel { padding:12px; overflow-y:auto; }
-  .panel-left { width:256px; background:#fff; border-right:1px solid var(--line); }
-  .panel-center { flex:1; background:#E2E8F0; display:flex; align-items:center; justify-content:center; }
-  .panel-right { width:304px; background:#fff; border-left:1px solid var(--line); }
-
-  .section-title { font-size:11px; font-weight:600; color:var(--ink-muted); text-transform:uppercase; letter-spacing:0.08em; padding:4px 0; margin-top:12px; }
-  label { font-size:11px; color:var(--ink-muted); display:block; margin-top:6px; }
-  input, select, textarea { width:100%; font-size:12px; border:1px solid var(--line); border-radius:4px; padding:4px 6px; }
-  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--accent); }
-
-  .btn { font-size:12px; padding:6px 12px; border-radius:6px; border:none; cursor:pointer; font-weight:600; }
-  .btn-accent { background:var(--accent); color:#fff; }
-  .btn-outline { background:transparent; border:1px solid var(--line); }
-  .btn-sm { padding:4px 8px; font-size:11px; }
-  .btn-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
-
-  .region-item { display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:4px; cursor:pointer; font-size:12px; }
-  .region-item:hover { background:rgba(41,184,212,0.05); }
-  .region-item.active { background:rgba(41,184,212,0.12); }
-  .region-dot { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
-
-  .canvas-preview { position:relative; box-shadow:0 16px 42px rgba(15,23,42,0.16); border-radius:6px; background:#fff; }
-  .canvas-preview iframe { border:none; display:block; }
-  .empty-state { text-align:center; color:var(--ink-muted); padding:40px; font-size:14px; }
-  .status-chip { font-size:11px;color:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:2px 8px; }
-  .check-list { margin-top:8px; padding:8px; border:1px solid var(--line); border-radius:6px; background:#F8FAFC; color:var(--ink-muted); font-size:11px; line-height:1.5; }
-  .check-list.ok { color:#067647; background:#ECFDF3; border-color:#ABEFC6; }
-  .check-list.bad { color:#B42318; background:#FEF3F2; border-color:#FECDCA; }
+  /* 模板制作页面特有 */
+  .tm-canvas-preview { position: relative; box-shadow: 0 4px 24px rgba(0,0,0,0.10); border-radius: var(--radius); background: var(--white); }
+  .tm-canvas-preview iframe { border: none; display: block; transform-origin: top left; }
+  .region-item { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; }
+  .region-item:hover { background: rgba(41,184,212,0.05); }
+  .region-item.active { background: rgba(41,184,212,0.12); font-weight: 600; }
+  .region-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 </style>
 </head>
-<body>
+<body data-od-id="page-template-maker">
 
-<header class="top-bar">
+<header class="top-bar" data-od-id="tm-topbar">
+  <a href="/"><img src="/images/gzh-logo.jpg" class="topbar-logo" alt="aistartups.cn"></a>
   <a href="javascript:history.back()">← 返回</a>
   <span>模板制作</span>
-  <span class="status-chip" id="template-status">未保存</span>
-  <span style="flex:1"></span>
-  <input id="template-name" placeholder="模板名称" style="width:180px;background:transparent;color:#fff;border-color:rgba(255,255,255,0.3)">
+  <span class="spacer"></span>
+  <span class="od-status" id="template-status">未保存</span>
+  <input id="template-name" placeholder="模板名称" style="width:180px;background:transparent;color:var(--white);border-color:rgba(255,255,255,0.3);font-size:13px">
   <button class="btn btn-accent btn-sm" onclick="TemplateMaker.save()">保存模板</button>
 </header>
 
-<div class="main">
-  <aside class="panel panel-left" id="left-panel">
+<div class="main-layout" data-od-id="tm-main">
+  <!-- 左：画布设置 + 区域列表 -->
+  <aside class="panel panel-left" data-od-id="tm-left">
     <div class="section-title">画布</div>
     <div class="btn-row">
       <label>宽 <input type="number" value="900" id="canvas-w" onchange="TemplateMaker._updateCanvas()"></label>
@@ -71,30 +46,31 @@
         <option value="gradient">渐变</option>
       </select>
     </label>
-    <label>背景值 <input id="bg-value" value="#FFFFFF" onchange="TemplateMaker._updateCanvas()"></label>
+    <label>背景值 <input type="text" id="bg-value" value="#FFFFFF" onchange="TemplateMaker._updateCanvas()"></label>
 
-    <div class="section-title">区域</div>
+    <div class="section-title" style="margin-top:14px">区域</div>
     <div class="btn-row">
       <button class="btn btn-outline btn-sm" onclick="TemplateMaker._addRegion('text')">+ 文字</button>
       <button class="btn btn-outline btn-sm" onclick="TemplateMaker._addRegion('image')">+ 图片</button>
       <button class="btn btn-outline btn-sm" onclick="TemplateMaker._addRegion('shape')">+ 形状</button>
     </div>
     <div id="region-list" style="margin-top:8px"></div>
-    <div id="template-checks" class="check-list">等待自检</div>
   </aside>
 
-  <main class="panel-center" id="canvas-area">
+  <!-- 中：Canvas 预览 -->
+  <main class="panel-center" data-od-id="tm-center">
     <div id="canvas-preview-container"></div>
   </main>
 
-  <aside class="panel panel-right" id="right-panel">
+  <!-- 右：区域属性 -->
+  <aside class="panel panel-right" data-od-id="tm-right">
     <div class="section-title">区域属性</div>
     <div id="region-props">
       <div class="empty-state">选择区域编辑属性</div>
     </div>
     <div class="btn-row">
       <button class="btn btn-outline btn-sm" onclick="TemplateMaker._duplicateRegion()">复制区域</button>
-      <button class="btn btn-outline btn-sm" onclick="TemplateMaker._deleteRegion()" style="color:#E53935;border-color:#E53935">删除区域</button>
+      <button class="btn btn-outline btn-sm" onclick="TemplateMaker._deleteRegion()" style="color:var(--red);border-color:var(--red)">删除区域</button>
     </div>
   </aside>
 </div>
@@ -105,43 +81,19 @@ const TemplateMaker = {
   _activeIdx: -1,
   _tplId: '',
 
-  async init() {
+  init() {
     const p = new URLSearchParams(window.location.search);
     this._tplId = p.get('template_id') || `custom_${Date.now()}`;
-    if (p.get('template_id')) {
-      await this._loadExistingTemplate(this._tplId);
-    }
-    if (!this._regions.length) {
-      this._regions = [
-        { id: 'title', type: 'text', role: 'title', x: 68, y: 80, w: 764, h: 90, style: { fontFamily: 'Noto Sans SC', fontSize: 48, fontWeight: 700, color: '#111', textAlign: 'left' } },
-        { id: 'body', type: 'text', role: 'body', x: 68, y: 200, w: 764, h: 900, style: { fontFamily: 'Noto Sans SC', fontSize: 24, fontWeight: 400, color: '#333', lineHeight: 1.55 } },
-      ];
-    }
+    this._regions = [
+      { id: 'title', type: 'text', role: 'title', x: 68, y: 80, w: 764, h: 90, style: { fontFamily: 'Noto Sans SC', fontSize: 48, fontWeight: 700, color: '#111', textAlign: 'left' } },
+      { id: 'body', type: 'text', role: 'body', x: 68, y: 200, w: 764, h: 900, style: { fontFamily: 'Noto Sans SC', fontSize: 24, fontWeight: 400, color: '#333', lineHeight: 1.55 } },
+    ];
     this._renderAll();
     this._preview();
   },
 
-  async _loadExistingTemplate(templateId) {
-    try {
-      const r = await fetch(`/api/templates/${encodeURIComponent(templateId)}`);
-      if (!r.ok) return;
-      const tpl = await r.json();
-      const json = tpl.template_json || {};
-      document.getElementById('template-name').value = tpl.template_name || '';
-      document.getElementById('canvas-w').value = json.canvas?.width || tpl.canvas_width || 900;
-      document.getElementById('canvas-h').value = json.canvas?.height || tpl.canvas_height || 1200;
-      document.getElementById('bg-type').value = json.background?.type || 'color';
-      document.getElementById('bg-value').value = json.background?.value || '#FFFFFF';
-      this._regions = Array.isArray(json.regions) ? json.regions : [];
-      this._setStatus('已加载模板');
-    } catch {
-      this._setStatus('加载失败');
-    }
-  },
-
   _renderAll() {
     this._renderRegionList();
-    this._renderChecks();
     if (this._activeIdx >= 0 && this._activeIdx < this._regions.length) {
       this._renderProps(this._regions[this._activeIdx]);
     }
@@ -151,9 +103,9 @@ const TemplateMaker = {
     const el = document.getElementById('region-list');
     el.innerHTML = this._regions.map((r, i) => `
       <div class="region-item ${i === this._activeIdx ? 'active' : ''}" onclick="TemplateMaker._selectRegion(${i})">
-        <span class="region-dot" style="background:${r.type==='text'?'#29B8D4':r.type==='image'?'#81C784':'#999'}"></span>
+        <span class="region-dot" style="background:${r.type==='text'?'var(--cyan)':r.type==='image'?'var(--green)':'var(--text-subtle)'}"></span>
         <span>${this._esc(r.id)}</span>
-        <span style="color:var(--ink-muted);margin-left:auto;font-size:10px">${r.type} / ${r.role||'-'}</span>
+        <span style="color:var(--text-subtle);margin-left:auto;font-size:10px">${r.type} / ${r.role||'-'}</span>
       </div>
     `).join('');
   },
@@ -164,34 +116,38 @@ const TemplateMaker = {
   },
 
   _renderProps(r) {
-    const roles = ['title','subtitle','body','caption','logo','hero_image','chart','decoration','background_image'];
+    const roles = ['title','subtitle','body','caption','logo','hero_image','chart','decoration','background'];
     const fonts = ['Noto Sans SC','Instrument Sans','Bebas Neue','IBM Plex Mono'];
     const el = document.getElementById('region-props');
+    const s = r.style || {};
     el.innerHTML = `
       <label>ID <input value="${this._esc(r.id)}" data-key="id" onchange="TemplateMaker._onProp('id',this.value)"></label>
       <label>角色 <select data-key="role" onchange="TemplateMaker._onProp('role',this.value)">
         ${roles.map(ro => `<option ${r.role===ro?'selected':''}>${ro}</option>`).join('')}
       </select></label>
       <div class="btn-row">
-        <label>X <input type="number" value="${r.x}" data-key="x" onchange="TemplateMaker._onProp('x',parseFloat(this.value))" style="width:60px"></label>
-        <label>Y <input type="number" value="${r.y}" data-key="y" onchange="TemplateMaker._onProp('y',parseFloat(this.value))" style="width:60px"></label>
-        <label>W <input type="number" value="${r.w}" data-key="w" onchange="TemplateMaker._onProp('w',parseFloat(this.value))" style="width:60px"></label>
-        <label>H <input type="number" value="${r.h}" data-key="h" onchange="TemplateMaker._onProp('h',parseFloat(this.value))" style="width:60px"></label>
+        <label>X <input type="number" value="${r.x}" onchange="TemplateMaker._onProp('x',parseFloat(this.value))" style="width:60px"></label>
+        <label>Y <input type="number" value="${r.y}" onchange="TemplateMaker._onProp('y',parseFloat(this.value))" style="width:60px"></label>
+        <label>W <input type="number" value="${r.w}" onchange="TemplateMaker._onProp('w',parseFloat(this.value))" style="width:60px"></label>
+        <label>H <input type="number" value="${r.h}" onchange="TemplateMaker._onProp('h',parseFloat(this.value))" style="width:60px"></label>
       </div>
       ${r.type === 'text' ? `
-        <label>字体 <select data-key="s_fontFamily" onchange="TemplateMaker._onStyle('fontFamily',this.value)">
-          ${fonts.map(f => `<option ${(r.style?.fontFamily)===f?'selected':''}>${f}</option>`).join('')}
+        <label>字体 <select onchange="TemplateMaker._onStyle('fontFamily',this.value)">
+          ${fonts.map(f => `<option ${s.fontFamily===f?'selected':''}>${f}</option>`).join('')}
         </select></label>
-        <label>字号 <input type="range" min="10" max="96" value="${r.style?.fontSize||24}" oninput="TemplateMaker._onStyle('fontSize',parseInt(this.value))"><span style="font-size:10px">${r.style?.fontSize||24}px</span></label>
-        <label>字重 <input type="range" min="100" max="900" step="100" value="${r.style?.fontWeight||400}" oninput="TemplateMaker._onStyle('fontWeight',parseInt(this.value))"><span style="font-size:10px">${r.style?.fontWeight||400}</span></label>
-        <label>颜色 <input type="color" value="${r.style?.color||'#111'}" onchange="TemplateMaker._onStyle('color',this.value)"></label>
-        <label>行高 <input type="number" step="0.1" min="1" max="3" value="${r.style?.lineHeight||1.5}" onchange="TemplateMaker._onStyle('lineHeight',parseFloat(this.value))"></label>
+        <label style="display:flex;align-items:center;gap:8px">字号<span style="font-size:10px;color:var(--text-subtle);min-width:28px">${s.fontSize||24}px</span>
+          <input type="range" min="10" max="96" value="${s.fontSize||24}" oninput="TemplateMaker._onStyle('fontSize',parseInt(this.value))" style="flex:1"></label>
+        <label style="display:flex;align-items:center;gap:8px">字重<span style="font-size:10px;color:var(--text-subtle);min-width:28px">${s.fontWeight||400}</span>
+          <input type="range" min="100" max="900" step="100" value="${s.fontWeight||400}" oninput="TemplateMaker._onStyle('fontWeight',parseInt(this.value))" style="flex:1"></label>
+        <label>颜色 <input type="color" value="${s.color||'#111'}" onchange="TemplateMaker._onStyle('color',this.value)"></label>
+        <label>行高 <input type="number" step="0.1" min="1" max="3" value="${s.lineHeight||1.5}" onchange="TemplateMaker._onStyle('lineHeight',parseFloat(this.value))"></label>
       ` : ''}
       ${r.type === 'image' ? `
-        <label>圆角 <input type="range" min="0" max="40" value="${r.style?.borderRadius||0}" oninput="TemplateMaker._onStyle('borderRadius',parseInt(this.value))"><span style="font-size:10px">${r.style?.borderRadius||0}</span></label>
-        <label>适应 <select onchange="TemplateMaker._onStyle('objectFit',this.value)">
-          <option ${r.style?.objectFit==='contain'?'selected':''}>contain</option>
-          <option ${r.style?.objectFit==='cover'?'selected':''}>cover</option>
+        <label>圆角 <span style="font-size:10px;color:var(--text-subtle)">${s.borderRadius||0}px</span>
+          <input type="range" min="0" max="40" value="${s.borderRadius||0}" oninput="TemplateMaker._onStyle('borderRadius',parseInt(this.value))"></label>
+        <label>适应方式 <select onchange="TemplateMaker._onStyle('objectFit',this.value)">
+          <option ${s.objectFit==='contain'?'selected':''}>contain</option>
+          <option ${s.objectFit==='cover'?'selected':''}>cover</option>
         </select></label>
       ` : ''}
     `;
@@ -202,15 +158,12 @@ const TemplateMaker = {
     this._regions[this._activeIdx][key] = val;
     this._preview();
     this._renderAll();
-    this._setStatus('未保存');
   },
   _onStyle(key, val) {
     if (this._activeIdx < 0) return;
     this._regions[this._activeIdx].style = this._regions[this._activeIdx].style || {};
     this._regions[this._activeIdx].style[key] = val;
     this._preview();
-    this._renderChecks();
-    this._setStatus('未保存');
   },
 
   _addRegion(type) {
@@ -223,7 +176,6 @@ const TemplateMaker = {
     this._activeIdx = this._regions.length - 1;
     this._renderAll();
     this._preview();
-    this._setStatus('未保存');
   },
 
   _deleteRegion() {
@@ -233,7 +185,6 @@ const TemplateMaker = {
     document.getElementById('region-props').innerHTML = '<div class="empty-state">选择区域编辑属性</div>';
     this._renderAll();
     this._preview();
-    this._setStatus('未保存');
   },
   _duplicateRegion() {
     if (this._activeIdx < 0) return;
@@ -243,39 +194,9 @@ const TemplateMaker = {
     this._activeIdx = this._regions.length - 1;
     this._renderAll();
     this._preview();
-    this._setStatus('未保存');
   },
 
   _updateCanvas() { this._preview(); },
-
-  _validateTemplate() {
-    const errors = [];
-    const ids = new Set();
-    const w = parseInt(document.getElementById('canvas-w')?.value || 0);
-    const h = parseInt(document.getElementById('canvas-h')?.value || 0);
-    if (!w || !h) errors.push('画布宽高必须大于 0');
-    this._regions.forEach((r, i) => {
-      if (!r.id) errors.push(`区域 ${i + 1} 缺少 ID`);
-      if (ids.has(r.id)) errors.push(`区域 ID 重复：${r.id}`);
-      ids.add(r.id);
-      ['x','y','w','h'].forEach(key => {
-        if (typeof r[key] !== 'number' || Number.isNaN(r[key])) errors.push(`${r.id || i + 1} 的 ${key} 必须是数字`);
-      });
-      if (!r.role) errors.push(`${r.id || i + 1} 缺少绑定角色`);
-    });
-    return errors;
-  },
-
-  _renderChecks() {
-    const el = document.getElementById('template-checks');
-    if (!el) return;
-    const errors = this._validateTemplate();
-    el.classList.toggle('ok', errors.length === 0);
-    el.classList.toggle('bad', errors.length > 0);
-    el.innerHTML = errors.length
-      ? errors.map(e => `• ${this._esc(e)}`).join('<br>')
-      : '自检通过：ID 唯一、角色完整、尺寸有效。';
-  },
 
   /* ── 预览 ── */
   _preview() {
@@ -298,26 +219,20 @@ const TemplateMaker = {
         s.objectFit ? `object-fit:${s.objectFit}` : '',
         'overflow:hidden',
       ].filter(Boolean).join(';');
-      if (r.type === 'image') return `<div data-od-id="${this._escAttr(r.id)}" style="${css}display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.04);color:rgba(0,0,0,0.2);font-size:13px">[${r.id}]</div>`;
-      if (r.type === 'shape') return `<div data-od-id="${this._escAttr(r.id)}" style="${css}background:rgba(0,0,0,0.04);border:1px dashed rgba(0,0,0,0.15)"></div>`;
-      return `<div data-od-id="${this._escAttr(r.id)}" style="${css}text-align:${s.textAlign||'left'}">[${r.id}:${r.role||'text'}]<br><span style="font-size:70%;color:rgba(0,0,0,0.2)">${r.role||'body'} 区域</span></div>`;
+      if (r.type === 'image') return `<div style="${css}display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.03);color:rgba(0,0,0,0.18);font-size:13px">[${r.id}]</div>`;
+      if (r.type === 'shape') return `<div style="${css}background:rgba(0,0,0,0.03);border:1px dashed rgba(0,0,0,0.12)"></div>`;
+      return `<div style="${css}text-align:${s.textAlign||'left'}">[${r.id}:${r.role||'text'}]<br><span style="font-size:70%;color:rgba(0,0,0,0.15)">${r.role||'body'} 区域</span></div>`;
     }).join('');
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@500;700&family=Noto+Sans+SC:wght@400;700;900&display=swap');*{margin:0;padding:0;box-sizing:border-box}body{width:${w}px;height:${h}px;position:relative;${bg}}</style></head><body><div style="position:absolute;inset:0;opacity:0.04;pointer-events:none;z-index:1;background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22><filter id=%22n%22><feTurbulence type=%22fractalNoise%22 baseFrequency=%220.7%22/></filter><rect width=%22200%22 height=%22200%22 filter=%22url(%23n)%22 opacity=%220.5%22/></svg>')"></div>${regionsHTML}</body></html>`;
 
     const container = document.getElementById('canvas-preview-container');
     const scale = Math.min((container.parentElement.clientWidth - 40) / w, (container.parentElement.clientHeight - 40) / h, 1.0);
-    container.innerHTML = `<div class="canvas-preview" style="width:${w*scale}px;height:${h*scale}px"><iframe srcdoc="${this._escAttr(html)}" style="width:${w}px;height:${h}px;transform:scale(${scale});transform-origin:top left"></iframe></div>`;
+    container.innerHTML = `<div class="tm-canvas-preview" style="width:${w*scale}px;height:${h*scale}px"><iframe srcdoc="${this._escAttr(html)}" style="width:${w}px;height:${h}px;transform:scale(${scale});transform-origin:top left"></iframe></div>`;
   },
 
   /* ── 保存模板 ── */
   async save() {
-    const errors = this._validateTemplate();
-    this._renderChecks();
-    if (errors.length) {
-      this._setStatus('自检失败');
-      return;
-    }
     const name = document.getElementById('template-name')?.value || '未命名模板';
     const w = parseInt(document.getElementById('canvas-w')?.value || 900);
     const h = parseInt(document.getElementById('canvas-h')?.value || 1200);
@@ -334,25 +249,30 @@ const TemplateMaker = {
     try {
       const r = await fetch('/api/templates', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          template_id: this._tplId,
-          template_name: name,
-          template_json: tplJSON,
-        }),
+        body: JSON.stringify({ template_id: this._tplId, template_name: name, template_json: tplJSON }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error + ': ' + (d.errors || []).join(', '));
-      this._setStatus('已保存');
-      alert(`模板 "${name}" 保存成功！\n ID: ${this._tplId}`);
-    } catch (e) {
-      this._setStatus('保存失败');
-      alert('保存失败: ' + e.message);
-    }
+      const st = document.getElementById('template-status');
+      if (st) st.textContent = '已保存';
+      this._validateTemplate();
+      alert(`模板 "${name}" 保存成功！`);
+    } catch (e) { alert('保存失败: ' + e.message); }
   },
 
-  _setStatus(text) {
-    const el = document.getElementById('template-status');
-    if (el) el.textContent = text;
+  /* ── template-checks: 自检反馈 ── */
+  _validateTemplate() {
+    const issues = [];
+    const hasTitle = this._regions.some(r => r.role === 'title');
+    const hasBody = this._regions.some(r => r.role === 'body');
+    if (!hasTitle) issues.push('缺少 title 角色区域');
+    if (!hasBody) issues.push('缺少 body 角色区域');
+    const st = document.getElementById('template-status');
+    if (st) {
+      st.textContent = issues.length ? `⚠ ${issues.join(', ')}` : '已保存';
+      st.style.color = issues.length ? 'var(--red)' : '';
+    }
+    return issues.length === 0;
   },
 
   _esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); },

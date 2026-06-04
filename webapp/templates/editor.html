@@ -3,45 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI初创公司知识卡片 - 定稿台</title>
+<title>aistartups.cn — 定稿台</title>
+<link rel="icon" type="image/jpeg" href="/images/gzh-logo.jpg">
+<link rel="apple-touch-icon" href="/images/gzh-logo.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=Instrument+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="/static/css/gzh2-base.css">
 <link rel="stylesheet" href="/static/css/editor.css">
 </head>
 <body>
-<header id="top-bar">
-  <div class="bar-left">
-    <h1 class="logo">aistartups.cn</h1>
-  </div>
-  <div class="bar-center">
-    <span class="status-text" id="editor-company-label">定稿台</span>
-  </div>
-  <div class="bar-right">
-    <button id="btn-delete-company" class="btn-delete-company hidden" title="删除该公司全部数据">删除</button>
-    <a class="top-link" href="/">研究台</a>
-  </div>
+<header id="top-bar" class="top-bar">
+  <a href="/"><img src="/images/gzh-logo.jpg" class="topbar-logo" alt="aistartups.cn"></a>
+  <span class="page-label">定稿台</span>
+  <span class="status-text" id="editor-company-label"></span>
+  <span class="spacer"></span>
+  <button id="btn-delete-company" class="btn-delete-company hidden" title="删除该公司全部数据">删除</button>
+  <a class="top-link" href="/">研究台</a>
 </header>
 
 <main id="editor-workbench">
   <aside id="editor-left-pane">
     <!-- GZHv2 手风琴1：卡片设置 -->
-    <div class="accordion-section">
+    <div class="accordion-section" data-od-id="editor-card-settings">
       <div class="accordion-header" data-section="card-settings">
         <span class="arrow">&#9654;</span> 卡片设置
       </div>
-      <div class="accordion-body" data-section="card-settings">
-        <div id="card-settings-content">
+      <div class="accordion-body" data-section="card-settings" data-od-id="editor-card-settings-body">
+        <div id="card-settings-content" data-od-id="editor-card-settings-content">
           <!-- 由 card-settings-panel.js 动态渲染 -->
         </div>
       </div>
     </div>
 
     <!-- GZHv2 手风琴2：字段定稿 -->
-    <div class="accordion-section">
+    <div class="accordion-section" data-od-id="editor-field-finalize">
       <div class="accordion-header" data-section="field-finalize">
         <span class="arrow">&#9654;</span> 字段定稿
       </div>
-      <div class="accordion-body" data-section="field-finalize">
-        <div id="field-finalize-content">
+      <div class="accordion-body" data-section="field-finalize" data-od-id="editor-field-finalize-body">
+        <div id="field-finalize-content" data-od-id="editor-field-finalize-content">
           <!-- 由 field-finalize-panel.js 动态渲染 -->
         </div>
       </div>
@@ -107,8 +109,8 @@
     </div>
 
     <!-- GZHv2：进入排版 -->
-    <div class="accordion-section" style="border-top:1px solid var(--line);padding-top:8px">
-      <a id="btn-go-layout" class="go-layout-link" href="#">进入排版 →</a>
+    <div class="accordion-section" style="border-top:1px solid var(--border);padding-top:8px" data-od-id="editor-goto-layout">
+      <a id="btn-go-layout" class="go-layout-link" href="#" data-od-id="editor-btn-go-layout">进入排版 →</a>
     </div>
   </aside>
 
@@ -142,7 +144,7 @@
     <div class="preview-content" id="preview-render"></div>
     <div class="preview-actions">
       <button id="btn-confirm" class="btn btn-primary">确认定稿</button>
-      <a id="btn-go-canvas" class="btn btn-cyan hidden" href="#">去制作卡片 →</a>
+      <a id="btn-go-canvas" class="btn btn-accent hidden" href="#">去制作卡片 →</a>
     </div>
     <!-- 钩子模式下的预览（覆盖 preview-render） -->
     <div class="preview-content hidden" id="hook-render"></div>
@@ -156,6 +158,16 @@
   <!-- 钩子模式：占据中右区域 -->
   <div id="hook-mode">
     <div id="hook-mode-content" class="preview-content"></div>
+  </div>
+
+  <!-- 卡片设置模式：占据中右区域 -->
+  <div id="card-settings-mode">
+    <div id="card-settings-mode-content" class="preview-content"></div>
+  </div>
+
+  <!-- 字段定稿模式：占据中右区域 -->
+  <div id="field-finalize-mode">
+    <div id="field-finalize-mode-content" class="preview-content"></div>
   </div>
 
   <!-- 数据库字段模式：占据中右区域 -->

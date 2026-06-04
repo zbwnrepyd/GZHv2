@@ -136,7 +136,11 @@ const EditorApp = {
       h.classList.toggle('open', h.dataset.section === section);
     });
     document.querySelectorAll('.accordion-body').forEach(b => {
-      b.classList.toggle('open', b.dataset.section === section);
+      if (b.dataset.section === 'card-settings' || b.dataset.section === 'field-finalize') {
+        b.classList.remove('open');
+      } else {
+        b.classList.toggle('open', b.dataset.section === section);
+      }
     });
 
     document.querySelectorAll('#editor-card-nav .editor-card-btn').forEach(b => {
@@ -145,26 +149,37 @@ const EditorApp = {
     const hookBtn = document.querySelector('#editor-hook-nav .editor-card-btn');
     if (hookBtn) hookBtn.classList.toggle('active', section === 'hook');
 
-    if (section === 'image') {
-      this.showImageMode();
-    } else if (section === 'hook') {
-      this.showHookMode();
-      this.showHooks();
-    } else if (section === 'dbfields') {
-      this.showDbFields();
-    } else {
-      this.showContentMode();
-    }
+    const modeHandlers = {
+      'image':          () => { this.showImageMode(); },
+      'hook':           () => { this.showHookMode(); this.showHooks(); },
+      'dbfields':       () => { this.showDbFields(); },
+      'card-settings':  () => { this.showCardSettingsMode(); },
+      'field-finalize': () => { this.showFieldFinalizeMode(); },
+    };
+    const handler = modeHandlers[section];
+    if (handler) { handler(); } else { this.showContentMode(); }
   },
 
   /* ── 模式切换 ── */
 
+  // Shared overlay IDs — single source of truth for all mode methods
+  _OVERLAY_IDS: ['image-studio-frame', 'hook-mode', 'db-fields-mode', 'card-settings-mode', 'field-finalize-mode'],
+
+  _closeAllOverlays() {
+    this._OVERLAY_IDS.forEach(id => document.getElementById(id).classList.remove('open'));
+  },
+
+  _hidePanesShowOverlay(overlayId) {
+    document.getElementById('editor-middle-pane').style.display = 'none';
+    document.getElementById('editor-right-pane').style.display = 'none';
+    this._closeAllOverlays();
+    document.getElementById(overlayId).classList.add('open');
+  },
+
   showContentMode() {
     document.getElementById('editor-middle-pane').style.display = '';
     document.getElementById('editor-right-pane').style.display = '';
-    document.getElementById('image-studio-frame').classList.remove('open');
-    document.getElementById('hook-mode').classList.remove('open');
-    document.getElementById('db-fields-mode').classList.remove('open');
+    this._closeAllOverlays();
     document.getElementById('version-compare').classList.remove('hidden');
     document.querySelector('.markdown-toolbar').classList.remove('hidden');
     document.querySelector('.markdown-footer').classList.remove('hidden');
@@ -177,20 +192,12 @@ const EditorApp = {
   },
 
   showHookMode() {
-    document.getElementById('editor-middle-pane').style.display = 'none';
-    document.getElementById('editor-right-pane').style.display = 'none';
-    document.getElementById('image-studio-frame').classList.remove('open');
-    document.getElementById('db-fields-mode').classList.remove('open');
-    document.getElementById('hook-mode').classList.add('open');
+    this._hidePanesShowOverlay('hook-mode');
     this.updateButtons();
   },
 
   showImageMode() {
-    document.getElementById('editor-middle-pane').style.display = 'none';
-    document.getElementById('editor-right-pane').style.display = 'none';
-    document.getElementById('hook-mode').classList.remove('open');
-    document.getElementById('db-fields-mode').classList.remove('open');
-    document.getElementById('image-studio-frame').classList.add('open');
+    this._hidePanesShowOverlay('image-studio-frame');
     this.updateButtons();
 
     if (!this._imageIframeLoaded && this.companyName) {
@@ -201,6 +208,18 @@ const EditorApp = {
     }
 
     this.loadImageSlots();
+  },
+
+  showCardSettingsMode() {
+    this._hidePanesShowOverlay('card-settings-mode');
+    this.updateMeta();
+    this.updateButtons();
+  },
+
+  showFieldFinalizeMode() {
+    this._hidePanesShowOverlay('field-finalize-mode');
+    this.updateMeta();
+    this.updateButtons();
   },
 
   /* ── 图片槽位列表 ── */
@@ -583,7 +602,7 @@ const EditorApp = {
   },
 
   updateButtons() {
-    if (this.currentSection === 'hook' || this.currentSection === 'image' || this.currentCard === null) {
+    if (this.currentSection === 'hook' || this.currentSection === 'image' || this.currentSection === 'card-settings' || this.currentSection === 'field-finalize' || this.currentCard === null) {
       document.getElementById('btn-prev').disabled = true;
       document.getElementById('btn-next').disabled = true;
       return;
@@ -636,15 +655,17 @@ const EditorApp = {
   },
 
   updateMeta() {
-    if (this.currentSection === 'hook') {
-      this.setMeta('传播钩子文案 | 不生成卡片，只供正文开头使用');
+    const SECTION_META = {
+      'hook':           '传播钩子文案 | 不生成卡片，只供正文开头使用',
+      'image':          '图片定稿 | 为卡片搜索和定稿配图',
+      'card-settings':  '卡片设置 | 管理卡片结构、字段分配与模板',
+      'field-finalize': '字段定稿 | 逐字段确认三版本内容',
+    };
+    const meta = SECTION_META[this.currentSection];
+    if (meta) {
+      this.setMeta(meta);
       document.getElementById('dirty-indicator').classList.add('hidden');
       document.getElementById('preview-status').textContent = '';
-      return;
-    }
-    if (this.currentSection === 'image') {
-      this.setMeta('图片定稿 | 为卡片搜索和定稿配图');
-      document.getElementById('dirty-indicator').classList.add('hidden');
       return;
     }
     const markdown = this.getFinalMarkdown();
@@ -695,13 +716,7 @@ const EditorApp = {
   _showSystemFields: false,
 
   showDbFields() {
-    // 隐藏中右栏，显示字段模式
-    document.getElementById('editor-middle-pane').style.display = 'none';
-    document.getElementById('editor-right-pane').style.display = 'none';
-    document.getElementById('image-studio-frame').classList.remove('open');
-    document.getElementById('hook-mode').classList.remove('open');
-    const mode = document.getElementById('db-fields-mode');
-    if (mode) mode.classList.add('open');
+    this._hidePanesShowOverlay('db-fields-mode');
 
     document.getElementById('db-fields-company').textContent = this.companyName;
     // 系统字段开关
