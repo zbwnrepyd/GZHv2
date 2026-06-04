@@ -117,21 +117,18 @@ const TemplateRenderer = {
       return `<div data-od-id="${this._escAttr(region.id || role)}" style="${style}"></div>`;
     }
 
-    // text region
+    // text region — 按 markdown 规则渲染
     const fieldItems = roleMap[role] || roleMap['body'] || [];
-    const texts = fieldItems.map(item => {
-      const val = item.value || '';
-      return this._esc(val);
-    });
+    const texts = fieldItems.map(item => item.value || '').filter(Boolean);
 
     if (!texts.length) return '';
 
-    // 合并文本
     const combined = texts.join('\n\n');
     const textAlign = (region.style || {}).textAlign || 'left';
     const lineHeight = (region.style || {}).lineHeight || 1.55;
+    const mdHTML = this._markdownToHTML(combined);
 
-    return `<div data-od-id="${this._escAttr(region.id || role)}" style="${style}text-align:${textAlign};line-height:${lineHeight};white-space:pre-wrap;word-wrap:break-word">${combined}</div>`;
+    return `<div data-od-id="${this._escAttr(region.id || role)}" style="${style}text-align:${textAlign};line-height:${lineHeight}">${mdHTML}</div>`;
   },
 
   /* ── 构建 CSS 样式字符串 ── */
@@ -189,6 +186,95 @@ const TemplateRenderer = {
   ${decoHTML}
   ${regionHTML}
 </article>`;
+  },
+
+  /* ── Markdown → HTML（标题 #/##/###、列表 -/*、加粗、斜体、段落）── */
+  _markdownToHTML(md) {
+    let html = this._esc(md);
+
+    // 代码块（```...``` 或 ~~~...~~~）
+    html = html.replace(/(```|~~~)([\s\S]*?)\1/g, (_, __, code) => {
+      return `<pre><code>${this._esc(code.trim())}</code></pre>`;
+    });
+
+    // 行内代码 `...`
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // 粗斜体 ***...***
+    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    // 粗体 **...**
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // 斜体 *...*（不匹配 **）
+    html = html.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+
+    // 按双换行拆分为块
+    const blocks = html.split(/\n\n+/);
+    const processed = blocks.map(block => {
+      const lines = block.split('\n');
+      const result = [];
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) { result.push('<br>'); continue; }
+
+        // 标题 # ## ###
+        const hMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (hMatch) {
+          const level = hMatch[1].length;
+          const text = hMatch[2];
+          result.push(`<h${level}>${text}</h${level}>`);
+          continue;
+        }
+
+        // 无序列表 - 或 *
+        const ulMatch = trimmed.match(/^[-*]\s+(.+)$/);
+        if (ulMatch) {
+          result.push(`<li>${ulMatch[1]}</li>`);
+          continue;
+        }
+
+        // 有序列表 1. 2. 等
+        const olMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+        if (olMatch) {
+          result.push(`<li>${olMatch[1]}</li>`);
+          continue;
+        }
+
+        // 水平线 --- 或 ***
+        if (/^[-*_]{3,}$/.test(trimmed)) {
+          result.push('<hr>');
+          continue;
+        }
+
+        // 引用 >
+        if (trimmed.startsWith('> ')) {
+          result.push(`<blockquote>${trimmed.substring(2)}</blockquote>`);
+          continue;
+        }
+
+        // 普通段落
+        result.push(`<p>${trimmed}</p>`);
+      }
+
+      // 连续 li 包裹 ul
+      let grouped = [];
+      for (let i = 0; i < result.length; i++) {
+        if (result[i].startsWith('<li>')) {
+          const liGroup = [];
+          while (i < result.length && result[i].startsWith('<li>')) {
+            liGroup.push(result[i]);
+            i++;
+          }
+          i--;
+          grouped.push(`<ul>${liGroup.join('')}</ul>`);
+        } else {
+          grouped.push(result[i]);
+        }
+      }
+      return grouped.join('\n');
+    });
+
+    return processed.join('\n');
   },
 
   /* ── 工具 ── */
