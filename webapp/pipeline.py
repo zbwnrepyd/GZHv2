@@ -662,7 +662,8 @@ def run_pipeline(company_name: str, company_url: str,
     from repositories.field_repo import insert_research_fields_batch
     for record in records:
         version = record.get('version', 'standard')
-        field_rows = split_research_to_fields(record, version)
+        field_record = {**record, "company_name": company_name}
+        field_rows = split_research_to_fields(field_record, version)
         if field_rows:
             insert_research_fields_batch(config.DB_PATH_RESEARCH, field_rows)
 
