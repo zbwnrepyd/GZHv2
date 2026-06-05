@@ -117,7 +117,14 @@ const TemplateRenderer = {
       return `<div data-od-id="${this._escAttr(region.id || role)}" style="${style}"></div>`;
     }
 
-    // text region — 按 markdown 规则渲染
+    // text region — 按 markdown 规则渲染；排版中心可用 region.value 覆盖文本。
+    if (region.value !== undefined) {
+      const textAlign = (region.style || {}).textAlign || 'left';
+      const lineHeight = (region.style || {}).lineHeight || 1.55;
+      const mdHTML = this._markdownToHTML(region.value);
+      return `<div data-od-id="${this._escAttr(region.id || role)}" style="${style}text-align:${textAlign};line-height:${lineHeight}">${mdHTML}</div>`;
+    }
+
     const fieldItems = roleMap[role] || roleMap['body'] || [];
     const texts = fieldItems.map(item => item.value || '').filter(Boolean);
 

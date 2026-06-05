@@ -154,13 +154,41 @@ const LayoutApp = {
     // Inject editable text + region highlight styles
     html = html.replace('</style>', `
       [data-od-id] { transition: box-shadow .15s; }
+      html,
+      body,
+      body * {
+        -webkit-user-select:none !important;
+        user-select:none !important;
+      }
       [data-od-id].region-selected {
         box-shadow: inset 0 0 0 2px #29B8D4 !important;
         outline: 2px solid #29B8D4 !important; outline-offset: -1px;
       }
-      [data-od-id][contenteditable="true"] { cursor: text; }
-      [data-od-id][contenteditable="true"]:hover { outline: 1px dashed rgba(41,184,212,.4); outline-offset: -1px; }
-      [data-od-id][contenteditable="true"]:focus {
+      [data-od-id][data-markdown-editable="true"] { cursor: text; }
+      [data-od-id][data-markdown-editable="true"]:hover { outline: 1px dashed rgba(41,184,212,.4); outline-offset: -1px; }
+      .region-markdown-editor {
+        position:absolute;
+        inset:0;
+        width:100%;
+        height:100%;
+        resize:none;
+        border:0;
+        border-radius:4px;
+        padding:8px;
+        background:rgba(255,255,255,.96);
+        color:#111;
+        font:14px/1.45 'IBM Plex Mono', ui-monospace, monospace;
+        white-space:pre-wrap;
+        box-shadow:inset 0 0 0 2px #29B8D4;
+        outline:none;
+        -webkit-user-select:text !important;
+        user-select:text !important;
+      }
+      .region-markdown-editor * {
+        -webkit-user-select:text !important;
+        user-select:text !important;
+      }
+      .region-markdown-editor:focus {
         box-shadow: inset 0 0 0 2px #29B8D4 !important; outline: 2px solid #29B8D4 !important; outline-offset: -1px;
       }
     </style>`);
@@ -173,7 +201,11 @@ const LayoutApp = {
 
     area.innerHTML = `<div class="canvas-stage" id="canvas-stage" style="width:${canvas.width * this._scale}px;height:${canvas.height * this._scale}px;position:relative">
       <iframe id="preview-iframe" srcdoc="${this._escAttr(html)}" style="width:${canvas.width}px;height:${canvas.height}px;transform:scale(${this._scale});transform-origin:top left;border:none"></iframe>
+      <div id="region-hitboxes" style="position:absolute;inset:0;z-index:2">
+        ${this._renderRegionHitboxes(mergedRegions)}
+      </div>
     </div>`;
+    this._bindRegionHitboxes();
 
     // srcdoc iframe：先试同步访问，失败则等 load
     const iframe = document.getElementById('preview-iframe');
@@ -186,6 +218,38 @@ const LayoutApp = {
     });
   },
 
+  _renderRegionHitboxes(regions) {
+    return (regions || []).map(region => {
+      const cursor = region.type === 'text' ? 'text' : 'pointer';
+      return `<div class="region-hitbox" data-region-id="${this._escAttr(region.id)}" data-region-type="${this._escAttr(region.type || '')}" style="position:absolute;left:${(region.x || 0) * this._scale}px;top:${(region.y || 0) * this._scale}px;width:${(region.w || 0) * this._scale}px;height:${(region.h || 0) * this._scale}px;cursor:${cursor};background:transparent"></div>`;
+    }).join('');
+  },
+
+  _bindRegionHitboxes() {
+    document.querySelectorAll('.region-hitbox').forEach(hitbox => {
+      const regionId = hitbox.dataset.regionId;
+      const beginEdit = (event) => {
+        if (hitbox.dataset.regionType !== 'text') return;
+        event.preventDefault();
+        event.stopPropagation();
+        this._beginMarkdownEditFromParent(regionId);
+      };
+      hitbox.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        if (event.detail >= 2) beginEdit(event);
+      });
+      hitbox.addEventListener('click', (event) => {
+        event.preventDefault();
+        if (event.detail >= 2) {
+          beginEdit(event);
+        } else {
+          this._selectRegion(regionId);
+        }
+      });
+      hitbox.addEventListener('dblclick', beginEdit);
+    });
+  },
+
   _setupIframeRegions(iframe, template) {
     try {
       const doc = iframe.contentDocument || iframe.contentWindow?.document;
@@ -193,35 +257,70 @@ const LayoutApp = {
 
       const regions = template.regions || [];
       const textRegions = regions.filter(r => r.type === 'text');
+      doc._layoutTextRegionIds = new Set(textRegions.map(r => r.id));
+      const editableSelector = '[data-markdown-editable="true"]';
+      const editorSelector = '.region-markdown-editor';
+      const closestFromEvent = (target, selector) => {
+        const el = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
+        return el?.closest?.(selector) || null;
+      };
+      const beginEditFromEvent = (event, regionEl) => {
+        const regionId = regionEl?.dataset?.odId;
+        if (!regionId || !doc._layoutTextRegionIds?.has(regionId)) return false;
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        doc.getSelection?.().removeAllRanges();
+        if (this._activeRegionId !== regionId) this._selectRegion(regionId);
+        this._beginMarkdownEdit(doc, regionId);
+        return true;
+      };
 
-      // Make text regions contenteditable
+      if (!doc._layoutMarkdownHandlersInstalled) {
+        doc.addEventListener('selectstart', (event) => {
+          if (!closestFromEvent(event.target, editorSelector)) event.preventDefault();
+        }, true);
+        doc.addEventListener('selectionchange', () => {
+          if (doc.activeElement?.classList?.contains('region-markdown-editor')) return;
+          const selection = doc.getSelection?.();
+          if (selection && !selection.isCollapsed) selection.removeAllRanges();
+        });
+        doc.addEventListener('pointerdown', (event) => {
+          if (closestFromEvent(event.target, editorSelector)) return;
+          const regionEl = closestFromEvent(event.target, editableSelector);
+          if (!regionEl) return;
+          event.preventDefault();
+          doc.getSelection?.().removeAllRanges();
+          if (event.detail >= 2) beginEditFromEvent(event, regionEl);
+        }, true);
+        doc.addEventListener('mousedown', (event) => {
+          if (closestFromEvent(event.target, editorSelector)) return;
+          const regionEl = closestFromEvent(event.target, editableSelector);
+          if (!regionEl) return;
+          event.preventDefault();
+          event.stopPropagation();
+          doc.getSelection?.().removeAllRanges();
+          if (event.detail >= 2) beginEditFromEvent(event, regionEl);
+        }, true);
+        doc.addEventListener('click', (event) => {
+          if (closestFromEvent(event.target, editorSelector)) return;
+          const regionEl = closestFromEvent(event.target, editableSelector);
+          if (regionEl && event.detail >= 2) beginEditFromEvent(event, regionEl);
+        }, true);
+        doc.addEventListener('dblclick', (event) => {
+          if (closestFromEvent(event.target, editorSelector)) return;
+          const regionEl = closestFromEvent(event.target, editableSelector);
+          if (regionEl) beginEditFromEvent(event, regionEl);
+        }, true);
+        doc._layoutMarkdownHandlersInstalled = true;
+      }
+
       let editableCount = 0;
       textRegions.forEach(r => {
         const el = doc.querySelector(`[data-od-id="${r.id}"]`);
         if (el && el.tagName !== 'IMG') {
-          el.contentEditable = 'true';
+          el.dataset.markdownEditable = 'true';
           editableCount++;
-          // Apply cached text content across iframe rebuilds
-          if (this._regionTextCache?.[r.id]) {
-            el.innerHTML = this._regionTextCache[r.id];
-          }
-          el.addEventListener('input', () => {
-            if (!this._regionTextCache) this._regionTextCache = {};
-            this._regionTextCache[r.id] = el.innerHTML;
-          });
-          el.addEventListener('blur', () => {
-            const html = this._regionTextCache?.[r.id];
-            if (html && this._activeCard) {
-              this._layoutOverrides[r.id] = this._deepMerge(
-                this._layoutOverrides[r.id] || {},
-                { value: html }
-              );
-              this._activeCard.layout = {
-                ...(this._activeCard.layout || {}),
-                overrides: this._layoutOverrides,
-              };
-            }
-          });
         }
       });
 
@@ -237,6 +336,86 @@ const LayoutApp = {
       const el = doc.querySelector(`[data-od-id="${this._activeRegionId}"]`);
       if (el) el.classList.add('region-selected');
     }
+  },
+
+  _beginMarkdownEdit(doc, regionId) {
+    const region = (this._effectiveTemplate().regions || []).find(r => r.id === regionId);
+    if (!region || region.type !== 'text') return;
+    const el = doc.querySelector(`[data-od-id="${regionId}"]`);
+    if (!el || el.querySelector('.region-markdown-editor')) return;
+    const hitboxes = document.getElementById('region-hitboxes');
+    if (hitboxes) hitboxes.style.pointerEvents = 'none';
+    const iframe = document.getElementById('preview-iframe');
+    if (iframe) iframe.style.pointerEvents = 'auto';
+
+    const textarea = doc.createElement('textarea');
+    textarea.className = 'region-markdown-editor';
+    textarea.value = this._markdownForRegion(region);
+    textarea.setAttribute('aria-label', `${regionId} Markdown`);
+    el.innerHTML = '';
+    el.appendChild(textarea);
+    textarea.focus();
+    const end = textarea.value.length;
+    textarea.setSelectionRange(end, end);
+
+    let committed = false;
+    const commit = () => {
+      if (committed) return;
+      committed = true;
+      this._commitMarkdownEdit(regionId, textarea.value);
+    };
+    textarea.addEventListener('blur', commit);
+    textarea.addEventListener('keydown', (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault();
+        commit();
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        committed = true;
+        this._renderPreview();
+      }
+    });
+  },
+
+  _beginMarkdownEditFromParent(regionId) {
+    const iframe = document.getElementById('preview-iframe');
+    if (!iframe) return;
+    try {
+      const doc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!doc) return;
+      if (this._activeRegionId !== regionId) this._selectRegion(regionId);
+      doc.getSelection?.().removeAllRanges();
+      this._beginMarkdownEdit(doc, regionId);
+    } catch (e) { /* iframe not ready */ }
+  },
+
+  _commitMarkdownEdit(regionId, markdown) {
+    if (!this._activeCard) return;
+    this._layoutOverrides[regionId] = this._deepMerge(
+      this._layoutOverrides[regionId] || {},
+      { value: String(markdown || '') }
+    );
+    this._activeCard.layout = {
+      ...(this._activeCard.layout || {}),
+      overrides: this._layoutOverrides,
+    };
+    this._renderPreview();
+    this._renderLayerList();
+    requestAnimationFrame(() => this._selectRegion(regionId));
+  },
+
+  _markdownForRegion(region) {
+    if (region.value !== undefined) return String(region.value || '');
+    const role = region.role || 'body';
+    const items = this._activeCard?.items || [];
+    const roleItems = items.filter(item => (item.display_role || 'body') === role);
+    const textItems = roleItems.length ? roleItems : items.filter(item => (item.display_role || 'body') === 'body');
+    return textItems
+      .filter(item => item.item_type === 'field')
+      .map(item => item.value || '')
+      .filter(Boolean)
+      .join('\n\n');
   },
 
   _bindRegionClicks() {
