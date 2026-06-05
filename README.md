@@ -84,7 +84,15 @@ http://127.0.0.1:5050/editor?company=Anthropic
 http://127.0.0.1:5050/canvas/?company=Anthropic
 ```
 
+进入排版中心：
+
+```text
+http://127.0.0.1:5050/layout?company=Anthropic
+```
+
 卡片制作台会从 `/api/render-data/<company>` 读取卡片编排 + 字段值 + 图片路径。左侧只读显示当前项目名，并用互斥手风琴组织”卡片每一页”和”图片素材”；导出按钮始终常驻。中间显示 3:4 HTML 画布，右侧显示当前页完整 HTML+CSS 源码并带语法高亮。顶部”返回定稿台”回到 `/editor?company=<公司名>`。
+
+排版中心同样读取 `/api/render-data/<company>`，用于逐卡选择模板、选择图层、调整位置/尺寸/字体/颜色并保存到 `/api/layout/<company>/<card_id>`。选中文字图层后，画布中的对应区域会高亮；双击高亮区域会打开 Markdown 文本框，可直接编辑原始 Markdown。编辑提交后作为该 region 的 `value` override 保存，模板渲染器会优先使用 override 并按 Markdown 规则渲染。
 
 图片定稿台管理 8 个 `asset_key`，其中 `positioning_charts` 先挂在卡片6用于竞争格局/生态位图定稿。卡片2 的 `office` 槽位默认生成并选中公司位置地图；Google Street View 和 Tavily 办公室/街景图会补充为后续候选。候选变体展示在中间主区域，带来源、尺寸、分数和失败原因，默认按 `final_score` 排序；右侧只放生成、重新评分、当前选定、导入/上传和 SVG 渲染操作。
 

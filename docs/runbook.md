@@ -90,11 +90,7 @@ for name in ["layer0-cleaner", "layer1-hv-analysis", "layer2-business", "layer3-
              "layer3-group-a-technical", "layer3-group-b-competitive", "layer3-group-c-business",
              "split-text"]:
     print(name, len(load_prompt(name)))
-# 检查新字段
-import sys; sys.path.insert(0,"webapp")
-from markdown_builder import build_card_markdown
 print("ecosystem_niche field split from moat — see prompts/layer3-field-extraction.md")
-    print(name, len(load_prompt(name)))
 PY
 ```
 
@@ -139,6 +135,12 @@ Open finalization desk:
 http://127.0.0.1:5050/editor?company=Anthropic
 ```
 
+Open layout center:
+
+```text
+http://127.0.0.1:5050/layout?company=Anthropic
+```
+
 Open image studio directly (standalone):
 
 ```text
@@ -163,6 +165,23 @@ open "http://127.0.0.1:5050/canvas/?company=Anthropic"
 # Open one card directly
 open "http://127.0.0.1:5050/canvas/card/Anthropic/1"
 ```
+
+## Layout Center
+
+The layout center lives at `/layout?company=<company>` and is opened from the finalization desk's “进入排版” link. It loads the same `/api/render-data/<company>` contract used by export, then shows card list, template selector, layer list, iframe preview, and right-side property controls.
+
+Common flow:
+
+1. Select a card in the left card list.
+2. Choose a template and click “应用” if the card should use a different template.
+3. Click a layer. The iframe preview highlights the matching region, and the right panel shows geometry/style controls.
+4. For text layers, double-click the highlighted region in the preview. A Markdown textarea opens in-place; edit raw Markdown there.
+5. Blur the textarea or press Cmd/Ctrl+Enter to commit. Press Escape to cancel.
+6. Click “保存排版” to persist overrides to `/api/layout/<company>/<card_id>`.
+
+The preview iframe is intentionally protected by parent-page hitboxes. Do not remove the hitbox layer or re-enable direct pointer events on the iframe for normal browsing; otherwise browser double-click selection can select the whole card instead of opening the Markdown editor. During Markdown editing, the controller temporarily lets pointer events reach the iframe so the textarea can be focused and edited.
+
+Text edits are saved as region `value` overrides. `canvas/js/template-renderer.js` renders that value through the Markdown parser before falling back to role-matched card fields.
 
 ## Card Workbench And PNG Export
 
@@ -277,6 +296,7 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
 - If flywheel or timeline infographic generation fails, confirm card 6 or card 3 has been finalized with Markdown content in `final_db`. The infographic pipeline needs the card's markdown to extract structured JSON for SVG rendering.
 - If the card workbench opens without a project name, go back through `/editor?company=<company>` or add `?company=<company>` to the canvas URL; the left project label is intentionally not editable.
 - If the card preview differs from the source editor, reload `/canvas/?company=<company>` and confirm the current card source was saved in the same browser profile.
+- If double-clicking text in `/layout` turns the whole card blue, hard-refresh the page so `/static/js/layout/layout-app.js?v=layout-md-edit` is loaded. The expected behavior is: select a text layer, double-click the cyan highlighted region, and see a Markdown textarea such as `title Markdown`. If the blue selection persists, confirm the `#region-hitboxes` overlay exists above the iframe and `.canvas-stage iframe` still has `pointer-events: none` outside active editing.
 - If the template list is empty on first visit, clear `aistartups.templates` from browser localStorage and refresh. Default templates auto-load from `/canvas/default-templates.json`.
 - To share templates across machines, use "导入模板" / export the `aistartups.templates` localStorage key as JSON.
 - If Tavily / GitHub / YouTube requests time out during research, confirm the proxy is running on the port configured in `.env` (`HTTPS_PROXY`). Timeout values are set in `pipeline.py` (connect/read: Tavily 30s/120s, GitHub 15s/45s, YouTube 15s/45s). Tavily now uses explicit `proxies=` parameter (not just env-var auto-detection).
