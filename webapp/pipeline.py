@@ -1,7 +1,9 @@
 """研究流水线：4路并行采集 → 4层LLM分析 → 写库"""
 from __future__ import annotations
+import copy
 import json, re, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
 
 import requests
 
@@ -20,6 +22,9 @@ _SOURCE_LABELS = {
     "youtube": "YouTube",
     "website": "官网抓取",
 }
+
+_TAVILY_RESULT_FIELDS = ("title", "url", "content", "score", "raw_content")
+_TAVILY_RAW_CONTENT_LIMIT = 2400
 
 
 def _report(progress_callback, stage: str, detail: str = "", job_id: str = None):
@@ -42,10 +47,12 @@ def _detail_text(detail) -> str:
 
 # ── Step 1: 4路并行采集 ──────────────────────────
 
-def _search_tavily(company_name: str):
+def _search_tavily(company_name: str, company_url: str = ""):
+    domain = urlparse(company_url).netloc.replace("www.", "") if company_url else ""
+    domain_hint = f" {domain}" if domain else ""
     queries = [
-        f"{company_name} AI startup overview funding founders",
-        f"{company_name} company news competitors product",
+        f"{company_name} AI startup overview funding founders{domain_hint}",
+        f"{company_name} AI company news competitors product{domain_hint}",
     ]
     return [_search_tavily_query(q) for q in queries]
 
@@ -241,7 +248,7 @@ def _collect_all(company_name: str, company_url: str, progress_callback=None, jo
         job_id=job_id,
     )
     tasks = {
-        "tavily": lambda: _search_tavily(company_name),
+        "tavily": lambda: _search_tavily(company_name, company_url),
         "github": lambda: _search_github(company_name),
         "youtube": lambda: _search_youtube(company_name),
         "website": lambda: _scrape_website(company_url),
@@ -271,6 +278,50 @@ def _collect_all(company_name: str, company_url: str, progress_callback=None, jo
 
 
 # ── Step 2: AI 分析 ──────────────────────────────
+
+def _trim_text(value, limit: int) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "\n...[truncated]"
+
+
+def _prepare_raw_data_for_llm(raw_data: dict) -> dict:
+    """Reduce noisy crawler payloads before Layer 0 while preserving evidence fields."""
+    prepared = copy.deepcopy(raw_data)
+    tavily_batches = prepared.get("tavily")
+    if not isinstance(tavily_batches, list):
+        return prepared
+
+    cleaned_batches = []
+    for batch in tavily_batches:
+        if not isinstance(batch, dict):
+            cleaned_batches.append(batch)
+            continue
+
+        cleaned_batch = {}
+        for key in ("answer", "error"):
+            if key in batch:
+                cleaned_batch[key] = _trim_text(batch.get(key), 2000)
+
+        results = []
+        for result in batch.get("results", []):
+            if not isinstance(result, dict):
+                continue
+            cleaned_result = {key: result.get(key) for key in _TAVILY_RESULT_FIELDS if key in result}
+            if "content" in cleaned_result:
+                cleaned_result["content"] = _trim_text(cleaned_result["content"], 1200)
+            if "raw_content" in cleaned_result:
+                cleaned_result["raw_content"] = _trim_text(
+                    cleaned_result["raw_content"],
+                    _TAVILY_RAW_CONTENT_LIMIT,
+                )
+            results.append(cleaned_result)
+        cleaned_batch["results"] = results
+        cleaned_batches.append(cleaned_batch)
+
+    prepared["tavily"] = cleaned_batches
+    return prepared
 
 def _load_prompt_text(name: str) -> str:
     return load_prompt(name)
@@ -306,6 +357,8 @@ def _run_llm_enum_group(api_key: str, group_name: str, context: str,
         temperature=temperature, max_tokens=200, timeout=60,
     )
     parsed = _extract_json(result)
+    if not isinstance(parsed, dict):
+        return {}
     # 只保留本组字段
     return {k: v for k, v in parsed.items() if k in field_names and v}
 
@@ -407,7 +460,7 @@ def llm_analysis(company_name: str, company_url: str, raw_data: dict,
     l0_prompt = _load_prompt_text("layer0-cleaner")
     l0_result = call_deepseek(
         api_key, l0_prompt,
-        json.dumps(raw_data, ensure_ascii=False, indent=2),
+        json.dumps(_prepare_raw_data_for_llm(raw_data), ensure_ascii=False, indent=2),
         temperature=0.1, max_tokens=4096, timeout=120,
     )
 
