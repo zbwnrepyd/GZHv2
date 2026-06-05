@@ -1,5 +1,6 @@
 # Database files
 *.sqlite
+db/*.sqlite
 *.db
 
 # Environment secrets
@@ -26,6 +27,8 @@ Thumbs.db
 # Generated images
 images/
 output/
+screenshots/
+**/screenshots/
 
 # Claude Code
 .claude/
