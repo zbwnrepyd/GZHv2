@@ -33,7 +33,8 @@ The app no longer depends on n8n for the main path. Research is started from the
 - `image-studio/js/search-panel.js`: middle panel for image slots — preview/search toggle bar, large preview stage, search results grid with pagination, and toolbar (search bar + engine selector, recollect all/slot, AI generation, upload, URL import).
 - `image-studio/js/variant-sidebar.js`: right panel — 2-column candidate thumbnail grid with sort control, preview highlighting, delete, and "确定图片" confirm button.
 - `canvas/`: HTML/CSS card workbench, single-card render page, and Puppeteer screenshot CLI.
-- `canvas/js/render-data-loader.js` and `canvas/js/template-renderer.js`: dynamic GZHv2 renderer path. The card workbench and single-card page first load `/api/render-data/<company>` and render enabled `card_compositions`; the legacy fixed-card renderer remains as fallback.
+- `canvas/js/render-data-loader.js` and `canvas/js/template-renderer.js`: dynamic GZHv2 renderer path. The card workbench, layout center, and single-card page first load `/api/render-data/<company>` and render enabled `card_compositions`; the legacy fixed-card renderer remains as fallback. Text regions support Markdown `value` overrides from layout editing; an override takes precedence over field items for that region.
+- `webapp/static/js/layout/layout-app.js`: layout center controller. It renders selected cards into a scaled iframe, overlays parent-page transparent region hitboxes for layer selection, opens a Markdown textarea inside text regions on double-click, writes text/geometry/style changes into layout overrides, and saves them through `/api/layout/<company>/<card_id>`.
 - `canvas/js/api-loader.js`: legacy fallback loader for `/api/final/export?format=json` and `/api/assets/<company>`.
 - `canvas/js/html-card-renderer.js`: converts parsed card data into editable `<style> + <article>` card source; maps asset images to card image boxes via `CARD_ASSET_MAP`.
 - `canvas/js/source-editor.js`: syntax-highlighted HTML/CSS source editor with live iframe rendering.
@@ -156,17 +157,31 @@ Pages and static assets:
 - `GET /` — research desk.
 - `GET /editor` and `GET /editor?company=<company>` — finalization desk.
 - `GET /editor/<company>` legacy-compatible editor route.
+- `GET /layout`, `GET /layout?company=<company>`, and `GET /layout/<company>` — layout center for template selection, layer editing, and PNG export dialog.
+- `GET /template-maker` — template creation and editing UI.
 - `GET /canvas/` — card workbench. Use `?company=<company>` to load confirmed cards.
 - `GET /canvas/card/<company>/<card_id>` — single-card HTML page for iframe preview and Puppeteer export. `card_id` may be a dynamic ID such as `card_06`; numeric legacy IDs still work.
 - `GET /canvas/<path>`
 
 `POST /api/generate-image` accepts the existing `company_name`, `field_name`, and `prompt` fields. It also accepts optional runtime `image_api_url` and `image_api_key`; these override environment defaults for that request only. The API key is never returned in the response.
 
+Layout persistence:
+
+- `GET /api/layout/<company>/<card_id>` — return the saved layout instance for one card.
+- `PATCH /api/layout/<company>/<card_id>` — merge `overrides` into the card layout instance. Region overrides may contain geometry/style keys and text `value`.
+- `POST /api/layout/<company>/<card_id>/reset` — delete the saved layout instance and fall back to template defaults.
+
+## Layout Center And Card Workbench
+
+The layout center at `/layout?company=<company>` is the main visual layout editor. It loads `/api/render-data/<company>`, lets the user choose a card and template, then exposes template regions as layers. Selecting a layer updates the right-side property panel and adds a cyan highlight inside the iframe preview. Geometry and style controls write region patches to layout overrides.
+
+Text editing deliberately does not rely on browser `contentEditable` in the iframe. The iframe itself is rendered with pointer events disabled, and the parent page places transparent hitboxes over each region. This prevents double-clicking text from creating a browser-native blue selection across the whole card. When a text hitbox is double-clicked, the parent page opens a focused Markdown `<textarea>` inside the matching iframe region, temporarily lets pointer events reach the iframe for editing, and commits the raw Markdown to the region's `value` override on blur or Cmd/Ctrl+Enter. Escape cancels and re-renders the preview. `TemplateRenderer` then renders that `value` through its Markdown parser, so headings and `**bold**` survive layout re-renders and exports.
+
 ## Card Workbench
 
 The card workbench uses browser-native HTML/CSS layout instead of fabric.js. The center pane shows a scaled 3:4 iframe preview based on a `900 x 1200` card. The left pane is project-scoped: it displays the current company as read-only state from `?company=`, then uses mutually exclusive accordions for card navigation, template selection, and the image folder. The template system is global (shared across all companies) and stores full HTML+CSS source sets (8 cards) in browser `localStorage`; templates can be imported/exported as JSON. On first visit, default templates are auto-loaded from `/canvas/default-templates.json`. The right pane shows the current card's complete HTML+CSS source with local syntax highlighting; edits debounce-render into the iframe.
 
-The workbench toolbar includes `返回定稿台` and `参数编辑器`. With a company loaded, `返回定稿台` links to `/editor?company=<company>`; without a company it falls back to `/editor`. The `参数编辑器` button toggles a collapsible parameter-tuning bar below the iframe preview, containing single-accordion sliders/color-pickers for typography, colors, spacing, and layout. Changes are injected directly into the iframe via `renderSourceIntoDocument()`. Text elements in the iframe are always double-click-editable (inline contenteditable); edits auto-save to the SourceEditor's localStorage map.
+The workbench toolbar includes `返回定稿台` and `参数编辑器`. With a company loaded, `返回定稿台` links to `/editor?company=<company>`; without a company it falls back to `/editor`. The `参数编辑器` button toggles a collapsible parameter-tuning bar below the iframe preview, containing single-accordion sliders/color-pickers for typography, colors, spacing, and layout. Changes are injected directly into the iframe via `renderSourceIntoDocument()`.
 
 SVG infographics for cards 3 (timeline) and 6 (flywheel) are auto-generated on card confirmation in the editor using default templates; they can also be rendered manually with custom parameters in the image studio SVG editor. Card 6 confirmation also auto-generates two scatter-plot positioning charts (competitive landscape matrix and AI stack positioning map), displayed as thumbnails in the editor's right preview pane.
 

@@ -82,6 +82,22 @@ console.log(source);
     return subprocess.check_output(["node", "-e", script], text=True)
 
 
+def render_template_card(card_data: dict) -> str:
+    renderer_path = os.path.join(ROOT, "canvas", "js", "template-renderer.js")
+    script = f"""
+const fs = require('fs');
+const vm = require('vm');
+const code = fs.readFileSync({json.dumps(renderer_path)}, 'utf8');
+const context = {{ console }};
+vm.createContext(context);
+vm.runInContext(code + "\\n" + `
+const source = TemplateRenderer.render({json.dumps(card_data, ensure_ascii=False)});
+console.log(source);
+`, context);
+"""
+    return subprocess.check_output(["node", "-e", script], text=True)
+
+
 def article_style_number(source: str, var_name: str) -> float:
     match = re.search(r'<article[^>]+style="([^"]+)"', source)
     if not match:
@@ -292,6 +308,37 @@ class CanvasParserTests(unittest.TestCase):
 
         self.assertIn("AI IDE 重构开发流程", source)
         self.assertNotIn("暂缺", source)
+
+    def test_template_renderer_prefers_text_region_markdown_override(self):
+        source = render_template_card({
+            "items": [
+                {
+                    "item_type": "field",
+                    "display_role": "body",
+                    "value": "原始正文",
+                }
+            ],
+            "template": {
+                "canvas": {"width": 900, "height": 1200},
+                "background": {"type": "color", "value": "#fff"},
+                "regions": [
+                    {
+                        "id": "body",
+                        "type": "text",
+                        "role": "body",
+                        "x": 10,
+                        "y": 20,
+                        "w": 300,
+                        "h": 200,
+                        "value": "**编辑后**正文",
+                        "style": {"fontSize": 24, "color": "#111"},
+                    }
+                ],
+            },
+        })
+
+        self.assertIn("<strong>编辑后</strong>正文", source)
+        self.assertNotIn("原始正文", source)
 
     def test_parser_normalizes_card7_title_from_legacy_summary_heading(self):
         api_json = {

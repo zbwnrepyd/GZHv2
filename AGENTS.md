@@ -82,7 +82,7 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - 本地 Python SVG 模板上传只允许本机请求并要求 `X-Template-Upload-Intent: local-dev`；不要开放远程上传
 - 模板制作（/template-maker）：新建/编辑模板，右上角下拉框选择已有模板进行修改。编辑内置模板时自动创建副本（不修改原内置模板）。保存区分新建（POST）和更新（PATCH）
 - 飞轮/时间线/竞争格局/生态位图可在图片定稿台手动调参后渲染生成（chart_competitive/chart_ecosystem 走 `/api/image-studio/.../preview` 实时预览 + `/api/image-studio/.../render-svg` 渲染 PNG）；SVG/HTML 渲染需要 Playwright（chart_competitive/chart_ecosystem 走 `/api/image-studio/.../preview` 实时预览 + `/api/image-studio/.../render-svg` 渲染 PNG）；SVG/HTML 渲染需要 Playwright
-- 排版中心（/layout）：选中卡片→选择模板→点击图层→右侧属性面板调节位置/尺寸/字体/颜色。选中图层后 iframe 内高亮区域边框，文字区域可点击编辑（contentEditable），编辑内容跨渲染保持。模板渲染器支持 Markdown（`#`→h1/`##`→h2/`**`→粗体）
+- 排版中心（/layout）：选中卡片→选择模板→点击图层→右侧属性面板调节位置/尺寸/字体/颜色。画布预览由 iframe 渲染，父页面透明 hitbox 接管图层点击，避免浏览器原生文本选区；选中文字图层后双击高亮区域会在 iframe 内打开 Markdown textarea，可编辑原始 Markdown，提交后写入 layout overrides 并跨渲染保持。模板渲染器支持 Markdown（`#`→h1/`##`→h2/`**`→粗体），文字 region 的 `value` override 优先于原字段内容。
 - 国内环境访问 Tavily 和 YouTube API 需配 HTTPS_PROXY（在 `.env` 手动配置）。Tavily 使用显式 `proxies=` 传参并支持超时后换 Key；超时配置在 `pipeline.py`
 - Pexels（200 req/h，支持中文）和 Unsplash（50 req/h，英文关键词）API Key 通过环境变量配置，用于图片定稿台手动搜索
 - 图片自动采集不再使用 Lorem Flickr / Picsum 通用图；搜不到真实图片时标记 `failed`，进入图片定稿台手动补
