@@ -40,7 +40,7 @@ def build_image_queries(record: dict) -> dict:
     about_url = office_hints.get("about_url", "")
 
     return {
-        # ── 卡片2：公司真实照片 ──────────────────────────────
+        # ── office：公司真实照片 ──────────────────────────────
         "office": {
             "scrape_urls": [u for u in [about_url, newsroom_url] if u],
             "tavily_queries": [

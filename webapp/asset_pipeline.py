@@ -1478,7 +1478,7 @@ def _resolve_office_location(company_name: str, location: str, company_url: str 
 
 def _collect_office_variants(db_path: str, images_root: str, company_name: str,
                              location: str, query_config: dict, company_url: str = "") -> int:
-    """Card 2: map first, then supplemental street-view/Tavily candidates."""
+    """Office asset: map first, then supplemental street-view/Tavily candidates."""
     from asset_store import insert_variant
 
     count = 0
@@ -1756,7 +1756,7 @@ def collect_image_variants_pipeline(
     progress_callback=None, job_id: str = None,
     asset_key: str = "",
 ) -> dict[str, int]:
-    """研究流水线图片采集阶段入口。逐一采集 4 个卡片的变体并报告进度。
+    """研究流水线图片采集阶段入口。逐一采集素材需求变体并报告进度。
     如果指定 asset_key，只采集该槽位。"""
     query_config = build_image_queries(company_data)
     location = company_data.get("location", "")
@@ -1765,15 +1765,15 @@ def collect_image_variants_pipeline(
     ensure_assets_rows(db_path, company_name)
 
     stages = [
-        ("office", "卡片2：公司位置地图", lambda: _collect_office_variants(
+        ("office", "公司位置地图", lambda: _collect_office_variants(
             db_path, images_root, company_name, location, query_config.get("office", {}), company_url)),
-        ("product_main", "卡片4：主产品截图", lambda: _collect_product_main_variants(
+        ("product_main", "主产品截图", lambda: _collect_product_main_variants(
             db_path, images_root, company_name, query_config.get("product_main", {}))),
-        ("products_other", "卡片5：其他产品截图", lambda: _collect_products_other_variants(
+        ("products_other", "其他产品截图", lambda: _collect_products_other_variants(
             db_path, images_root, company_name, query_config.get("products_other", {}))),
-        ("competitors", "卡片7：竞争格局截图", lambda: _collect_competitors_variants(
+        ("competitors", "竞争格局截图", lambda: _collect_competitors_variants(
             db_path, images_root, company_name, query_config.get("competitors", {}))),
-        ("competitors_logo_strip", "卡片7：三个竞品 Logo 横排图", lambda: _collect_competitor_logo_strip_variants(
+        ("competitors_logo_strip", "三个竞品 Logo 横排图", lambda: _collect_competitor_logo_strip_variants(
             db_path, images_root, company_name, query_config.get("competitors", {}))),
     ]
 
