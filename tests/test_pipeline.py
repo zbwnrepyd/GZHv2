@@ -7,6 +7,7 @@ ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, "webapp"))
 
 import pipeline
+import repositories.field_repo as field_repo
 
 
 class FakeResponse:
@@ -176,6 +177,30 @@ class PipelineFailureTests(unittest.TestCase):
             calls,
             ["quota-key", "working-key", "quota-key", "working-key"],
         )
+
+    def test_run_pipeline_writes_field_rows_under_requested_company_name(self):
+        inserted_batches = []
+        records = [
+            {
+                "company_name": "limitless",
+                "version": "standard",
+                "company_type": "AI wearable",
+                "company_def": "AI meeting memory platform",
+                "data_confidence": "高",
+            }
+        ]
+
+        with patch.object(pipeline, "_collect_all", return_value={"website": {"text": "ok"}}), \
+             patch.object(pipeline, "llm_analysis", return_value=[dict(records[0])]), \
+             patch.object(pipeline.database, "save_research_records", return_value=[101]), \
+             patch.object(field_repo, "insert_research_fields_batch", side_effect=lambda _db, rows: inserted_batches.append(rows) or len(rows)), \
+             patch("asset_pipeline.collect_image_variants_pipeline", return_value={}):
+            ids = pipeline.run_pipeline("Limitless", "https://www.limitless.ai")
+
+        self.assertEqual(ids, [101])
+        self.assertTrue(inserted_batches)
+        self.assertTrue(all(row["company_name"] == "Limitless" for row in inserted_batches[0]))
+        self.assertTrue(any(row["field_key"] == "company_type" for row in inserted_batches[0]))
 
 
 if __name__ == "__main__":
