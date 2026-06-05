@@ -524,7 +524,27 @@ class AssetPathSafetyTests(unittest.TestCase):
         self.assertEqual(demo_asset["local_path"], "/images/DemoCo/variants/office.png")
         self.assertEqual(variants[0]["is_selected"], 1)
 
-    def test_card2_office_collection_selects_map_and_keeps_supplements(self):
+    def test_collection_progress_labels_use_asset_demand_not_card_number(self):
+        assets_db_path = init_sqlite("init_assets_db.sql")
+        self.addCleanup(lambda: os.path.exists(assets_db_path) and os.remove(assets_db_path))
+        progress = []
+
+        with tempfile.TemporaryDirectory() as images_root:
+            with patch.object(asset_pipeline, "_collect_office_variants", return_value=0):
+                asset_pipeline.collect_image_variants_pipeline(
+                    assets_db_path,
+                    images_root,
+                    "DemoCo",
+                    {"location": "San Francisco"},
+                    progress_callback=lambda _stage, detail: progress.append(detail["message"]),
+                    asset_key="office",
+                )
+
+        self.assertEqual(progress[0], "公司位置地图")
+        self.assertEqual(progress[1], "公司位置地图完成：0 张候选图")
+        self.assertFalse(any("卡片" in message for message in progress))
+
+    def test_office_collection_selects_map_and_keeps_supplements(self):
         assets_db_path = init_sqlite("init_assets_db.sql")
         self.addCleanup(lambda: os.path.exists(assets_db_path) and os.remove(assets_db_path))
         asset_store.ensure_assets_rows(assets_db_path, "DemoCo")

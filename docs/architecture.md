@@ -131,7 +131,7 @@ Image studio:
 - `GET /api/image-studio/<company>/<asset_key>/variants` — same variant list, explicit scored-candidate endpoint.
 - `POST /api/image-studio/<company>/<asset_key>/search` — multi-source image search (Pexels/Unsplash/Tavily).
 - `POST /api/image-studio/<company>/<asset_key>/fetch` — download a candidate image, create variant, auto-select.
-- `POST /api/image-studio/<company>/<asset_key>/generate-map` — regenerate the card 2 office map; only accepts `asset_key=office` and auto-selects the map variant.
+- `POST /api/image-studio/<company>/<asset_key>/generate-map` — regenerate the office map asset; only accepts `asset_key=office` and auto-selects the map variant.
 - `POST /api/image-studio/<company>/<asset_key>/query` — DeepSeek Flash query generation for the slot.
 - `POST /api/image-studio/<company>/<asset_key>/import` — URL import or file upload as variant.
 - `POST /api/image-studio/<company>/<asset_key>/rescore` — recompute rule-based scores for existing variants and auto-select the highest scored candidate.

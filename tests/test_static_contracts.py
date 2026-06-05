@@ -381,17 +381,19 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("`chart_competitive`", spec)
         self.assertIn("GET /api/assets/resolved", spec)
 
-    def test_card2_map_is_main_collection_path(self):
+    def test_office_map_is_main_collection_path(self):
         with open(os.path.join(ROOT, "webapp", "asset_pipeline.py"), encoding="utf-8") as f:
             pipeline_py = f.read()
         with open(os.path.join(ROOT, "webapp", "app.py"), encoding="utf-8") as f:
             app_py = f.read()
 
-        self.assertIn("Card 2: map first, then supplemental street-view/Tavily candidates", pipeline_py)
-        self.assertIn("卡片2：公司位置地图", pipeline_py)
+        self.assertIn("Office asset: map first, then supplemental street-view/Tavily candidates", pipeline_py)
+        self.assertIn('"公司位置地图"', pipeline_py)
+        self.assertNotIn("卡片2：公司位置地图", pipeline_py)
         self.assertIn("_render_osm_tile_composite", pipeline_py)
         self.assertIn("_render_static_map_card", pipeline_py)
         self.assertIn('if asset_key != "office"', app_py)
+        self.assertNotIn("卡片2公司位置槽位", app_py)
 
 
 if __name__ == "__main__":

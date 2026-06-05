@@ -31,7 +31,7 @@ Optional:
 
 ```bash
 YOUTUBE_API_KEY=...
-GOOGLE_MAPS_API_KEY=...     # Optional Street View supplements for card 2; https://console.cloud.google.com/apis/library/street-view-image.googleapis.com
+GOOGLE_MAPS_API_KEY=...     # Optional Street View supplements for the office map asset; https://console.cloud.google.com/apis/library/street-view-image.googleapis.com
 PEXELS_API_KEY=...          # https://www.pexels.com/api/ — 200 req/h, supports Chinese keywords
 UNSPLASH_ACCESS_KEY=...     # https://unsplash.com/developers — 50 req/h, English keywords
 IMAGE_API_KEY=sk-...
@@ -224,13 +224,13 @@ node canvas/screenshot.js \
 Asset collection and infographic generation:
 
 ```bash
-# Trigger auto-collection (logo, card 2 map + office supplements, product, competitors, other products)
+# Trigger auto-collection (logo, office map + office supplements, product, competitors, other products)
 curl -X POST http://127.0.0.1:5050/api/assets/collect/Anthropic
 
 # View all assets
 curl http://127.0.0.1:5050/api/assets/Anthropic | python3 -m json.tool
 
-# Regenerate and select the card 2 company location map
+# Regenerate and select the office company location map
 curl -X POST http://127.0.0.1:5050/api/image-studio/Anthropic/office/generate-map
 
 # Re-score candidates and auto-select the highest scored usable image
@@ -304,5 +304,5 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
 - If imports fail in a new environment, reinstall with `pip install -r requirements.txt`.
 - `urllib3` may warn about LibreSSL on the system Python. The warning is noisy but was not a blocker in local verification.
 - If Playwright fails with "找不到 Chromium 可执行文件", run `playwright install chromium` or set `PLAYWRIGHT_CHROMIUM_PATH` to the chromium binary path. In Docker, install `chromium` via apt and add `--no-sandbox` etc. The pipeline auto-detects macOS/Linux Playwright caches and system chromium.
-- If the card 2 map fails, confirm outbound access to Nominatim/OpenStreetMap tile hosts and Playwright Chromium. In domestic networks, set `HTTPS_PROXY` in project `.env`; `config.py` does not set proxy automatically.
+- If the office map asset fails, confirm outbound access to Nominatim/OpenStreetMap tile hosts and Playwright Chromium. In domestic networks, set `HTTPS_PROXY` in project `.env`; `config.py` does not set proxy automatically.
 - If Google Street View images are missing from the office slot, verify the Google Cloud project has the Street View Static API enabled at https://console.cloud.google.com/apis/library/street-view-image.googleapis.com. The API key is configured as `GOOGLE_MAPS_API_KEY` in `.env`. Street View is only a supplemental candidate after the default map.
