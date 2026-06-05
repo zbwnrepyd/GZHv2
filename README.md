@@ -31,7 +31,7 @@ DEEPSEEK_API_KEY=sk-...
 TAVILY_API_KEY=tvly-...
 TAVILY_API_KEYS=tvly-...,tvly-...
 YOUTUBE_API_KEY=...
-GOOGLE_MAPS_API_KEY=...  # 可选：Street View Static API，作为卡片2地图后的补充候选
+GOOGLE_MAPS_API_KEY=...  # 可选：Street View Static API，作为 office 地图后的补充候选
 IMAGE_API_KEY=sk-...
 IMAGE_API_URL=https://api.openai.com/v1/images/generations
 FLASK_PORT=5050
@@ -94,7 +94,7 @@ http://127.0.0.1:5050/layout?company=Anthropic
 
 排版中心同样读取 `/api/render-data/<company>`，用于逐卡选择模板、选择图层、调整位置/尺寸/字体/颜色并保存到 `/api/layout/<company>/<card_id>`。选中文字图层后，画布中的对应区域会高亮；双击高亮区域会打开 Markdown 文本框，可直接编辑原始 Markdown。编辑提交后作为该 region 的 `value` override 保存，模板渲染器会优先使用 override 并按 Markdown 规则渲染。
 
-图片定稿台管理 8 个 `asset_key`，其中 `positioning_charts` 先挂在卡片6用于竞争格局/生态位图定稿。卡片2 的 `office` 槽位默认生成并选中公司位置地图；Google Street View 和 Tavily 办公室/街景图会补充为后续候选。候选变体展示在中间主区域，带来源、尺寸、分数和失败原因，默认按 `final_score` 排序；右侧只放生成、重新评分、当前选定、导入/上传和 SVG 渲染操作。
+图片定稿台按 `asset_key` 管理素材需求。`office` 素材默认生成并选中公司位置地图；Google Street View 和 Tavily 办公室/街景图会补充为后续候选。候选变体展示在中间主区域，带来源、尺寸、分数和失败原因，默认按 `final_score` 排序；右侧只放生成、重新评分、当前选定、导入/上传和 SVG 渲染操作。
 
 批量导出 PNG 需要 Node 依赖：
 

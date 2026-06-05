@@ -1456,7 +1456,7 @@ def _import_upload(company: str, asset_key: str):
 def generate_slot_map(company: str, asset_key: str):
     """为槽位生成 OSM 地图变体（先尝试 staticmap，失败则用 Playwright 截图）"""
     if asset_key != "office":
-        return jsonify({"error": "地图仅用于卡片2公司位置槽位"}), 400
+        return jsonify({"error": "地图仅用于公司位置地图素材"}), 400
     try:
         research = database.get_research(config.DB_PATH_RESEARCH, company, "standard")
         location = ""
