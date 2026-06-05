@@ -78,7 +78,10 @@ class Config:
     PLAYWRIGHT_CHROMIUM_PATH: str = os.environ.get("PLAYWRIGHT_CHROMIUM_PATH", "")
 
     # DeepSeek API
-    DEEPSEEK_API_URL: str = "https://api.deepseek.com/chat/completions"
+    DEEPSEEK_API_URL: str = os.environ.get(
+        "DEEPSEEK_API_URL",
+        "https://api.deepseek.com/chat/completions",
+    )
     DEEPSEEK_MODEL: str = "deepseek-v4-pro"
     DEEPSEEK_FLASH_MODEL: str = "deepseek-v4-flash"
 

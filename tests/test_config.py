@@ -69,6 +69,17 @@ class ConfigEnvLoadingTests(unittest.TestCase):
             "['first-key', 'second-key']",
         )
 
+    def test_deepseek_api_url_can_be_overridden_by_environment(self):
+        PROJECT_ENV.write_text("DEEPSEEK_API_URL=https://project.deepseek.test/chat\n")
+
+        self.assertEqual(
+            self._read_config_value(
+                "DEEPSEEK_API_URL",
+                {"DEEPSEEK_API_URL": "https://shell.deepseek.test/chat"},
+            ),
+            "https://shell.deepseek.test/chat",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

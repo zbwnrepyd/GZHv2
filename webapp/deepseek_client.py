@@ -3,6 +3,8 @@ import time
 import requests
 from pathlib import Path
 
+from config import config
+
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 
@@ -43,7 +45,7 @@ def call_deepseek(
     for attempt in range(max_retries):
         try:
             resp = requests.post(
-                "https://api.deepseek.com/chat/completions",
+                config.DEEPSEEK_API_URL,
                 headers=headers,
                 json=body,
                 timeout=timeout,
