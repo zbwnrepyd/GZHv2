@@ -178,6 +178,45 @@ class PipelineFailureTests(unittest.TestCase):
             ["quota-key", "working-key", "quota-key", "working-key"],
         )
 
+    def test_prepare_raw_data_for_llm_trims_tavily_raw_content(self):
+        raw = {
+            "company_name": "DemoCo",
+            "tavily": [
+                {
+                    "answer": "answer",
+                    "results": [
+                        {
+                            "title": "Useful result",
+                            "url": "https://example.com/useful",
+                            "content": "short summary",
+                            "score": 0.91,
+                            "raw_content": "x" * 20000,
+                            "extra": "drop me",
+                        }
+                    ],
+                }
+            ],
+            "website": {"text": "homepage"},
+        }
+
+        prepared = pipeline._prepare_raw_data_for_llm(raw)
+
+        result = prepared["tavily"][0]["results"][0]
+        self.assertEqual(result["title"], "Useful result")
+        self.assertEqual(result["url"], "https://example.com/useful")
+        self.assertEqual(result["content"], "short summary")
+        self.assertEqual(result["score"], 0.91)
+        self.assertLess(len(result["raw_content"]), 3000)
+        self.assertNotIn("extra", result)
+        self.assertEqual(raw["tavily"][0]["results"][0]["raw_content"], "x" * 20000)
+
+    def test_enum_group_ignores_non_object_llm_json(self):
+        with patch.object(pipeline, "_load_prompt_text", return_value="prompt"), \
+             patch.object(pipeline, "call_deepseek", return_value='"not an object"'):
+            fields = pipeline._run_llm_enum_group("key", "A", "{}")
+
+        self.assertEqual(fields, {})
+
     def test_run_pipeline_writes_field_rows_under_requested_company_name(self):
         inserted_batches = []
         records = [
