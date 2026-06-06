@@ -95,7 +95,7 @@ input, button, select, textarea { font: inherit; }
 }
 
 #research-desk {
-  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  flex: 1; display: flex; flex-direction: column; overflow: auto;
   background: var(--bg);
 }
 .research-hero {
@@ -209,7 +209,7 @@ input, button, select, textarea { font: inherit; }
 .source-empty .source-badge { background: #EEF2F6; color: var(--text-muted); }
 .research-complete { margin-top: auto; }
 .company-library {
-  flex: 1; min-height: 0; overflow: auto; padding: 20px 28px;
+  padding: 20px 28px;
 }
 .library-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .library-header p { color: var(--text-muted); font-size: 13px; margin-top: 4px; }

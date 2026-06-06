@@ -741,16 +741,6 @@ a:hover { text-decoration: underline; }
   flex-shrink: 0;
   overflow: hidden;
 }
-.chart-right-dock {
-  height: 100%;
-  display: grid;
-  grid-template-rows: minmax(260px, 1fr) minmax(220px, 36vh);
-  min-height: 0;
-  background: var(--surface);
-}
-.chart-right-dock.code-only {
-  grid-template-rows: 1fr;
-}
 .chart-param-host {
   min-height: 0;
   overflow: hidden;
