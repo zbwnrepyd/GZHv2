@@ -17,6 +17,7 @@ import db
 import asset_store
 import asset_pipeline
 import infographic_templates
+import path_safety
 
 
 def init_sqlite(schema_name: str) -> str:
@@ -551,6 +552,13 @@ def build(data, params):
 
 
 class AssetPathSafetyTests(unittest.TestCase):
+    def test_company_path_sanitizer_is_shared_across_modules(self):
+        unsafe = "../坏 Company 01/%logo"
+
+        self.assertEqual(path_safety.safe_path_segment(unsafe), "坏_Company_01_logo")
+        self.assertEqual(asset_pipeline._safe_path_segment(unsafe), path_safety.safe_path_segment(unsafe))
+        self.assertEqual(db._safe_image_dir_name(unsafe), path_safety.safe_path_segment(unsafe))
+
     def test_variant_path_sanitizes_company_and_suffix_inside_images_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             dest = asset_pipeline._variant_path(tmp, "../Bad Co", "../timeline", "../../shot")

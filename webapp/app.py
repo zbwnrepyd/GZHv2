@@ -22,6 +22,7 @@ from infographic import (
     render_with_template, extract_flywheel_json, extract_timeline_json,
     build_competitive_landscape_svg, build_stack_positioning_svg,
     render_competitive_landscape, render_stack_positioning, _html_to_png,
+    _echarts_inline_js,
 )
 from infographic_templates import get_all as get_all_templates, get as get_template, upload as upload_template, delete as delete_template
 from image_search import search_images
@@ -50,17 +51,29 @@ init_assets_db(config.DB_PATH_ASSETS)
 
 def _init_new_composition_dbs():
     """幂等初始化编排数据库和模板数据库（Step 1 新增）"""
+    import importlib.util as _importlib_util
     import sqlite3 as _sqlite3
     from pathlib import Path as _P
 
+    project_db_dir = _P(__file__).resolve().parent.parent / "db"
+
     def _exec_sql_file(db_path: str, sql_filename: str):
-        sql_file = _P(__file__).resolve().parent.parent / "db" / sql_filename
+        sql_file = project_db_dir / sql_filename
         if not sql_file.exists():
             return
         conn = _sqlite3.connect(db_path)
         conn.executescript(sql_file.read_text())
         conn.commit()
         conn.close()
+
+    def _run_migrations(db_path: str, names: list[str]):
+        migrate_file = project_db_dir / "migrate.py"
+        if not migrate_file.exists():
+            return
+        spec = _importlib_util.spec_from_file_location("gzh_db_migrate", migrate_file)
+        module = _importlib_util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.run_migrations(db_path, project_db_dir / "migrations", names=names)
 
     # composition_db — 卡片编排
     _exec_sql_file(config.DB_PATH_COMPOSITION, "init_composition_db.sql")
@@ -69,10 +82,10 @@ def _init_new_composition_dbs():
     _exec_sql_file(config.DB_PATH_TEMPLATE, "init_template_db.sql")
 
     # 迁移：research_fields 写入 research_db
-    _exec_sql_file(config.DB_PATH_RESEARCH, "migrations/001_research_fields.sql")
+    _run_migrations(config.DB_PATH_RESEARCH, ["001_research_fields.sql"])
 
     # 迁移：final_fields 写入 final_db
-    _exec_sql_file(config.DB_PATH_FINAL, "migrations/002_final_fields.sql")
+    _run_migrations(config.DB_PATH_FINAL, ["002_final_fields.sql"])
 
 
 # 初始化新数据库
@@ -116,10 +129,15 @@ def _quality_kwargs_for_variant(company: str, asset_key: str, local_file: str,
 
 
 def _local_file_from_browser_path(path: str) -> str:
+    """将浏览器 /images/... 路径映射到本地文件系统路径，防止路径遍历攻击。"""
     if not path or not path.startswith("/images/"):
         return path or ""
     rel = path[len("/images/"):]
-    return os.path.join(config.IMAGES_DIR, *rel.split("/"))
+    base = Path(config.IMAGES_DIR).resolve()
+    target = (base / rel).resolve()
+    if target != base and base not in target.parents:
+        return ""
+    return str(target)
 
 # 后台任务状态
 _jobs: dict[str, dict] = {}
@@ -1012,9 +1030,9 @@ def preview_chart_html(company: str, asset_key: str):
         params.update(body.get("params", {}) or {})
         companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
         if asset_key == "chart_competitive":
-            html = build_competitive_landscape_svg(companies, company, params)
+            html = build_competitive_landscape_svg(companies, company, params, inline=True)
         else:
-            html = build_stack_positioning_svg(companies, company, params)
+            html = build_stack_positioning_svg(companies, company, params, inline=True)
         return app.response_class(html, mimetype="text/html")
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1713,6 +1731,12 @@ def render_echarts_html_variant(company: str, asset_key: str):
             return jsonify({"error": "缺少 html"}), 400
         if "echarts" not in html.lower():
             return jsonify({"error": "HTML 中未检测到 ECharts 代码"}), 400
+        html = re.sub(
+            r'<script\s+src=["\'][^"\']*echarts[^"\']*["\']\s*></script>',
+            lambda _: f"<script>{_echarts_inline_js()}</script>",
+            html,
+            flags=re.IGNORECASE,
+        )
 
         width = int(params.get("width") or body.get("width") or 800)
         height = int(params.get("height") or body.get("height") or 600)

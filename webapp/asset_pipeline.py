@@ -14,6 +14,7 @@ import shutil
 import requests
 
 from config import config
+from path_safety import safe_path_segment
 from asset_store import (
     ASSET_KEYS, ASSET_TO_CARD, CARD_ASSET_MAP,
     ensure_assets_rows, upsert_asset, get_asset,
@@ -38,13 +39,7 @@ def asset_dir(images_root: str, company_name: str) -> str:
 
 
 def _safe_path_segment(value) -> str:
-    segment = str(value or "company").strip()
-    segment = segment.replace("/", "_").replace("\\", "_")
-    segment = re.sub(r"\s+", "_", segment)
-    segment = re.sub(r"[\x00-\x1f\x7f?%*:|\"<>]", "_", segment)
-    while ".." in segment:
-        segment = segment.replace("..", "_")
-    return segment.strip("._ ") or "company"
+    return safe_path_segment(value)
 
 
 def _company_image_dir(images_root: str, company_name: str, *parts: str) -> str:

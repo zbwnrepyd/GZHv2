@@ -7,7 +7,6 @@ available while new layout/card-config code speaks in media terms.
 from __future__ import annotations
 
 import os
-import re
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -15,6 +14,7 @@ from urllib.parse import quote
 from flask import Blueprint, jsonify, redirect, request
 
 from config import config
+from path_safety import safe_path_segment
 import db as database
 from asset_store import (
     ASSET_KEYS,
@@ -40,8 +40,7 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 def _safe_part(value: str) -> str:
-    part = re.sub(r"[^A-Za-z0-9._-]+", "_", value or "").strip("._")
-    return part or "company"
+    return safe_path_segment(value)
 
 
 def _image_dimensions(path: Path) -> tuple[int | None, int | None]:

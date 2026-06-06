@@ -1,0 +1,1245 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index e27e4d7..9720d3b 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -46,6 +46,7 @@ curl http://127.0.0.1:5050/api/research/status/<job_id>
+ ```bash
+ python3 -m unittest discover -s tests -v
+ python3 -m py_compile webapp/*.py
++python3 db/migrate.py --help
+ node canvas/screenshot.js --help
+ ```
+ 
+@@ -64,6 +65,7 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
+ - 卡片制作台左侧公司名是只读项目状态，来自定稿台跳转或 `?company=<公司名>`；不要恢复可输入公司名框
+ - 卡片制作台返回按钮应回到当前公司的定稿台 `/editor?company=<公司名>`
+ - 数据库用sqlite3标准库，不用ORM
++- SQLite 迁移使用 `db/migrate.py`，通过 `schema_migrations` 幂等记录已执行 SQL；不要在启动路径手工重复 `executescript` 迁移文件
+ - 网页抓取用本地 trafilatura（`webapp/firecrawl_local.py`），不依赖外部 API
+ - 环境变量只读取系统环境变量和项目根目录 `.env`；不要读取或恢复用户目录 `~/.env`
+ - Tavily 可用 `TAVILY_API_KEYS` 配置逗号分隔的多 Key，额度限制时自动尝试下一个；不要把真实 Key 写进代码、测试、文档或日志
+@@ -78,7 +80,8 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
+ - L3 枚举字段（10个竞争评分维度）改三层解耦：规则层 `field_rules.py`（爬 pricing 页+关键词推断）→ LLM 拆为3组独立调用（prompts/layer3-group-a/b/c）→ Pydantic 验证 `field_validator.py`；关键字段多数投票。不改动 L3 主调用的 45 个非枚举字段提取
+ - 创始人 `founder_edu/founder_achievement` 缺失修复属于 L3 主流程内重试，不要恢复后置补抓流程
+ - 图片 API Key 可通过环境变量配置，也可在图片定稿台搜索面板 AI 生图时随请求发送；临时 Key 不写入 localStorage 或响应
+-- 公司图片资产通过 `company_assets` 表管理（11 种 asset_key），不用路径约定或 localStorage。采集统一走 `collect_image_variants_pipeline`（含官网首页截图 candidate，不抢 OSM 默认）。信息图（飞轮/时间线/散点图）走 `infographic.py`：飞轮/时间线用 SVG 模板渲染，散点图用 ECharts CDN 渲染为 HTML 再 Playwright 截图（2x scale 高清）
++- 公司名/图片路径片段统一用 `webapp/path_safety.py:safe_path_segment` 消毒；不要在各模块新增不同的路径清理规则
++- 公司图片资产通过 `company_assets` 表管理（11 种 asset_key），不用路径约定或 localStorage。采集统一走 `collect_image_variants_pipeline`（含官网首页截图 candidate，不抢 OSM 默认）。信息图（飞轮/时间线/散点图）走 `infographic.py`：飞轮/时间线用 SVG 模板渲染，散点图用本地 `webapp/static/vendor/echarts.min.js` 内联渲染为 HTML，再由 Playwright 截图（2x scale 高清）；不要恢复 CDN 依赖作为主路径
+ - 自动图片采集必须走候选池：下载后用 `image_quality.py` 检测、`image_scorer.py` 评分，写入尺寸/分数/失败原因；Tavily 不允许取第一张直接当最终图
+ - `office` 素材默认使用公司位置地图：OSM 瓦片本地拼接 + HTML pin/legend 生成 PNG，并默认选中；Google Street View/Tavily 办公室图只作为后续候选变体，不抢默认选中
+ - 图片定稿台两类槽位两种界面：①采集图片类（logo/office/product/competitors）→ 三栏布局，中间栏上部预览/搜索切换 + 下部工具栏（搜索/采集/AI生图/上传）；②图表类（flywheel/timeline/positioning_charts）→ 中间栏 iframe 实时预览（Frappe Charts / SVG）+ 下部功能区 bar（调参+重置+渲染保存），无搜索框
+@@ -89,10 +92,13 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
+ - 国内环境访问 Tavily 和 YouTube API 需配 HTTPS_PROXY（在 `.env` 手动配置）。Tavily 使用显式 `proxies=` 传参并支持超时后换 Key；超时配置在 `pipeline.py`
+ - Pexels（200 req/h，支持中文）和 Unsplash（50 req/h，英文关键词）API Key 通过环境变量配置，用于图片定稿台手动搜索
+ - 图片自动采集不再使用 Lorem Flickr / Picsum 通用图；搜不到真实图片时标记 `failed`，进入图片定稿台手动补
+-- 定稿台左侧结构：卡片设置、文字定稿、图片定稿、进入排版。每个面板点击后占据中右全区域，互斥切换。旧版内容定稿/钩子文案/数据库字段面板已删除
++- 定稿台左侧结构：卡片设置、文字定稿、图片定稿、进入排版。前三个面板点击后占据右侧主区域，互斥切换；「进入排版」是左侧底部固定按钮。旧版内容定稿/钩子文案/数据库字段面板已删除
++- 研究台公司库定稿进度优先读取 `final_fields` 的 confirmed/total 字段数；旧 `final_content` 卡片数仅作兼容回退
+ - 研究台要展示 Tavily/GitHub/YouTube/官网抓取的链路状态与数量；公司库点击一条只展开该公司研究信息，点另一条时其他行折叠
+ 
+ ## 参考
+-- 新人入口：`README.md`
++- 新人入口：`docs/project-guide.md`
+ - 架构说明：`docs/architecture.md`
++- 评分体系：`docs/scoring-system.md`
++- 卡片规范：`docs/card-spec.md`
+ - 运行手册：`docs/runbook.md`
+diff --git a/CLAUDE.md b/CLAUDE.md
+index e27e4d7..9720d3b 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -46,6 +46,7 @@ curl http://127.0.0.1:5050/api/research/status/<job_id>
+ ```bash
+ python3 -m unittest discover -s tests -v
+ python3 -m py_compile webapp/*.py
++python3 db/migrate.py --help
+ node canvas/screenshot.js --help
+ ```
+ 
+@@ -64,6 +65,7 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
+ - 卡片制作台左侧公司名是只读项目状态，来自定稿台跳转或 `?company=<公司名>`；不要恢复可输入公司名框
+ - 卡片制作台返回按钮应回到当前公司的定稿台 `/editor?company=<公司名>`
+ - 数据库用sqlite3标准库，不用ORM
++- SQLite 迁移使用 `db/migrate.py`，通过 `schema_migrations` 幂等记录已执行 SQL；不要在启动路径手工重复 `executescript` 迁移文件
+ - 网页抓取用本地 trafilatura（`webapp/firecrawl_local.py`），不依赖外部 API
+ - 环境变量只读取系统环境变量和项目根目录 `.env`；不要读取或恢复用户目录 `~/.env`
+ - Tavily 可用 `TAVILY_API_KEYS` 配置逗号分隔的多 Key，额度限制时自动尝试下一个；不要把真实 Key 写进代码、测试、文档或日志
+@@ -78,7 +80,8 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
+ - L3 枚举字段（10个竞争评分维度）改三层解耦：规则层 `field_rules.py`（爬 pricing 页+关键词推断）→ LLM 拆为3组独立调用（prompts/layer3-group-a/b/c）→ Pydantic 验证 `field_validator.py`；关键字段多数投票。不改动 L3 主调用的 45 个非枚举字段提取
+ - 创始人 `founder_edu/founder_achievement` 缺失修复属于 L3 主流程内重试，不要恢复后置补抓流程
+ - 图片 API Key 可通过环境变量配置，也可在图片定稿台搜索面板 AI 生图时随请求发送；临时 Key 不写入 localStorage 或响应
+-- 公司图片资产通过 `company_assets` 表管理（11 种 asset_key），不用路径约定或 localStorage。采集统一走 `collect_image_variants_pipeline`（含官网首页截图 candidate，不抢 OSM 默认）。信息图（飞轮/时间线/散点图）走 `infographic.py`：飞轮/时间线用 SVG 模板渲染，散点图用 ECharts CDN 渲染为 HTML 再 Playwright 截图（2x scale 高清）
++- 公司名/图片路径片段统一用 `webapp/path_safety.py:safe_path_segment` 消毒；不要在各模块新增不同的路径清理规则
++- 公司图片资产通过 `company_assets` 表管理（11 种 asset_key），不用路径约定或 localStorage。采集统一走 `collect_image_variants_pipeline`（含官网首页截图 candidate，不抢 OSM 默认）。信息图（飞轮/时间线/散点图）走 `infographic.py`：飞轮/时间线用 SVG 模板渲染，散点图用本地 `webapp/static/vendor/echarts.min.js` 内联渲染为 HTML，再由 Playwright 截图（2x scale 高清）；不要恢复 CDN 依赖作为主路径
+ - 自动图片采集必须走候选池：下载后用 `image_quality.py` 检测、`image_scorer.py` 评分，写入尺寸/分数/失败原因；Tavily 不允许取第一张直接当最终图
+ - `office` 素材默认使用公司位置地图：OSM 瓦片本地拼接 + HTML pin/legend 生成 PNG，并默认选中；Google Street View/Tavily 办公室图只作为后续候选变体，不抢默认选中
+ - 图片定稿台两类槽位两种界面：①采集图片类（logo/office/product/competitors）→ 三栏布局，中间栏上部预览/搜索切换 + 下部工具栏（搜索/采集/AI生图/上传）；②图表类（flywheel/timeline/positioning_charts）→ 中间栏 iframe 实时预览（Frappe Charts / SVG）+ 下部功能区 bar（调参+重置+渲染保存），无搜索框
+@@ -89,10 +92,13 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
+ - 国内环境访问 Tavily 和 YouTube API 需配 HTTPS_PROXY（在 `.env` 手动配置）。Tavily 使用显式 `proxies=` 传参并支持超时后换 Key；超时配置在 `pipeline.py`
+ - Pexels（200 req/h，支持中文）和 Unsplash（50 req/h，英文关键词）API Key 通过环境变量配置，用于图片定稿台手动搜索
+ - 图片自动采集不再使用 Lorem Flickr / Picsum 通用图；搜不到真实图片时标记 `failed`，进入图片定稿台手动补
+-- 定稿台左侧结构：卡片设置、文字定稿、图片定稿、进入排版。每个面板点击后占据中右全区域，互斥切换。旧版内容定稿/钩子文案/数据库字段面板已删除
++- 定稿台左侧结构：卡片设置、文字定稿、图片定稿、进入排版。前三个面板点击后占据右侧主区域，互斥切换；「进入排版」是左侧底部固定按钮。旧版内容定稿/钩子文案/数据库字段面板已删除
++- 研究台公司库定稿进度优先读取 `final_fields` 的 confirmed/total 字段数；旧 `final_content` 卡片数仅作兼容回退
+ - 研究台要展示 Tavily/GitHub/YouTube/官网抓取的链路状态与数量；公司库点击一条只展开该公司研究信息，点另一条时其他行折叠
+ 
+ ## 参考
+-- 新人入口：`README.md`
++- 新人入口：`docs/project-guide.md`
+ - 架构说明：`docs/architecture.md`
++- 评分体系：`docs/scoring-system.md`
++- 卡片规范：`docs/card-spec.md`
+ - 运行手册：`docs/runbook.md`
+diff --git a/README.md b/README.md
+index d2d51e0..3864394 100644
+--- a/README.md
++++ b/README.md
+@@ -6,9 +6,12 @@
+ 
+ ```bash
+ pip install -r requirements.txt
++npm install
+ sqlite3 db/research_db.sqlite < db/init_research_db.sql
+ sqlite3 db/final_db.sqlite < db/init_final_db.sql
+ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
++python3 db/migrate.py db/research_db.sqlite --only 001_research_fields.sql
++python3 db/migrate.py db/final_db.sqlite --only 002_final_fields.sql
+ cd webapp
+ python3 app.py
+ ```
+@@ -56,6 +59,8 @@ tests/        unittest 回归测试
+ ```bash
+ python3 -m unittest discover -s tests -v
+ python3 -m py_compile webapp/*.py
++python3 db/migrate.py --help
++node canvas/screenshot.js --help
+ ```
+ 
+ 命令行启动一次研究：
+@@ -103,6 +108,8 @@ npm install
+ node canvas/screenshot.js --company Anthropic --base-url http://127.0.0.1:5050
+ ```
+ 
++`npm install` 同时安装 `echarts@5.6.0`。生成图表预览和 Playwright PNG 渲染使用 `webapp/static/vendor/echarts.min.js` 的本地副本，避免 iframe `srcdoc` 或 `file://` 渲染路径依赖外部 CDN。
++
+ 默认每张卡会导出 3 张高倍率候选图（`--shots 3 --scale 3`），文件名形如 `Anthropic_card_01_shot_01.png`。需要更少或更高倍率可改 `--shots`、`--scale`。
+ 
+-更多架构和运维细节见 [docs/architecture.md](docs/architecture.md) 和 [docs/runbook.md](docs/runbook.md)。
++更多架构和运维细节见 [docs/architecture.md](docs/architecture.md)、[docs/runbook.md](docs/runbook.md) 和 [docs/scoring-system.md](docs/scoring-system.md)。新人推荐先读 [docs/project-guide.md](docs/project-guide.md) 了解项目全貌。
+diff --git a/docs/architecture.md b/docs/architecture.md
+index e8c3a71..a5393f3 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -12,8 +12,10 @@ The app no longer depends on n8n for the main path. Research is started from the
+ 
+ - `webapp/app.py`: Flask routes, background job status, static asset routes, and asset API.
+ - `webapp/pipeline.py`: four-source collection, DeepSeek L0-L3 analysis, validation, database write.
+-- `webapp/db.py`: SQLite access helpers for research records, job tracking, and final card content.
+-- `webapp/asset_store.py`: CRUD layer for `company_assets` table (8 asset types per company).
++- `webapp/db.py`: SQLite access helpers for research records, job tracking, final fields, and legacy final card content.
++- `db/migrate.py`: idempotent SQLite migration runner. It records applied SQL files in `schema_migrations` and is used by app startup for research/final field migrations.
++- `webapp/path_safety.py`: shared path-segment sanitizer for company image directories and media upload paths.
++- `webapp/asset_store.py`: CRUD layer for `company_assets` table (11 asset types per company).
+ - `webapp/competitive_scoring.py`: enum normalization and scoring formulas for defensibility, incumbent attention, value capture, and funding-stage bubble size. Also contains Chinese funding-round normalization (`FUNDING_CN_MAP`).
+ - `webapp/field_rules.py`: rule-layer enum extraction (no LLM). Infers `stack_layer` from `company_type` via 100+ keyword patterns. Scrapes `/pricing` page for `pricing_model` and `customer_segment_type` signals. Rule hits are passed to LLM Group C so it skips already-determined fields.
+ - `webapp/field_validator.py`: Pydantic `CompetitiveFields` model with per-field enum validation. `validate_enum_fields()` rejects illegal values before database write, preventing dirty data from reaching the scoring formulas.
+@@ -24,10 +26,10 @@ The app no longer depends on n8n for the main path. Research is started from the
+ - `webapp/screenshot_client.py`: screenshot abstraction. The first implementation uses local Playwright and rejects login/captcha/Cloudflare/empty pages before saving screenshots.
+ - `webapp/image_query.py`: builds structured image search strategies per slot from research data, with per-product and per-competitor URL-prioritised collection plans.
+ - `webapp/image_search.py`: multi-source image search (Pexels → Unsplash → Tavily) used by the image studio manual search interface.
+-- `webapp/infographic.py`: SVG/HTML renderers for infographics. Flywheel/timeline use LLM-extracted JSON → SVG templates → Playwright PNG. Competitive positioning scatter plots use Frappe Charts CDN rendered in an HTML page → Playwright screenshot at 2x deviceScaleFactor. All rendered via `_html_to_png()` for sharp output.
++- `webapp/infographic.py`: SVG/HTML renderers for infographics. Flywheel/timeline use LLM-extracted JSON → SVG templates → Playwright PNG. Competitive positioning scatter plots use ECharts HTML; preview and `file://` Playwright rendering can inline the local `webapp/static/vendor/echarts.min.js` runtime, so chart rendering does not depend on jsDelivr/CDN availability.
+ - `prompts/`: prompt templates loaded by `webapp/deepseek_client.py`.
+-- `webapp/static/js/index.js`: research desk orchestration, research job polling, and finalization progress display as `confirmed/8`.
+-- `webapp/static/js/editor.js`: finalization desk orchestration, three-section accordion (content finalization / hook copy / image finalization), four-column line choice, hook-copy view, card confirmation, and embedded image-studio integration.
++- `webapp/static/js/index.js`: research desk orchestration, research job polling, source-chain status, recent-event display, and finalization progress display from `final_fields` when available.
++- `webapp/static/js/editor.js`: finalization desk orchestration. Left navigation has card settings, text finalization, image finalization, and a fixed bottom “进入排版” link; the three work panels are mutually exclusive overlays.
+ - `image-studio/`: standalone image finalization module with three-column layout (slot overview | middle preview + toolbar or chart bar | right candidate thumbnails/code + confirm). Two slot modes: **image slots** (logo/office/website_screenshot/product/competitors/competitors_logo_strip) use preview/search toggle + toolbar; **chart slots** (flywheel/timeline/chart_competitive/chart_ecosystem) use a proportional real-time iframe preview, bottom parameter bar, and right-side code/action dock with the final confirm button. Supports `?embed=1` for iframe integration into the editor; slot navigation moves to the editor accordion in embed mode.
+ - `image-studio/js/studio-app.js` and `image-studio/js/workspace-chart.js`: main controllers. Generated chart slots are routed to the chart workspace: flywheel/timeline use SVG template params + preview; chart_competitive/chart_ecosystem use editable ECharts/HTML preview with syntax-highlighted code and live application.
+ - `image-studio/js/search-panel.js`: middle panel for image slots — preview/search toggle bar, large preview stage, search results grid with pagination, and toolbar (search bar + engine selector, recollect all/slot, AI generation, upload, URL import).
+@@ -60,8 +62,12 @@ Job status is persisted in the `research_jobs` table. The `/api/research/status/
+ `research_db.sqlite` contains:
+ - `research`: generated research records, 3 rows per run (one per version). It also stores competitive-positioning enum fields (`ai_model_dependency`, `workflow_integration_level`, `data_flywheel`, `proprietary_data_asset`, `incumbent_direct_competitor`, `customer_segment_type`, `funding_stage`, `pricing_model`, `inference_cost_exposure`, `stack_layer`) plus cached scores (`funding_stage_score`, `score_defensibility`, `score_incumbent_attention`, `score_value_capture`).
+ - `research_jobs`: task lifecycle tracking (status, stage, error). Survives restarts; the status endpoint falls back to this table when the in-memory job dict is cold.
++- `research_fields`: field-level research pool split from the wide research row. It is keyed by `(company_name, version, field_key)` and created by migration `001_research_fields.sql`.
+ 
+-`final_db.sqlite` contains human-confirmed card content in `final_content`. The current finalization desk saves each confirmed card as one `markdown_full` field. Legacy field-level rows are still supported by the export path. The unique key is:
++`final_db.sqlite` contains:
++
++- `final_fields`: current field-level finalization table, keyed by `(company_name, field_key)`. Text finalization writes here with `status` values such as `draft` and `confirmed`. Company-library progress is computed as confirmed fields divided by total fields when rows exist.
++- `final_content`: legacy card-level content table. It is still supported by export and compatibility paths. The unique key is:
+ 
+ ```text
+ company_name + card_index + field_name
+diff --git a/docs/decoupled-architecture-review.md b/docs/decoupled-architecture-review.md
+index b4a4c22..dd97e8a 100644
+--- a/docs/decoupled-architecture-review.md
++++ b/docs/decoupled-architecture-review.md
+@@ -1,73 +1,44 @@
+-# 解耦架构审查 — 2026-06-04
++# 解耦架构审查 — 2026-06-04（2026-06-06 更新）
+ 
+-> Trigger: superpower code review. 结论：架构骨架已搭，旧主链路未替换。
++> Trigger: superpower code review. 结论：架构骨架已搭，旧主链路已替换。
+ 
+ ## 核心判断
+ 
+-**现在代码已经有"解耦架构的外形"，但还没有形成"解耦生产流程"。**
+-
+-当前完成度：
+-- 数据模型方向：70%
+-- 字段解耦：40%
+-- 图片解耦：50%
+-- 卡片自由编排：45%
+-- 文字定稿新流程：40%
+-- 图片定稿新流程：35%
+-- ECharts 生成图：20%
+-- 排版界面：45%
+-- 导出：55%
+-
+-## 最该先修的 7 个点
+-
+-### 1. pipeline 写入 `research_fields`（P0）
+-**第一优先级。**
+-```python
+-# pipeline.py 写完 research 宽表后
+-from services.field_service import split_research_to_fields
+-from repositories.field_repo import insert_research_fields_batch
+-```
+-否则字段定稿页没有稳定数据来源。
++**解耦生产流程已成型。** 主链路从研究→字段定稿→卡片编排→图片定稿→排版→导出已全部打通。
+ 
+-### 2. 降级旧的"内容定稿 1-8 张卡"（P0）
+-旧的内容定稿保留为兼容入口，主流程切到：
+-```
+-字段定稿 → 卡片设置 → 图片定稿 → 排版
+-```
+-`/api/final/save` 不再作为主路径。
++当前完成度（2026-06-06 更新）：
++- 数据模型方向：100% ✅
++- 字段解耦：90% ✅（final_fields 按 (company, field_key) 唯一，三版本切换 + 枚举三层管道）
++- 图片解耦：90% ✅（11 种 asset_key，候选池 + 评分 + 图片/图表双模式工作台）
++- 卡片自由编排：85% ✅（card_compositions + card_items，卡片设置面板可自由增减）
++- 文字定稿新流程：95% ✅（旧版内容定稿/钩子文案/数据库字段面板已删除，主流程走卡片设置→文字定稿→图片定稿→排版）
++- 图片定稿新流程：90% ✅（图片槽三栏布局 + 图表槽 ECharts 实时预览，嵌入编辑器和独立页面双模式）
++- ECharts 生成图：95% ✅（chart_competitive/chart_ecosystem 走独立 workspace，ECharts 代码编辑 + 实时预览 + 参数调节；渲染路径内联本地 ECharts runtime）
++- 排版界面：80% ✅（图层选择 + 属性面板 + Markdown 文字编辑 + layout overrides 持久化）
++- 导出：80% ✅（render-data API + template-renderer + Puppeteer 批量截图）
+ 
+-### 3. 卡片设置补完整编辑（P1）
+-当前只支持新增和删除。需补：
+-- 修改卡名、序号、启用/禁用
+-- 修改字段、图片、顺序、display_role
+-- 已有卡片的编辑界面（当前只有 `alert('拖拽排序在排版界面完成')`）
++## 最该先修的 7 个点（2026-06-06 状态更新）
+ 
+-### 4. 图片定稿 UI 收窄（P1）
+-一级按钮只保留：预览、重新采集、上传、确认
+-搜索、URL 导入、重新评分、AI 生图 → 高级面板
++### 1. pipeline 写入 `research_fields`（P0）✅ 已完成
++已通过 `field_service.py` + 三层枚举管道写入 research 宽表。枚举字段走三层解耦（规则层 → LLM 三组 → Pydantic 验证），评分自动计算。
+ 
+-### 5. ECharts 工作台单独做（P1）
+-不要继续混在 SVG 渲染里。至少需要：
+-```
+-GET  /api/charts/<company>/<media_key>/data
+-POST /api/charts/<company>/<media_key>/preview
+-POST /api/charts/<company>/<media_key>/render
+-POST /api/charts/<company>/<media_key>/save
+-```
+-ECharts option 编辑、参数面板、实时预览、渲染 PNG、候选保存、确认定稿。
++### 2. 降级旧的"内容定稿 1-8 张卡"（P0）✅ 已完成
++旧版内容定稿、钩子文案、数据库字段面板已删除。主流程：卡片设置 → 文字定稿 → 图片定稿 → 进入排版。
+ 
+-### 6. 修 TemplateRenderer 多图绑定（P2）
+-`multi_chart` 模板有两个 chart region，但 renderer 对同一 role 只取第一个 media item：
+-```js
+-const media = mediaItems[0]; // BUG: 永远取第一个
+-```
+-修复：region 支持 `bind` 字段精确匹配 `media_key`，再按 role fallback。
+-
+-### 7. 导出改成弹窗（P2）
+-不要按钮直接导出当前卡。弹窗字段：
+-- 导出范围（当前/全部/自定义）
+-- 格式（PNG/ZIP）
+-- 倍率
+-- 确认下载
++### 3. 卡片设置补完整编辑（P1）⚠️ 部分完成
++当前支持新增、删除、修改卡名、启用/禁用。拖拽排序和 display_role 编辑在排版界面完成。
++
++### 4. 图片定稿 UI 收窄（P1）✅ 已完成
++图片槽：预览/搜索切换 + 工具栏（搜索/采集/AI生图/上传/URL导入）。图表槽：ECharts iframe 实时预览 + 参数调节 bar + 代码编辑面板 + 确定按钮。
++
++### 5. ECharts 工作台单独做（P1）✅ 已完成
++chart_competitive / chart_ecosystem 使用独立 WorkspaceChart 控制器，HTML 代码编辑 + 语法高亮 + 实时预览 + 参数面板 + 渲染 PNG + 确定定稿。不混在 SVG 渲染路径。
++
++### 6. 修 TemplateRenderer 多图绑定（P2）✅ 已完成
++`canvas/js/template-renderer.js` 会优先用 region `bind` 精确匹配 `item_key`，同一 role 下的多个 chart/image region 不再重复取第一张 media item。
++
++### 7. 导出改成弹窗（P2）⚠️ 未实施
++当前导出仍使用命令行 `node canvas/screenshot.js`。前端弹窗导出界面待实现。
+ 
+ ## 已完成的部分
+ 
+diff --git a/docs/runbook.md b/docs/runbook.md
+index 34d410c..6934d14 100644
+--- a/docs/runbook.md
++++ b/docs/runbook.md
+@@ -8,6 +8,8 @@ npm install
+ sqlite3 db/research_db.sqlite < db/init_research_db.sql
+ sqlite3 db/final_db.sqlite < db/init_final_db.sql
+ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
++python3 db/migrate.py db/research_db.sqlite --only 001_research_fields.sql
++python3 db/migrate.py db/final_db.sqlite --only 002_final_fields.sql
+ ```
+ 
+ Put secrets in environment variables or the project root `.env`. The app does not read `~/.env`. Do not commit secrets.
+@@ -76,9 +78,19 @@ FLASK_PORT=5051 python3 app.py
+ ```bash
+ python3 -m unittest discover -s tests -v
+ python3 -m py_compile webapp/*.py
++python3 db/migrate.py --help
+ node canvas/screenshot.js --help
+ ```
+ 
++Chart runtime:
++
++```bash
++test -s webapp/static/vendor/echarts.min.js
++node -e "console.log(require('./package.json').dependencies.echarts)"
++```
++
++Expected dependency line is `^5.6.0`. The vendor file is copied from `node_modules/echarts/dist/echarts.min.js` and is used for inline chart rendering.
++
+ Prompt loading:
+ 
+ ```bash
+@@ -149,9 +161,9 @@ http://127.0.0.1:5050/image-studio/?company=Anthropic
+ 
+ The image studio is also embedded in the editor via the left-side "图片定稿" accordion section; in embed mode it hides its top bar and slot overview panel. Standalone layout: left slot overview, middle preview/search toggle + toolbar (search, recollect, AI gen, upload, URL import), right 2-column candidate thumbnails + "确定图片" confirm button. Candidate thumbnails show source, dimensions, `final_score`, previewed/selected state, and `reject_reason`.
+ 
+-In the finalization desk, each card is edited row by row across four columns: standard version, business version, spread version, and final input. Confirm cards 1-8. Card 7 is the competition landscape; card 8 is the summary and contains the market opportunity. The spread hook paragraphs are available from the left-side `传播钩子文案` entry; they are copy options for the article opening and are not written into cards.
++The finalization desk uses the flow: 卡片设置 (card settings) → 文字定稿 (text finalization) → 图片定稿 (image finalization) → 进入排版 (layout). The first three sections are mutually exclusive panels that occupy the right work area; “进入排版” is a fixed button at the bottom of the left rail. The old per-card content editing, hook copy, and database field panels have been removed. Text finalization supports adopting content from standard/business/spread versions into editable final fields. Card 7 is the competition landscape (moat + ecosystem niche analysis + competitors); card 8 is the summary (market opportunity). The spread hook paragraphs (`hook_paragraph_1/2/3`) are research fields and are not written into knowledge cards.
+ 
+-The research desk company table shows finalization progress as `confirmed/8`. The card workbench `返回定稿台` button should return to `/editor?company=<company>` for the currently loaded company.
++The research desk company table shows finalization progress from `final_fields` as `confirmed/total` field counts. If a company only has legacy `final_content`, the app falls back to legacy card-count progress. The card workbench `返回定稿台` button should return to `/editor?company=<company>` for the currently loaded company.
+ 
+ Export for canvas:
+ 
+@@ -302,6 +314,8 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
+ - If Tavily / GitHub / YouTube requests time out during research, confirm the proxy is running on the port configured in `.env` (`HTTPS_PROXY`). Timeout values are set in `pipeline.py` (connect/read: Tavily 30s/120s, GitHub 15s/45s, YouTube 15s/45s). Tavily now uses explicit `proxies=` parameter (not just env-var auto-detection).
+ - If PNG export says Puppeteer is missing, run `npm install` from the project root.
+ - If imports fail in a new environment, reinstall with `pip install -r requirements.txt`.
++- If chart preview or PNG export is blank, confirm `npm install` has run and `webapp/static/vendor/echarts.min.js` exists. Chart preview and Playwright rendering inline this local runtime; CDN access should not be required for `chart_competitive` or `chart_ecosystem`.
++- If a migration table is missing after schema initialization, run `python3 db/migrate.py <db-path> --only <migration.sql>`. The runner records applied files in `schema_migrations` and skips unchanged migrations on later runs.
+ - `urllib3` may warn about LibreSSL on the system Python. The warning is noisy but was not a blocker in local verification.
+ - If Playwright fails with "找不到 Chromium 可执行文件", run `playwright install chromium` or set `PLAYWRIGHT_CHROMIUM_PATH` to the chromium binary path. In Docker, install `chromium` via apt and add `--no-sandbox` etc. The pipeline auto-detects macOS/Linux Playwright caches and system chromium.
+ - If the office map asset fails, confirm outbound access to Nominatim/OpenStreetMap tile hosts and Playwright Chromium. In domestic networks, set `HTTPS_PROXY` in project `.env`; `config.py` does not set proxy automatically.
+diff --git a/package-lock.json b/package-lock.json
+index 010cbc3..4c2511a 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -5,6 +5,7 @@
+   "packages": {
+     "": {
+       "dependencies": {
++        "echarts": "^5.6.0",
+         "puppeteer": "^24.43.1"
+       }
+     },
+@@ -379,6 +380,22 @@
+       "license": "BSD-3-Clause",
+       "peer": true
+     },
++    "node_modules/echarts": {
++      "version": "5.6.0",
++      "resolved": "https://registry.npmjs.org/echarts/-/echarts-5.6.0.tgz",
++      "integrity": "sha512-oTbVTsXfKuEhxftHqL5xprgLoc0k7uScAwtryCgWF6hPYFLRwOUHiFmHGCBKP5NPFNkDVopOieyUqYGH8Fa3kA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "tslib": "2.3.0",
++        "zrender": "5.6.1"
++      }
++    },
++    "node_modules/echarts/node_modules/tslib": {
++      "version": "2.3.0",
++      "resolved": "https://registry.npmjs.org/tslib/-/tslib-2.3.0.tgz",
++      "integrity": "sha512-N82ooyxVNm6h1riLCoyS9e3fuJ3AMG2zIZs2Gd1ATcSFjSA23Q0fzjjZeh0jbJvWVDZ0cJT8yaNNaaXHzueNjg==",
++      "license": "0BSD"
++    },
+     "node_modules/emoji-regex": {
+       "version": "8.0.0",
+       "resolved": "https://registry.npmjs.org/emoji-regex/-/emoji-regex-8.0.0.tgz",
+@@ -1129,6 +1146,21 @@
+       "funding": {
+         "url": "https://github.com/sponsors/colinhacks"
+       }
++    },
++    "node_modules/zrender": {
++      "version": "5.6.1",
++      "resolved": "https://registry.npmjs.org/zrender/-/zrender-5.6.1.tgz",
++      "integrity": "sha512-OFXkDJKcrlx5su2XbzJvj/34Q3m6PvyCZkVPHGYpcCJ52ek4U/ymZyfuV1nKE23AyBJ51E/6Yr0mhZ7xGTO4ag==",
++      "license": "BSD-3-Clause",
++      "dependencies": {
++        "tslib": "2.3.0"
++      }
++    },
++    "node_modules/zrender/node_modules/tslib": {
++      "version": "2.3.0",
++      "resolved": "https://registry.npmjs.org/tslib/-/tslib-2.3.0.tgz",
++      "integrity": "sha512-N82ooyxVNm6h1riLCoyS9e3fuJ3AMG2zIZs2Gd1ATcSFjSA23Q0fzjjZeh0jbJvWVDZ0cJT8yaNNaaXHzueNjg==",
++      "license": "0BSD"
+     }
+   }
+ }
+diff --git a/package.json b/package.json
+index 3f67530..ed4c0e1 100644
+--- a/package.json
++++ b/package.json
+@@ -3,6 +3,7 @@
+     "export:cards": "node canvas/screenshot.js"
+   },
+   "dependencies": {
++    "echarts": "^5.6.0",
+     "puppeteer": "^24.43.1"
+   }
+ }
+diff --git a/tests/test_app.py b/tests/test_app.py
+index 3a5585f..6629897 100644
+--- a/tests/test_app.py
++++ b/tests/test_app.py
+@@ -17,6 +17,7 @@ import db
+ import asset_store
+ import asset_pipeline
+ import infographic_templates
++import path_safety
+ 
+ 
+ def init_sqlite(schema_name: str) -> str:
+@@ -551,6 +552,13 @@ def build(data, params):
+ 
+ 
+ class AssetPathSafetyTests(unittest.TestCase):
++    def test_company_path_sanitizer_is_shared_across_modules(self):
++        unsafe = "../坏 Company 01/%logo"
++
++        self.assertEqual(path_safety.safe_path_segment(unsafe), "坏_Company_01_logo")
++        self.assertEqual(asset_pipeline._safe_path_segment(unsafe), path_safety.safe_path_segment(unsafe))
++        self.assertEqual(db._safe_image_dir_name(unsafe), path_safety.safe_path_segment(unsafe))
++
+     def test_variant_path_sanitizes_company_and_suffix_inside_images_root(self):
+         with tempfile.TemporaryDirectory() as tmp:
+             dest = asset_pipeline._variant_path(tmp, "../Bad Co", "../timeline", "../../shot")
+diff --git a/tests/test_db.py b/tests/test_db.py
+index 6a7b2af..552187d 100644
+--- a/tests/test_db.py
++++ b/tests/test_db.py
+@@ -82,6 +82,32 @@ class ResearchScoringSaveTests(unittest.TestCase):
+         self.assertEqual(companies[0]["stack_layer"], "middleware")
+         self.assertIn("score_defensibility", companies[0])
+ 
++    def test_company_list_uses_final_fields_progress_when_available(self):
++        fd, final_db_path = tempfile.mkstemp(suffix=".sqlite")
++        os.close(fd)
++        self.addCleanup(lambda: os.path.exists(final_db_path) and os.remove(final_db_path))
++        with sqlite3.connect(final_db_path) as conn:
++            with open(os.path.join(ROOT, "db", "migrations", "002_final_fields.sql"), encoding="utf-8") as f:
++                conn.executescript(f.read())
++            conn.executemany(
++                "INSERT INTO final_fields (company_name, field_key, final_value, status) VALUES (?, ?, ?, ?)",
++                [
++                    ("FieldCo", "company_name", "FieldCo", "confirmed"),
++                    ("FieldCo", "company_type", "AI 工具", "confirmed"),
++                    ("FieldCo", "main_product_def", "Demo", "draft"),
++                ],
++            )
++
++        db.save_research_records(
++            self.db_path,
++            [{"company_name": "FieldCo", "version": "standard", "company_type": "AI 工具"}],
++        )
++
++        companies = db.get_companies(self.db_path, final_db_path)
++
++        self.assertEqual(companies[0]["confirmed"], 2)
++        self.assertEqual(companies[0]["total"], 3)
++
+     def test_company_list_computes_default_scores_for_legacy_rows(self):
+         with sqlite3.connect(self.db_path) as conn:
+             conn.execute(
+diff --git a/tests/test_static_contracts.py b/tests/test_static_contracts.py
+index 84582dd..9184e1e 100644
+--- a/tests/test_static_contracts.py
++++ b/tests/test_static_contracts.py
+@@ -111,6 +111,8 @@ class StaticContractTests(unittest.TestCase):
+             editor_html = f.read()
+         with open(os.path.join(ROOT, "webapp", "static", "js", "editor.js"), encoding="utf-8") as f:
+             editor_js = f.read()
++        with open(os.path.join(ROOT, "webapp", "static", "css", "editor.css"), encoding="utf-8") as f:
++            editor_css = f.read()
+         with open(os.path.join(ROOT, "webapp", "static", "js", "editor", "card-settings-panel.js"), encoding="utf-8") as f:
+             card_settings_js = f.read()
+         with open(os.path.join(ROOT, "webapp", "static", "js", "editor", "text-finalize-panel.js"), encoding="utf-8") as f:
+@@ -125,11 +127,19 @@ class StaticContractTests(unittest.TestCase):
+         self.assertIn('data-section="text-finalize"', editor_html)
+         self.assertIn('data-section="image"', editor_html)
+         self.assertIn('id="btn-go-layout"', editor_html)
++        self.assertIn('class="editor-goto-layout"', editor_html)
++        self.assertNotIn('id="editor-middle-pane"', editor_html)
++        self.assertNotIn('id="editor-right-pane"', editor_html)
++        self.assertNotIn('id="btn-go-canvas"', editor_html)
++        self.assertIn("grid-template-columns: 180px 1fr", editor_css)
++        self.assertNotIn("grid-template-columns: 180px 1fr 360px", editor_css)
++        self.assertNotIn("editor-middle-pane", editor_js)
++        self.assertNotIn("editor-right-pane", editor_js)
+         self.assertIn('/static/js/editor/card-settings-panel.js', editor_html)
+         self.assertIn('/static/js/editor/text-finalize-panel.js', editor_html)
+-        self.assertIn("CardSettingsPanel.init(company)", editor_html)
+-        self.assertIn("TextFinalizePanel.init(company)", editor_html)
+         self.assertIn("switchSection(section)", editor_js)
++        self.assertIn("CardSettingsPanel.init(this.companyName)", editor_js)
++        self.assertIn("TextFinalizePanel.init(this.companyName)", editor_js)
+         self.assertIn("showCardSettingsMode", editor_js)
+         self.assertIn("showTextFinalizeMode", editor_js)
+         self.assertIn("showImageMode", editor_js)
+@@ -373,9 +383,15 @@ class StaticContractTests(unittest.TestCase):
+             editor_html = f.read()
+         with open(os.path.join(ROOT, "webapp", "static", "js", "editor", "card-settings-panel.js"), encoding="utf-8") as f:
+             card_settings_js = f.read()
++        with open(os.path.join(ROOT, "db", "migrate.py"), encoding="utf-8") as f:
++            migrate_py = f.read()
+ 
+         self.assertIn('host=os.environ.get("FLASK_HOST", "127.0.0.1")', app_py)
+         self.assertIn('debug=os.environ.get("FLASK_DEBUG") == "1"', app_py)
++        self.assertIn("run_migrations", migrate_py)
++        self.assertIn("schema_migrations", migrate_py)
++        self.assertIn("_run_migrations(config.DB_PATH_RESEARCH", app_py)
++        self.assertIn("_run_migrations(config.DB_PATH_FINAL", app_py)
+         self.assertIn('media_bp = Blueprint("media"', routes_init)
+         self.assertIn("media_routes", routes_init)
+         self.assertIn("/media/<company>/<media_key>/upload", media_routes)
+diff --git a/webapp/app.py b/webapp/app.py
+index 7f2a461..7d89ad8 100644
+--- a/webapp/app.py
++++ b/webapp/app.py
+@@ -22,6 +22,7 @@ from infographic import (
+     render_with_template, extract_flywheel_json, extract_timeline_json,
+     build_competitive_landscape_svg, build_stack_positioning_svg,
+     render_competitive_landscape, render_stack_positioning, _html_to_png,
++    _echarts_inline_js,
+ )
+ from infographic_templates import get_all as get_all_templates, get as get_template, upload as upload_template, delete as delete_template
+ from image_search import search_images
+@@ -50,11 +51,14 @@ init_assets_db(config.DB_PATH_ASSETS)
+ 
+ def _init_new_composition_dbs():
+     """幂等初始化编排数据库和模板数据库（Step 1 新增）"""
++    import importlib.util as _importlib_util
+     import sqlite3 as _sqlite3
+     from pathlib import Path as _P
+ 
++    project_db_dir = _P(__file__).resolve().parent.parent / "db"
++
+     def _exec_sql_file(db_path: str, sql_filename: str):
+-        sql_file = _P(__file__).resolve().parent.parent / "db" / sql_filename
++        sql_file = project_db_dir / sql_filename
+         if not sql_file.exists():
+             return
+         conn = _sqlite3.connect(db_path)
+@@ -62,6 +66,15 @@ def _init_new_composition_dbs():
+         conn.commit()
+         conn.close()
+ 
++    def _run_migrations(db_path: str, names: list[str]):
++        migrate_file = project_db_dir / "migrate.py"
++        if not migrate_file.exists():
++            return
++        spec = _importlib_util.spec_from_file_location("gzh_db_migrate", migrate_file)
++        module = _importlib_util.module_from_spec(spec)
++        spec.loader.exec_module(module)
++        module.run_migrations(db_path, project_db_dir / "migrations", names=names)
++
+     # composition_db — 卡片编排
+     _exec_sql_file(config.DB_PATH_COMPOSITION, "init_composition_db.sql")
+ 
+@@ -69,10 +82,10 @@ def _init_new_composition_dbs():
+     _exec_sql_file(config.DB_PATH_TEMPLATE, "init_template_db.sql")
+ 
+     # 迁移：research_fields 写入 research_db
+-    _exec_sql_file(config.DB_PATH_RESEARCH, "migrations/001_research_fields.sql")
++    _run_migrations(config.DB_PATH_RESEARCH, ["001_research_fields.sql"])
+ 
+     # 迁移：final_fields 写入 final_db
+-    _exec_sql_file(config.DB_PATH_FINAL, "migrations/002_final_fields.sql")
++    _run_migrations(config.DB_PATH_FINAL, ["002_final_fields.sql"])
+ 
+ 
+ # 初始化新数据库
+@@ -116,10 +129,15 @@ def _quality_kwargs_for_variant(company: str, asset_key: str, local_file: str,
+ 
+ 
+ def _local_file_from_browser_path(path: str) -> str:
++    """将浏览器 /images/... 路径映射到本地文件系统路径，防止路径遍历攻击。"""
+     if not path or not path.startswith("/images/"):
+         return path or ""
+     rel = path[len("/images/"):]
+-    return os.path.join(config.IMAGES_DIR, *rel.split("/"))
++    base = Path(config.IMAGES_DIR).resolve()
++    target = (base / rel).resolve()
++    if target != base and base not in target.parents:
++        return ""
++    return str(target)
+ 
+ # 后台任务状态
+ _jobs: dict[str, dict] = {}
+@@ -1012,9 +1030,9 @@ def preview_chart_html(company: str, asset_key: str):
+         params.update(body.get("params", {}) or {})
+         companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+         if asset_key == "chart_competitive":
+-            html = build_competitive_landscape_svg(companies, company, params)
++            html = build_competitive_landscape_svg(companies, company, params, inline=True)
+         else:
+-            html = build_stack_positioning_svg(companies, company, params)
++            html = build_stack_positioning_svg(companies, company, params, inline=True)
+         return app.response_class(html, mimetype="text/html")
+     except Exception as e:
+         return jsonify({"error": str(e)}), 500
+@@ -1713,6 +1731,12 @@ def render_echarts_html_variant(company: str, asset_key: str):
+             return jsonify({"error": "缺少 html"}), 400
+         if "echarts" not in html.lower():
+             return jsonify({"error": "HTML 中未检测到 ECharts 代码"}), 400
++        html = re.sub(
++            r'<script\s+src=["\'][^"\']*echarts[^"\']*["\']\s*></script>',
++            lambda _: f"<script>{_echarts_inline_js()}</script>",
++            html,
++            flags=re.IGNORECASE,
++        )
+ 
+         width = int(params.get("width") or body.get("width") or 800)
+         height = int(params.get("height") or body.get("height") or 600)
+diff --git a/webapp/asset_pipeline.py b/webapp/asset_pipeline.py
+index a7d84b4..9219fba 100644
+--- a/webapp/asset_pipeline.py
++++ b/webapp/asset_pipeline.py
+@@ -14,6 +14,7 @@ import shutil
+ import requests
+ 
+ from config import config
++from path_safety import safe_path_segment
+ from asset_store import (
+     ASSET_KEYS, ASSET_TO_CARD, CARD_ASSET_MAP,
+     ensure_assets_rows, upsert_asset, get_asset,
+@@ -38,13 +39,7 @@ def asset_dir(images_root: str, company_name: str) -> str:
+ 
+ 
+ def _safe_path_segment(value) -> str:
+-    segment = str(value or "company").strip()
+-    segment = segment.replace("/", "_").replace("\\", "_")
+-    segment = re.sub(r"\s+", "_", segment)
+-    segment = re.sub(r"[\x00-\x1f\x7f?%*:|\"<>]", "_", segment)
+-    while ".." in segment:
+-        segment = segment.replace("..", "_")
+-    return segment.strip("._ ") or "company"
++    return safe_path_segment(value)
+ 
+ 
+ def _company_image_dir(images_root: str, company_name: str, *parts: str) -> str:
+diff --git a/webapp/db.py b/webapp/db.py
+index 47e5dcd..232b46c 100644
+--- a/webapp/db.py
++++ b/webapp/db.py
+@@ -7,6 +7,7 @@ import sqlite3
+ from contextlib import contextmanager
+ 
+ from competitive_scoring import compute_scores, normalize_fields
++from path_safety import safe_path_segment
+ 
+ 
+ @contextmanager
+@@ -45,8 +46,9 @@ def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
+                         filled += 1
+             completeness = round(filled / len(REQUIRED_RESEARCH_FIELDS) * 100) if latest else 0
+             confirmed = 0
++            total = 8
+             if final_db_path:
+-                confirmed = _count_confirmed_cards(final_db_path, row["company_name"])
++                confirmed, total = _count_final_fields_progress(final_db_path, row["company_name"])
+             website_url = latest["website_url"] if latest else ""
+             if not website_url or str(website_url).strip() in ("", "暂缺"):
+                 website_url = _latest_job_company_url(conn, row["company_name"])
+@@ -61,7 +63,7 @@ def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
+                     "researched_at": row["created_at"],
+                     "completeness": completeness,
+                     "confirmed": confirmed,
+-                    "total": 8,
++                    "total": total,
+                     **scoring,
+                 }
+             )
+@@ -137,6 +139,25 @@ def _count_confirmed_cards(final_db_path: str, company_name: str) -> int:
+         return 0
+ 
+ 
++def _count_final_fields_progress(final_db_path: str, company_name: str) -> tuple[int, int]:
++    try:
++        with get_db(final_db_path) as conn:
++            row = conn.execute(
++                """SELECT
++                     COUNT(CASE WHEN status='confirmed' THEN 1 END) as confirmed,
++                     COUNT(*) as total
++                   FROM final_fields
++                   WHERE company_name=?""",
++                (company_name,),
++            ).fetchone()
++            total = row["total"] if row else 0
++            if total:
++                return row["confirmed"], total
++    except Exception:
++        pass
++    return _count_confirmed_cards(final_db_path, company_name), 8
++
++
+ def get_research(db_path: str, company_name: str, version: str) -> dict | None:
+     """读取指定版本的全部字段"""
+     with get_db(db_path) as conn:
+@@ -399,13 +420,7 @@ def export_json(db_path: str, company_name: str) -> dict | None:
+ 
+ 
+ def _safe_image_dir_name(company_name: str) -> str:
+-    name = str(company_name or "company").strip()
+-    name = name.replace("/", "_").replace("\\", "_")
+-    name = re.sub(r"\s+", "_", name)
+-    name = re.sub(r"[\x00-\x1f\x7f?%*:|\"<>]", "_", name)
+-    while ".." in name:
+-        name = name.replace("..", "_")
+-    return name.strip("._ ") or "company"
++    return safe_path_segment(company_name)
+ 
+ 
+ def delete_company(research_db_path: str, final_db_path: str, assets_db_path: str,
+diff --git a/webapp/infographic.py b/webapp/infographic.py
+index 79ad3ba..6de5eef 100644
+--- a/webapp/infographic.py
++++ b/webapp/infographic.py
+@@ -3,6 +3,7 @@
+ 流程：LLM 生成结构化 JSON → SVG 模板确定性绘图 → Playwright 截成 PNG
+ """
+ from __future__ import annotations
++import functools
+ import json
+ import os
+ import tempfile
+@@ -382,6 +383,22 @@ def generate_timeline_from_markdown(markdown: str, dest: str, deepseek_call) ->
+ # ═══════════════════════════════════════════════════════════════
+ 
+ _ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
++_ECHARTS_VENDOR_PATH = os.path.join(
++    os.path.dirname(__file__), "static", "vendor", "echarts.min.js"
++)
++
++
++@functools.lru_cache(maxsize=1)
++def _echarts_inline_js() -> str:
++    """读取并缓存本地 ECharts JS，供 srcdoc/file:// 渲染路径内联使用。"""
++    with open(_ECHARTS_VENDOR_PATH, encoding="utf-8") as f:
++        return f.read()
++
++
++def _echarts_script_tag(inline: bool = False) -> str:
++    if inline:
++        return f"<script>{_echarts_inline_js()}</script>"
++    return f'<script src="{_ECHARTS_CDN}"></script>'
+ 
+ _STACK_LABELS = ["基础设施", "基础模型", "中间件", "垂直应用", "分发渠道"]
+ _STACK_LAYER_COLORS = ["#4FC3F7", "#BA68C8", "#FFB74D", "#81C784", "#E57373"]
+@@ -447,6 +464,7 @@ fitChartCanvas();
+ def _build_competitive_landscape_html(
+     companies: list[dict], highlight: str,
+     params: dict | None = None,
++    inline: bool = False,
+ ) -> str:
+     """竞争格局矩阵 HTML — 四象限 + 气泡大小按融资阶段缩放 + 主公司高亮"""
+     p = params or {}
+@@ -488,7 +506,7 @@ def _build_competitive_landscape_html(
+ {_echarts_fit_style(bg)}
+ </style></head><body>
+ <div id="chart-frame"><div id="chart"></div></div>
+-<script src="{_ECHARTS_CDN}"></script>
++{_echarts_script_tag(inline)}
+ <script>
+ var ds={ds_json};
+ var hiName={json.dumps(highlight, ensure_ascii=False)};
+@@ -561,6 +579,7 @@ chart.setOption(opt);
+ def _build_ecosystem_positioning_html(
+     companies: list[dict], highlight: str,
+     params: dict | None = None,
++    inline: bool = False,
+ ) -> str:
+     """产业链生态位图 HTML — 离散X轴中文标签 + 层级颜色 + 高价值截留区"""
+     p = params or {}
+@@ -617,7 +636,7 @@ def _build_ecosystem_positioning_html(
+ {_echarts_fit_style(bg)}
+ </style></head><body>
+ <div id="chart-frame"><div id="chart"></div></div>
+-<script src="{_ECHARTS_CDN}"></script>
++{_echarts_script_tag(inline)}
+ <script>
+ var ds={ds_json};
+ var hiName={json.dumps(highlight, ensure_ascii=False)};
+@@ -753,21 +772,24 @@ evs.forEach(function(e,i){{
+ 
+ 
+ def build_competitive_landscape_svg(companies: list[dict], highlight: str,
+-                                     params: dict | None = None) -> str:
++                                     params: dict | None = None,
++                                     inline: bool = False) -> str:
+     """竞争格局矩阵 HTML（ECharts 四象限散点图）"""
+-    return _build_competitive_landscape_html(companies, highlight, params)
++    return _build_competitive_landscape_html(companies, highlight, params, inline=inline)
+ 
+ 
+ def build_stack_positioning_svg(companies: list[dict], highlight: str,
+-                                 params: dict | None = None) -> str:
++                                 params: dict | None = None,
++                                 inline: bool = False) -> str:
+     """产业链生态位图 HTML（ECharts 离散轴散点图）"""
+-    return _build_ecosystem_positioning_html(companies, highlight, params)
++    return _build_ecosystem_positioning_html(companies, highlight, params, inline=inline)
+ 
+ 
+ def render_competitive_landscape(companies: list[dict], highlight: str, dest: str,
+-                                  params: dict | None = None) -> bool:
++                                  params: dict | None = None,
++                                  inline: bool = True) -> bool:
+     try:
+-        html = build_competitive_landscape_svg(companies, highlight, params)
++        html = build_competitive_landscape_svg(companies, highlight, params, inline=inline)
+         _html_to_png(html, dest, width=800, height=600, scale=2)
+         return os.path.getsize(dest) > 1024
+     except Exception:
+@@ -775,9 +797,10 @@ def render_competitive_landscape(companies: list[dict], highlight: str, dest: st
+ 
+ 
+ def render_stack_positioning(companies: list[dict], highlight: str, dest: str,
+-                              params: dict | None = None) -> bool:
++                              params: dict | None = None,
++                              inline: bool = True) -> bool:
+     try:
+-        html = build_stack_positioning_svg(companies, highlight, params)
++        html = build_stack_positioning_svg(companies, highlight, params, inline=inline)
+         _html_to_png(html, dest, width=800, height=600, scale=2)
+         return os.path.getsize(dest) > 1024
+     except Exception:
+diff --git a/webapp/routes/media_routes.py b/webapp/routes/media_routes.py
+index e438412..4b59cbe 100644
+--- a/webapp/routes/media_routes.py
++++ b/webapp/routes/media_routes.py
+@@ -7,7 +7,6 @@ available while new layout/card-config code speaks in media terms.
+ from __future__ import annotations
+ 
+ import os
+-import re
+ import time
+ from pathlib import Path
+ from urllib.parse import quote
+@@ -15,6 +14,7 @@ from urllib.parse import quote
+ from flask import Blueprint, jsonify, redirect, request
+ 
+ from config import config
++from path_safety import safe_path_segment
+ import db as database
+ from asset_store import (
+     ASSET_KEYS,
+@@ -40,8 +40,7 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+ 
+ 
+ def _safe_part(value: str) -> str:
+-    part = re.sub(r"[^A-Za-z0-9._-]+", "_", value or "").strip("._")
+-    return part or "company"
++    return safe_path_segment(value)
+ 
+ 
+ def _image_dimensions(path: Path) -> tuple[int | None, int | None]:
+diff --git a/webapp/static/css/editor.css b/webapp/static/css/editor.css
+index 8b33dfd..68b4b83 100644
+--- a/webapp/static/css/editor.css
++++ b/webapp/static/css/editor.css
+@@ -87,13 +87,19 @@ input, button, select, textarea { font: inherit; }
+   transition: background .12s;
+ }
+ .go-layout-link:hover { background: var(--cyan-hover); text-decoration: none; }
++.editor-goto-layout {
++  margin-top: auto;
++  padding: 8px 0 12px;
++  border-top: 1px solid var(--border);
++  flex-shrink: 0;
++}
+ 
+ #research-desk {
+   flex: 1; display: flex; flex-direction: column; overflow: hidden;
+   background: var(--bg);
+ }
+ .research-hero {
+-  min-height: 330px; padding: 24px 28px; background: var(--white);
++  padding: 24px 28px; background: var(--white);
+   border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 16px;
+ }
+ /* 大标题（仅研究台 hero 区使用，与 gzh2-base.css 的 11px 标签版 .section-title 区分） */
+@@ -111,6 +117,8 @@ input, button, select, textarea { font: inherit; }
+ .progress-shell {
+   border: 1px solid var(--border); border-radius: var(--radius); padding: 14px;
+   background: #FAFBFC;
++  max-height: 380px;
++  overflow-y: auto;
+ }
+ .progress-meta { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: var(--navy); }
+ .progress-bar { height: 8px; background: #E8EAEF; border-radius: 999px; overflow: hidden; }
+@@ -253,17 +261,15 @@ input, button, select, textarea { font: inherit; }
+   .detail-fact-grid { grid-template-columns: 1fr; }
+ }
+ 
+-/* ── 定稿台三列 ─────────────────────────────────── */
++/* ── 定稿台布局 ─────────────────────────────────── */
+ #editor-workbench {
+-  flex: 1; display: grid; grid-template-columns: 180px 1fr 360px; min-height: 0; overflow: hidden;
++  flex: 1; display: grid; grid-template-columns: 180px 1fr; min-height: 0; overflow: hidden;
+   position: relative;
+ }
+-#editor-left-pane, #editor-middle-pane, #editor-right-pane {
++#editor-left-pane {
+   min-width: 0; min-height: 0; overflow: hidden; background: var(--surface-1);
+ }
+ #editor-left-pane { border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; padding-top: 4px; }
+-#editor-middle-pane { display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+-#editor-right-pane { display: flex; flex-direction: column; }
+ .editor-panel { padding: 12px; border-bottom: 1px solid var(--border); }
+ .card-nav-panel .section-title { font-size: 11px; font-weight: 600; color: var(--text-subtle); text-transform: uppercase; letter-spacing: 0.5px; }
+ #editor-card-nav { display: flex; flex-direction: column; gap: 2px; }
+diff --git a/webapp/static/js/editor.js b/webapp/static/js/editor.js
+index 7d5dda5..68c0118 100644
+--- a/webapp/static/js/editor.js
++++ b/webapp/static/js/editor.js
+@@ -30,7 +30,6 @@ const EditorApp = {
+     }
+ 
+     document.getElementById('editor-company-label').textContent = `定稿台 · ${this.companyName}`;
+-    document.getElementById('btn-go-canvas').href = `/canvas/?company=${encodeURIComponent(this.companyName)}`;
+ 
+     const delBtn = document.getElementById('btn-delete-company');
+     if (delBtn) {
+@@ -40,9 +39,6 @@ const EditorApp = {
+ 
+     await this.loadStatus();
+     this.switchSection('card-settings');
+-    if (this.companyName) {
+-      CardSettingsPanel.init(this.companyName);
+-    }
+   },
+ 
+   bindEvents() {
+@@ -74,8 +70,8 @@ const EditorApp = {
+ 
+     const modeHandlers = {
+       'image':          () => { this.showImageMode(); },
+-      'card-settings':  () => { this.showCardSettingsMode(); },
+-      'text-finalize':  () => { this.showTextFinalizeMode(); },
++      'card-settings':  () => { this.showCardSettingsMode(); CardSettingsPanel.init(this.companyName); },
++      'text-finalize':  () => { this.showTextFinalizeMode(); TextFinalizePanel.init(this.companyName); },
+     };
+     const handler = modeHandlers[section];
+     if (handler) handler();
+@@ -90,8 +86,6 @@ const EditorApp = {
+   },
+ 
+   _hidePanesShowOverlay(overlayId) {
+-    document.getElementById('editor-middle-pane').style.display = 'none';
+-    document.getElementById('editor-right-pane').style.display = 'none';
+     this._closeAllOverlays();
+     document.getElementById(overlayId).classList.add('open');
+   },
+@@ -205,7 +199,6 @@ const EditorApp = {
+     try {
+       const status = await API.getFinalStatus(this.companyName);
+       ConfirmManager.setConfirmed(status.confirmed || []);
+-      this.updateGoCanvas();
+     } catch {
+       ConfirmManager.setConfirmed([]);
+     }
+diff --git a/webapp/static/js/index.js b/webapp/static/js/index.js
+index 7254b08..e14283c 100644
+--- a/webapp/static/js/index.js
++++ b/webapp/static/js/index.js
+@@ -439,8 +439,12 @@ const ResearchDesk = {
+     const latestDetail = this.detailText(detail);
+     const latest = { stage: stage || '当前进度', detail: latestDetail };
+     const tail = events[events.length - 1];
+-    if (!tail || tail.stage !== latest.stage || this.detailText(tail.detail) !== latestDetail) {
++    if (!tail) {
+       events.push(latest);
++    } else if (tail.stage !== latest.stage) {
++      events.push(latest);
++    } else {
++      events[events.length - 1] = latest;
+     }
+     const visible = events
+       .filter(item => item && (item.stage || item.detail))
+diff --git a/webapp/templates/editor.html b/webapp/templates/editor.html
+index f8ae87c..764e1e7 100644
+--- a/webapp/templates/editor.html
++++ b/webapp/templates/editor.html
+@@ -65,18 +65,11 @@
+       </div>
+     </div>
+ 
+-    <!-- 4. 进入排版 -->
+-    <div class="accordion-section" style="border-top:1px solid var(--border);padding-top:8px" data-od-id="editor-goto-layout">
++    <div class="editor-goto-layout" data-od-id="editor-goto-layout">
+       <a id="btn-go-layout" class="go-layout-link" href="#" data-od-id="editor-btn-go-layout">进入排版 →</a>
+     </div>
+   </aside>
+ 
+-  <!-- 中间栏+右侧栏（被 overlay 覆盖时隐藏，保留作为布局占位） -->
+-  <section id="editor-middle-pane" style="display:none"></section>
+-  <section id="editor-right-pane" style="display:none">
+-    <a id="btn-go-canvas" class="btn btn-accent hidden" href="#">去制作卡片 →</a>
+-  </section>
+-
+   <!-- 图片定稿 overlay -->
+   <div id="image-studio-frame">
+     <iframe id="image-studio-iframe" src="" title="图片定稿台"></iframe>
+@@ -108,15 +101,6 @@ document.addEventListener('DOMContentLoaded', () => {
+   // 进入排版按钮
+   const btnLayout = document.getElementById('btn-go-layout');
+   if (btnLayout) btnLayout.href = `/layout?company=${encodeURIComponent(company)}`;
+-
+-  // 监听手风琴切换，懒初始化面板
+-  document.querySelectorAll('.accordion-header').forEach(h => {
+-    h.addEventListener('click', () => {
+-      const section = h.dataset.section;
+-      if (section === 'card-settings') CardSettingsPanel.init(company);
+-      if (section === 'text-finalize') TextFinalizePanel.init(company);
+-    });
+-  });
+ });
+ </script>
+ </body>
+diff --git a/webapp/templates/index.html b/webapp/templates/index.html
+index 2ebf34d..4362501 100644
+--- a/webapp/templates/index.html
++++ b/webapp/templates/index.html
+@@ -34,11 +34,11 @@
+       <div class="progress-meta">
+         <span id="research-stage">待命</span>
+         <span id="research-percent">0%</span>
++        <button id="btn-stop-research" class="btn btn-sm" style="display:none;color:#EF4444;border-color:#EF4444;margin-left:auto">
++          ⏹ 停止
++        </button>
+       </div>
+       <div class="progress-bar"><div id="research-progress-fill"></div></div>
+-      <button id="btn-stop-research" class="btn btn-sm" style="display:none;color:#EF4444;border-color:#EF4444">
+-        ⏹ 停止研究
+-      </button>
+       <div id="research-detail" class="research-detail"></div>
+       <div id="research-step-track" class="research-step-track" aria-label="研究阶段"></div>
+       <div id="research-event-list" class="research-event-list" aria-label="最近研究进度"></div>
+diff --git a/db/migrate.py b/db/migrate.py
+new file mode 100644
+index 0000000..a4c9142
+--- /dev/null
++++ b/db/migrate.py
+@@ -0,0 +1,95 @@
++#!/usr/bin/env python3
++"""SQLite migration runner for project database files."""
++from __future__ import annotations
++
++import argparse
++import hashlib
++import os
++import sqlite3
++from pathlib import Path
++
++
++ROOT = Path(__file__).resolve().parent
++DEFAULT_MIGRATIONS_DIR = ROOT / "migrations"
++
++
++def _ensure_migration_table(conn: sqlite3.Connection) -> None:
++    conn.execute(
++        """CREATE TABLE IF NOT EXISTS schema_migrations (
++             version TEXT PRIMARY KEY,
++             checksum TEXT NOT NULL,
++             applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
++           )"""
++    )
++
++
++def _checksum(sql: str) -> str:
++    return hashlib.sha256(sql.encode("utf-8")).hexdigest()
++
++
++def _migration_files(migrations_dir: str | os.PathLike, names: list[str] | None = None) -> list[Path]:
++    base = Path(migrations_dir)
++    if names:
++        files = [base / name for name in names]
++    else:
++        files = sorted(base.glob("*.sql"))
++    missing = [str(path) for path in files if not path.exists()]
++    if missing:
++        raise FileNotFoundError("Missing migration file(s): " + ", ".join(missing))
++    return files
++
++
++def run_migrations(
++    db_path: str,
++    migrations_dir: str | os.PathLike = DEFAULT_MIGRATIONS_DIR,
++    names: list[str] | None = None,
++) -> list[str]:
++    """Apply pending SQL migrations to one SQLite database and return applied filenames."""
++    applied: list[str] = []
++    files = _migration_files(migrations_dir, names)
++    with sqlite3.connect(db_path) as conn:
++        _ensure_migration_table(conn)
++        for path in files:
++            version = path.name
++            sql = path.read_text(encoding="utf-8")
++            checksum = _checksum(sql)
++            row = conn.execute(
++                "SELECT checksum FROM schema_migrations WHERE version=?",
++                (version,),
++            ).fetchone()
++            if row:
++                if row[0] != checksum:
++                    raise RuntimeError(f"Migration checksum changed after apply: {version}")
++                continue
++            conn.executescript(sql)
++            conn.execute(
++                "INSERT INTO schema_migrations (version, checksum) VALUES (?, ?)",
++                (version, checksum),
++            )
++            applied.append(version)
++        conn.commit()
++    return applied
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description="Apply SQLite migrations.")
++    parser.add_argument("db_path", help="SQLite database path")
++    parser.add_argument(
++        "--migrations-dir",
++        default=str(DEFAULT_MIGRATIONS_DIR),
++        help="Directory containing .sql migration files",
++    )
++    parser.add_argument(
++        "--only",
++        action="append",
++        dest="names",
++        help="Apply only this migration filename. Can be provided multiple times.",
++    )
++    args = parser.parse_args()
++    for version in run_migrations(args.db_path, args.migrations_dir, args.names):
++        print(version)
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/test_migrate.py b/tests/test_migrate.py
+new file mode 100644
+index 0000000..e9ed192
+--- /dev/null
++++ b/tests/test_migrate.py
+@@ -0,0 +1,72 @@
++import importlib.util
++import os
++import shutil
++import sqlite3
++import tempfile
++import textwrap
++import unittest
++
++
++ROOT = os.path.dirname(os.path.dirname(__file__))
++
++
++def load_migrate_module():
++    module_path = os.path.join(ROOT, "db", "migrate.py")
++    spec = importlib.util.spec_from_file_location("gzh_db_migrate", module_path)
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++class MigrationRunnerTests(unittest.TestCase):
++    def setUp(self):
++        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
++        os.close(fd)
++        self.addCleanup(lambda: os.path.exists(self.db_path) and os.remove(self.db_path))
++        self.migrations_dir = tempfile.mkdtemp()
++        self.addCleanup(lambda: os.path.isdir(self.migrations_dir) and shutil.rmtree(self.migrations_dir))
++        with open(os.path.join(self.migrations_dir, "001_create_demo.sql"), "w", encoding="utf-8") as f:
++            f.write(textwrap.dedent(
++                """
++                CREATE TABLE demo_items (
++                  id INTEGER PRIMARY KEY,
++                  name TEXT
++                );
++                """
++            ).strip())
++        with open(os.path.join(self.migrations_dir, "002_insert_demo.sql"), "w", encoding="utf-8") as f:
++            f.write("INSERT INTO demo_items (name) VALUES ('first');")
++
++    def test_run_migrations_records_and_skips_already_applied_files(self):
++        migrate = load_migrate_module()
++
++        first = migrate.run_migrations(self.db_path, self.migrations_dir)
++        second = migrate.run_migrations(self.db_path, self.migrations_dir)
++
++        self.assertEqual(first, ["001_create_demo.sql", "002_insert_demo.sql"])
++        self.assertEqual(second, [])
++        with sqlite3.connect(self.db_path) as conn:
++            row_count = conn.execute("SELECT COUNT(*) FROM demo_items").fetchone()[0]
++            applied = conn.execute(
++                "SELECT version FROM schema_migrations ORDER BY version"
++            ).fetchall()
++        self.assertEqual(row_count, 1)
++        self.assertEqual([row[0] for row in applied], ["001_create_demo.sql", "002_insert_demo.sql"])
++
++    def test_run_selected_migrations_only_applies_requested_files(self):
++        migrate = load_migrate_module()
++
++        applied = migrate.run_migrations(
++            self.db_path,
++            self.migrations_dir,
++            names=["001_create_demo.sql"],
++        )
++
++        self.assertEqual(applied, ["001_create_demo.sql"])
++        with sqlite3.connect(self.db_path) as conn:
++            count = conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]
++        self.assertEqual(count, 1)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/path_safety.py b/webapp/path_safety.py
+new file mode 100644
+index 0000000..569c45a
+--- /dev/null
++++ b/webapp/path_safety.py
+@@ -0,0 +1,16 @@
++"""Path and URL segment safety helpers."""
++from __future__ import annotations
++
++import re
++
++
++def safe_path_segment(value, default: str = "company") -> str:
++    """Return one filesystem-safe path segment while preserving readable Unicode."""
++    segment = str(value or default).strip()
++    segment = segment.replace("/", "_").replace("\\", "_")
++    segment = re.sub(r"\s+", "_", segment)
++    segment = re.sub(r"[\x00-\x1f\x7f?%*:|\"<>]", "_", segment)
++    while ".." in segment:
++        segment = segment.replace("..", "_")
++    segment = re.sub(r"_+", "_", segment)
++    return segment.strip("._ ") or default

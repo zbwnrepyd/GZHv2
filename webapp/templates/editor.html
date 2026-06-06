@@ -65,17 +65,10 @@
       </div>
     </div>
 
-    <!-- 4. 进入排版 -->
-    <div class="accordion-section" style="border-top:1px solid var(--border);padding-top:8px" data-od-id="editor-goto-layout">
+    <div class="editor-goto-layout" data-od-id="editor-goto-layout">
       <a id="btn-go-layout" class="go-layout-link" href="#" data-od-id="editor-btn-go-layout">进入排版 →</a>
     </div>
   </aside>
-
-  <!-- 中间栏+右侧栏（被 overlay 覆盖时隐藏，保留作为布局占位） -->
-  <section id="editor-middle-pane" style="display:none"></section>
-  <section id="editor-right-pane" style="display:none">
-    <a id="btn-go-canvas" class="btn btn-accent hidden" href="#">去制作卡片 →</a>
-  </section>
 
   <!-- 图片定稿 overlay -->
   <div id="image-studio-frame">
@@ -108,15 +101,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // 进入排版按钮
   const btnLayout = document.getElementById('btn-go-layout');
   if (btnLayout) btnLayout.href = `/layout?company=${encodeURIComponent(company)}`;
-
-  // 监听手风琴切换，懒初始化面板
-  document.querySelectorAll('.accordion-header').forEach(h => {
-    h.addEventListener('click', () => {
-      const section = h.dataset.section;
-      if (section === 'card-settings') CardSettingsPanel.init(company);
-      if (section === 'text-finalize') TextFinalizePanel.init(company);
-    });
-  });
 });
 </script>
 </body>

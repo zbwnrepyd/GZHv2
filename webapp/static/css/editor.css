@@ -87,13 +87,19 @@ input, button, select, textarea { font: inherit; }
   transition: background .12s;
 }
 .go-layout-link:hover { background: var(--cyan-hover); text-decoration: none; }
+.editor-goto-layout {
+  margin-top: auto;
+  padding: 8px 0 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
 
 #research-desk {
   flex: 1; display: flex; flex-direction: column; overflow: hidden;
   background: var(--bg);
 }
 .research-hero {
-  min-height: 330px; padding: 24px 28px; background: var(--white);
+  padding: 24px 28px; background: var(--white);
   border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 16px;
 }
 /* 大标题（仅研究台 hero 区使用，与 gzh2-base.css 的 11px 标签版 .section-title 区分） */
@@ -111,6 +117,8 @@ input, button, select, textarea { font: inherit; }
 .progress-shell {
   border: 1px solid var(--border); border-radius: var(--radius); padding: 14px;
   background: #FAFBFC;
+  max-height: 380px;
+  overflow-y: auto;
 }
 .progress-meta { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: var(--navy); }
 .progress-bar { height: 8px; background: #E8EAEF; border-radius: 999px; overflow: hidden; }
@@ -253,17 +261,15 @@ input, button, select, textarea { font: inherit; }
   .detail-fact-grid { grid-template-columns: 1fr; }
 }
 
-/* ── 定稿台三列 ─────────────────────────────────── */
+/* ── 定稿台布局 ─────────────────────────────────── */
 #editor-workbench {
-  flex: 1; display: grid; grid-template-columns: 180px 1fr 360px; min-height: 0; overflow: hidden;
+  flex: 1; display: grid; grid-template-columns: 180px 1fr; min-height: 0; overflow: hidden;
   position: relative;
 }
-#editor-left-pane, #editor-middle-pane, #editor-right-pane {
+#editor-left-pane {
   min-width: 0; min-height: 0; overflow: hidden; background: var(--surface-1);
 }
 #editor-left-pane { border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; padding-top: 4px; }
-#editor-middle-pane { display: flex; flex-direction: column; border-right: 1px solid var(--border); }
-#editor-right-pane { display: flex; flex-direction: column; }
 .editor-panel { padding: 12px; border-bottom: 1px solid var(--border); }
 .card-nav-panel .section-title { font-size: 11px; font-weight: 600; color: var(--text-subtle); text-transform: uppercase; letter-spacing: 0.5px; }
 #editor-card-nav { display: flex; flex-direction: column; gap: 2px; }

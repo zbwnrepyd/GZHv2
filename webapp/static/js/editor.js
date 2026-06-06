@@ -30,7 +30,6 @@ const EditorApp = {
     }
 
     document.getElementById('editor-company-label').textContent = `定稿台 · ${this.companyName}`;
-    document.getElementById('btn-go-canvas').href = `/canvas/?company=${encodeURIComponent(this.companyName)}`;
 
     const delBtn = document.getElementById('btn-delete-company');
     if (delBtn) {
@@ -40,9 +39,6 @@ const EditorApp = {
 
     await this.loadStatus();
     this.switchSection('card-settings');
-    if (this.companyName) {
-      CardSettingsPanel.init(this.companyName);
-    }
   },
 
   bindEvents() {
@@ -74,8 +70,8 @@ const EditorApp = {
 
     const modeHandlers = {
       'image':          () => { this.showImageMode(); },
-      'card-settings':  () => { this.showCardSettingsMode(); },
-      'text-finalize':  () => { this.showTextFinalizeMode(); },
+      'card-settings':  () => { this.showCardSettingsMode(); CardSettingsPanel.init(this.companyName); },
+      'text-finalize':  () => { this.showTextFinalizeMode(); TextFinalizePanel.init(this.companyName); },
     };
     const handler = modeHandlers[section];
     if (handler) handler();
@@ -90,8 +86,6 @@ const EditorApp = {
   },
 
   _hidePanesShowOverlay(overlayId) {
-    document.getElementById('editor-middle-pane').style.display = 'none';
-    document.getElementById('editor-right-pane').style.display = 'none';
     this._closeAllOverlays();
     document.getElementById(overlayId).classList.add('open');
   },
@@ -205,7 +199,6 @@ const EditorApp = {
     try {
       const status = await API.getFinalStatus(this.companyName);
       ConfirmManager.setConfirmed(status.confirmed || []);
-      this.updateGoCanvas();
     } catch {
       ConfirmManager.setConfirmed([]);
     }
