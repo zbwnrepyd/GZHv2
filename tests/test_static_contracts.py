@@ -169,6 +169,45 @@ class StaticContractTests(unittest.TestCase):
         self.assertNotIn('on_progress("资产采集"', app_py)
         self.assertNotIn("_refetch_founder_fields", app_py)
 
+    def test_research_desk_uses_stable_progress_steps_and_recent_events(self):
+        with open(os.path.join(ROOT, "webapp", "templates", "index.html"), encoding="utf-8") as f:
+            index_html = f.read()
+        with open(os.path.join(ROOT, "webapp", "static", "js", "index.js"), encoding="utf-8") as f:
+            index_js = f.read()
+        with open(os.path.join(ROOT, "webapp", "static", "css", "editor.css"), encoding="utf-8") as f:
+            editor_css = f.read()
+        with open(os.path.join(ROOT, "webapp", "app.py"), encoding="utf-8") as f:
+            app_py = f.read()
+
+        self.assertIn('id="research-step-track"', index_html)
+        self.assertIn('id="research-event-list"', index_html)
+        self.assertIn("RESEARCH_PROGRESS_STEPS", index_js)
+        self.assertIn("信息采集", index_js)
+        self.assertIn("枚举验证", index_js)
+        self.assertIn("入库图片", index_js)
+        self.assertIn("renderProgressSteps", index_js)
+        self.assertIn("renderProgressEvents", index_js)
+        self.assertIn("job.stages || []", index_js)
+        self.assertIn("Math.max(this.currentProgressPercent", index_js)
+        self.assertIn("research-step-track", editor_css)
+        self.assertIn("research-event-list", editor_css)
+        self.assertIn('stages[-1]["detail"] = message', app_py)
+
+    def test_research_desk_can_restore_and_stop_active_job(self):
+        with open(os.path.join(ROOT, "webapp", "templates", "index.html"), encoding="utf-8") as f:
+            index_html = f.read()
+        with open(os.path.join(ROOT, "webapp", "static", "js", "index.js"), encoding="utf-8") as f:
+            index_js = f.read()
+
+        self.assertIn('id="btn-stop-research"', index_html)
+        self.assertIn("stopResearch()", index_js)
+        self.assertIn("_restoreActiveJob()", index_js)
+        self.assertIn("gzh2_active_job", index_js)
+        self.assertIn("/api/research/running", index_js)
+        self.assertIn("/api/research/stop/", index_js)
+        self.assertIn("localStorage.removeItem('gzh2_active_job')", index_js)
+        self.assertIn("saved = null", index_js)
+
     def test_company_library_rows_expand_one_research_detail(self):
         with open(os.path.join(ROOT, "webapp", "static", "js", "index.js"), encoding="utf-8") as f:
             index_js = f.read()
@@ -370,6 +409,18 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("data-od-id", template_maker_html)
         self.assertIn("new URLSearchParams(window.location.search).get('company')", editor_html)
         self.assertIn("/api/media/", card_settings_js)
+
+    def test_layout_markdown_editor_has_inline_format_toolbar(self):
+        with open(os.path.join(ROOT, "webapp", "static", "js", "layout", "layout-app.js"), encoding="utf-8") as f:
+            layout_js = f.read()
+
+        self.assertIn("fmt-toolbar", layout_js)
+        self.assertIn("fmt-swatch", layout_js)
+        self.assertIn("data-action=\"color\"", layout_js)
+        self.assertIn("data-action=\"bg\"", layout_js)
+        self.assertIn("wrapSel(`<span style=\"color:${btn.dataset.value}\">`, '</span>')", layout_js)
+        self.assertIn("wrapSel(`<mark style=\"background:${btn.dataset.value};border-radius:3px;padding:0 2px\">`, '</mark>')", layout_js)
+        self.assertIn("scope.replace(/<\\/?(span|mark)[^>]*>/g, '')", layout_js)
 
     def test_card_spec_freezes_current_eight_card_asset_contract(self):
         with open(os.path.join(ROOT, "docs", "card-spec.md"), encoding="utf-8") as f:

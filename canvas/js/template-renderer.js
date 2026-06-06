@@ -197,7 +197,19 @@ const TemplateRenderer = {
 
   /* ── Markdown → HTML（标题 #/##/###、列表 -/*、加粗、斜体、段落）── */
   _markdownToHTML(md) {
-    let html = this._esc(md);
+    const slots = [];
+    const stripped = String(md || '').replace(
+      /<(span|mark)(\s[^>]*)?>([\s\S]*?)<\/\1>/gi,
+      (match, tag, attrs, content) => {
+        const styleMatch = String(attrs || '').match(/\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+        const style = styleMatch ? (styleMatch[1] || styleMatch[2] || styleMatch[3] || '') : '';
+        const safeStyle = style.replace(/[<>"']/g, '');
+        const styleAttr = safeStyle ? ` style="${this._escAttr(safeStyle)}"` : '';
+        slots.push(`<${tag.toLowerCase()}${styleAttr}>${this._esc(content)}</${tag.toLowerCase()}>`);
+        return `\x00SLOT${slots.length - 1}\x00`;
+      }
+    );
+    let html = this._esc(stripped);
 
     // 代码块（```...``` 或 ~~~...~~~）
     html = html.replace(/(```|~~~)([\s\S]*?)\1/g, (_, __, code) => {
@@ -281,7 +293,7 @@ const TemplateRenderer = {
       return grouped.join('\n');
     });
 
-    return processed.join('\n');
+    return processed.join('\n').replace(/\x00SLOT(\d+)\x00/g, (_, i) => slots[Number(i)] || '');
   },
 
   /* ── 工具 ── */

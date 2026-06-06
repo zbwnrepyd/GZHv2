@@ -27,6 +27,10 @@ _TAVILY_RESULT_FIELDS = ("title", "url", "content", "score", "raw_content")
 _TAVILY_RAW_CONTENT_LIMIT = 2400
 
 
+class PipelineCancelledError(RuntimeError):
+    """用户主动取消研究流水线。"""
+
+
 def _report(progress_callback, stage: str, detail: str = "", job_id: str = None):
     if progress_callback:
         progress_callback(stage, detail)
@@ -451,9 +455,14 @@ def _group_for_field(field: str) -> str:
 
 
 def llm_analysis(company_name: str, company_url: str, raw_data: dict,
-                 progress_callback=None, job_id: str = None) -> list[dict]:
+                 progress_callback=None, job_id: str = None,
+                 cancel_token=None) -> list[dict]:
     """4层 Prompt 分析，返回 3 版本记录列表"""
     api_key = config.DEEPSEEK_API_KEY
+
+    def _check_cancel():
+        if callable(cancel_token) and cancel_token():
+            raise PipelineCancelledError("用户取消研究")
 
     # Layer 0
     _report(progress_callback, "L0清洗", "信息清洗中...", job_id=job_id)
@@ -463,6 +472,7 @@ def llm_analysis(company_name: str, company_url: str, raw_data: dict,
         json.dumps(_prepare_raw_data_for_llm(raw_data), ensure_ascii=False, indent=2),
         temperature=0.1, max_tokens=4096, timeout=120,
     )
+    _check_cancel()
 
     # Layer 1
     _report(progress_callback, "L1横纵分析", "横纵分析中...", job_id=job_id)
@@ -471,6 +481,7 @@ def llm_analysis(company_name: str, company_url: str, raw_data: dict,
         api_key, l1_prompt, l0_result,
         temperature=0.3, max_tokens=4096, timeout=120,
     )
+    _check_cancel()
 
     # Layer 2
     _report(progress_callback, "L2商业结构", "商业结构分析中...", job_id=job_id)
@@ -480,6 +491,7 @@ def llm_analysis(company_name: str, company_url: str, raw_data: dict,
         api_key, l2_prompt, l2_context,
         temperature=0.2, max_tokens=4096, timeout=120,
     )
+    _check_cancel()
 
     # Layer 3 — 3 版本
     l3_prompt_template = _load_prompt_text("layer3-field-extraction")
@@ -674,12 +686,54 @@ def _validate_records(records: list[dict]) -> list[dict]:
     return records
 
 
+def _normalized_host(url: str) -> str:
+    value = str(url or "").strip()
+    if not value or value in {"暂缺", "unknown", "N/A"}:
+        return ""
+    parsed = urlparse(value if "://" in value else f"https://{value}")
+    host = (parsed.netloc or parsed.path).split("/")[0].split(":")[0].lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _hosts_match(expected: str, actual: str) -> bool:
+    return (
+        expected == actual
+        or actual.endswith(f".{expected}")
+        or expected.endswith(f".{actual}")
+    )
+
+
+def _validate_record_identity(records: list[dict], company_url: str):
+    expected_host = _normalized_host(company_url)
+    if not expected_host:
+        return
+
+    mismatches = []
+    for rec in records:
+        actual_host = _normalized_host(rec.get("website_url", ""))
+        if actual_host and not _hosts_match(expected_host, actual_host):
+            mismatches.append(
+                f"{rec.get('version', '?')}: website_url={rec.get('website_url')}"
+            )
+
+    if mismatches:
+        raise RuntimeError(
+            "公司身份校验失败: L3 输出官网域名与请求 URL 不一致；"
+            f"expected={expected_host}; " + "; ".join(mismatches)
+        )
+
+
 # ── 主入口 ─────────────────────────────────────
 
 def run_pipeline(company_name: str, company_url: str,
-                 progress_callback=None, job_id: str = None) -> list[int]:
+                 progress_callback=None, job_id: str = None,
+                 cancel_token=None) -> list[int]:
     """执行完整研究流水线，返回插入的记录 ID 列表"""
     t0 = time.time()
+
+    def _check_cancel():
+        if callable(cancel_token) and cancel_token():
+            raise PipelineCancelledError("用户取消研究")
 
     # Step 1: 采集
     raw = _collect_all(company_name, company_url, progress_callback, job_id=job_id)
@@ -693,14 +747,20 @@ def run_pipeline(company_name: str, company_url: str,
         },
         job_id=job_id,
     )
+    _check_cancel()
 
     # Step 2: AI 分析
     _report(progress_callback, "分析", "开始 4 层 LLM 分析...", job_id=job_id)
-    records = llm_analysis(company_name, company_url, raw, progress_callback, job_id=job_id)
+    records = llm_analysis(
+        company_name, company_url, raw, progress_callback,
+        job_id=job_id, cancel_token=cancel_token,
+    )
     errors = [r for r in records if r.get("_error")]
     if errors:
         details = ", ".join(f"{r.get('version', '?')}: {r.get('_error')}" for r in errors)
         raise RuntimeError(f"L3 字段提取失败: {details}")
+    _check_cancel()
+    _validate_record_identity(records, company_url)
     records = _validate_records(records)
 
     t2 = time.time()

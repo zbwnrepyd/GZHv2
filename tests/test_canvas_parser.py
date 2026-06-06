@@ -340,6 +340,31 @@ class CanvasParserTests(unittest.TestCase):
         self.assertIn("<strong>编辑后</strong>正文", source)
         self.assertNotIn("原始正文", source)
 
+    def test_template_renderer_preserves_span_and_mark_inline_styles(self):
+        source = render_template_card({
+            "template": {
+                "canvas": {"width": 900, "height": 1200},
+                "background": {"type": "color", "value": "#fff"},
+                "regions": [
+                    {
+                        "id": "body",
+                        "type": "text",
+                        "x": 10,
+                        "y": 20,
+                        "w": 300,
+                        "h": 200,
+                        "value": "增长 <span style='color:#29B8D4'>提速</span>，<mark style='background:#FEF08A'>需求明确</mark>。",
+                        "style": {"fontSize": 24, "color": "#111"},
+                    }
+                ],
+            },
+        })
+
+        self.assertIn('<span style="color:#29B8D4">提速</span>', source)
+        self.assertIn('<mark style="background:#FEF08A">需求明确</mark>', source)
+        self.assertNotIn("&lt;span", source)
+        self.assertNotIn("&lt;mark", source)
+
     def test_parser_normalizes_card7_title_from_legacy_summary_heading(self):
         api_json = {
             "company_name": "Zuma",

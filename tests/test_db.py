@@ -98,6 +98,22 @@ class ResearchScoringSaveTests(unittest.TestCase):
         self.assertIsNotNone(companies[0]["score_incumbent_attention"])
         self.assertIsNotNone(companies[0]["score_value_capture"])
 
+    def test_get_latest_running_job_returns_newest_running_or_cancelling_job(self):
+        db.create_job(self.db_path, "old-running", "OldCo", "https://old.example")
+        db.create_job(self.db_path, "new-running", "NewCo", "https://new.example")
+        db.update_job(self.db_path, "old-running", status="done")
+        db.update_job(self.db_path, "new-running", status="cancelling", stage="正在停止")
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("UPDATE research_jobs SET created_at='2026-01-01 00:00:00' WHERE job_id='old-running'")
+            conn.execute("UPDATE research_jobs SET created_at='2026-01-01 00:01:00' WHERE job_id='new-running'")
+            conn.commit()
+
+        job = db.get_latest_running_job(self.db_path)
+
+        self.assertEqual(job["job_id"], "new-running")
+        self.assertEqual(job["status"], "cancelling")
+        self.assertEqual(job["stage"], "正在停止")
+
 
 class FinalCardSaveTests(unittest.TestCase):
     def setUp(self):
