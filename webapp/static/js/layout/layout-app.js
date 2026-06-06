@@ -166,11 +166,67 @@ const LayoutApp = {
       }
       [data-od-id][data-markdown-editable="true"] { cursor: text; }
       [data-od-id][data-markdown-editable="true"]:hover { outline: 1px dashed rgba(41,184,212,.4); outline-offset: -1px; }
+      .fmt-toolbar {
+        position:absolute;
+        left:0;
+        right:0;
+        top:0;
+        z-index:3;
+        display:flex;
+        align-items:center;
+        gap:4px;
+        padding:5px 8px;
+        margin-bottom:4px;
+        background:rgba(27,42,74,0.96);
+        border-radius:8px;
+        box-shadow:0 2px 12px rgba(0,0,0,0.3);
+        flex-wrap:wrap;
+        -webkit-user-select:none !important;
+        user-select:none !important;
+      }
+      .fmt-label { font-size:10px; color:rgba(255,255,255,0.45); letter-spacing:.04em; }
+      .fmt-sep { width:1px; height:14px; background:rgba(255,255,255,0.15); margin:0 2px; }
+      .fmt-swatch {
+        width:16px;
+        height:16px;
+        border-radius:50%;
+        border:1.5px solid transparent;
+        cursor:pointer;
+        transition:transform .1s, box-shadow .1s;
+        padding:0;
+      }
+      .fmt-swatch:hover { transform:scale(1.25); box-shadow:0 0 0 2px rgba(255,255,255,0.4); }
+      .fmt-bg-swatch {
+        padding:1px 6px;
+        font-size:10px;
+        border-radius:4px;
+        border:1px solid rgba(255,255,255,0.1);
+        cursor:pointer;
+        color:#111;
+      }
+      .fmt-custom {
+        background:rgba(255,255,255,0.12)!important;
+        color:#fff;
+        font-size:12px;
+        border-color:rgba(255,255,255,0.2)!important;
+      }
+      .fmt-clear {
+        font-size:10px;
+        color:rgba(255,255,255,0.5);
+        background:none;
+        border:none;
+        cursor:pointer;
+        padding:1px 4px;
+      }
+      .fmt-clear:hover { color:#EF4444; }
       .region-markdown-editor {
         position:absolute;
-        inset:0;
+        left:0;
+        right:0;
+        top:34px;
+        bottom:0;
         width:100%;
-        height:100%;
+        height:auto;
         resize:none;
         border:0;
         border-radius:4px;
@@ -353,7 +409,82 @@ const LayoutApp = {
     textarea.value = this._markdownForRegion(region);
     textarea.setAttribute('aria-label', `${regionId} Markdown`);
     el.innerHTML = '';
+    const toolbar = doc.createElement('div');
+    toolbar.className = 'fmt-toolbar';
+    toolbar.innerHTML = `
+      <span class="fmt-label">颜色</span>
+      ${['#FFFFFF','#29B8D4','#1B2A4A','#F97316','#EF4444','#22C55E'].map(c =>
+        `<button class="fmt-swatch" data-action="color" data-value="${c}"
+          style="background:${c};border-color:${c==='#FFFFFF'?'#ccc':c}" title="${c}"></button>`
+      ).join('')}
+      <button class="fmt-swatch fmt-custom" data-action="color-pick" title="自定义">+</button>
+      <span class="fmt-sep"></span>
+      <span class="fmt-label">底色</span>
+      ${[['#FEF08A','高亮'],['rgba(41,184,212,0.2)','青底'],['rgba(239,68,68,0.15)','红底']].map(([c,l]) =>
+        `<button class="fmt-bg-swatch" data-action="bg" data-value="${c}"
+          style="background:${c}">${l}</button>`
+      ).join('')}
+      <button class="fmt-swatch fmt-custom" data-action="bg-pick" title="自定义背景">+</button>
+      <span class="fmt-sep"></span>
+      <button class="fmt-clear" data-action="clear">清除</button>
+    `;
+    el.appendChild(toolbar);
     el.appendChild(textarea);
+
+    toolbar.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      const btn = event.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+
+      const wrapSel = (open, close) => {
+        const s = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        if (s === end) return;
+        const sel = textarea.value.slice(s, end);
+        const repl = open + sel + close;
+        textarea.value = textarea.value.slice(0, s) + repl + textarea.value.slice(end);
+        textarea.selectionStart = s + open.length;
+        textarea.selectionEnd = s + open.length + sel.length;
+        textarea.focus();
+      };
+
+      if (action === 'color') {
+        wrapSel(`<span style="color:${btn.dataset.value}">`, '</span>');
+      } else if (action === 'bg') {
+        wrapSel(`<mark style="background:${btn.dataset.value};border-radius:3px;padding:0 2px">`, '</mark>');
+      } else if (action === 'color-pick') {
+        const inp = doc.createElement('input');
+        inp.type = 'color';
+        inp.value = '#29B8D4';
+        inp.style.cssText = 'position:absolute;opacity:0;pointer-events:none';
+        doc.body.appendChild(inp);
+        inp.click();
+        inp.oninput = () => wrapSel(`<span style="color:${inp.value}">`, '</span>');
+        inp.addEventListener('blur', () => inp.remove());
+      } else if (action === 'bg-pick') {
+        const inp = doc.createElement('input');
+        inp.type = 'color';
+        inp.value = '#FEF08A';
+        inp.style.cssText = 'position:absolute;opacity:0;pointer-events:none';
+        doc.body.appendChild(inp);
+        inp.click();
+        inp.oninput = () => wrapSel(`<mark style="background:${inp.value};border-radius:3px;padding:0 2px">`, '</mark>');
+        inp.addEventListener('blur', () => inp.remove());
+      } else if (action === 'clear') {
+        const s = textarea.selectionStart;
+        const e2 = textarea.selectionEnd;
+        const scope = s === e2 ? textarea.value : textarea.value.slice(s, e2);
+        const cleaned = scope.replace(/<\/?(span|mark)[^>]*>/g, '');
+        if (s === e2) {
+          textarea.value = cleaned;
+        } else {
+          textarea.value = textarea.value.slice(0, s) + cleaned + textarea.value.slice(e2);
+        }
+        textarea.focus();
+      }
+    });
+
     textarea.focus();
     const end = textarea.value.length;
     textarea.setSelectionRange(end, end);

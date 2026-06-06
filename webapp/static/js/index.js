@@ -6,17 +6,29 @@ const SOURCE_LABELS = {
   website: '官网抓取',
 };
 const SOURCE_ORDER = ['tavily', 'github', 'youtube', 'website'];
+const RESEARCH_PROGRESS_STEPS = [
+  { id: 'start', label: '启动', percent: 5, matches: ['启动', '准备', '提交', '恢复'] },
+  { id: 'collect', label: '信息采集', percent: 20, matches: ['采集', '官网抓取', 'Tavily', 'GitHub', 'YouTube'] },
+  { id: 'analysis', label: '结构分析', percent: 45, matches: ['分析', 'L0', 'L1', 'L2', '清洗', '横纵', '商业结构'] },
+  { id: 'extract', label: '字段提取', percent: 70, matches: ['L3', '字段', 'JSON修复'] },
+  { id: 'enum', label: '枚举验证', percent: 82, matches: ['枚举', '投票', '验证', '规则'] },
+  { id: 'persist', label: '入库图片', percent: 95, matches: ['写库', '写入', '图片', '候选图'] },
+  { id: 'done', label: '完成', percent: 100, matches: ['完成'] },
+];
 
 const ResearchDesk = {
   pollTimer: null,
   activeJobId: null,
   pollInFlight: false,
+  currentProgressPercent: 0,
+  currentSources: {},
   companies: [],
   expandedCompany: '',
   detailsByCompany: {},
 
   init() {
     document.getElementById('btn-start-research').addEventListener('click', () => this.startResearch());
+    document.getElementById('btn-stop-research').addEventListener('click', () => this.stopResearch());
     document.getElementById('btn-refresh-companies').addEventListener('click', () => this.loadCompanies());
     document.getElementById('company-table-body').addEventListener('click', (event) => {
       const refillButton = event.target.closest('[data-refill-company]');
@@ -30,6 +42,7 @@ const ResearchDesk = {
       this.toggleCompanyDetails(decodeURIComponent(row.dataset.company));
     });
     this.loadCompanies();
+    this._restoreActiveJob();
   },
 
   async loadCompanies() {
@@ -182,18 +195,28 @@ const ResearchDesk = {
     this.pollTimer = null;
     this.activeJobId = 'starting';
     this.pollInFlight = false;
+    this.currentProgressPercent = 0;
+    this.currentSources = {};
     btn.disabled = true;
     document.getElementById('research-complete').classList.add('hidden');
     document.getElementById('research-complete').innerHTML = '';
-    this.setProgress('running', '启动', '正在提交研究任务...', {});
+    this.setProgress('running', '启动', '正在提交研究任务...', {}, []);
 
     try {
       const job = await API.startResearch(companyName, companyUrl);
       this.activeJobId = job.job_id;
+      localStorage.setItem('gzh2_active_job', JSON.stringify({
+        jobId: job.job_id,
+        companyName,
+        ts: Date.now(),
+      }));
+      document.getElementById('btn-stop-research').style.display = '';
       this.pollJob(job.job_id, companyName, btn);
     } catch (e) {
       this.activeJobId = null;
       btn.disabled = false;
+      localStorage.removeItem('gzh2_active_job');
+      document.getElementById('btn-stop-research').style.display = 'none';
       this.setProgress('failed', '研究失败', e.message);
     }
   },
@@ -210,26 +233,36 @@ const ResearchDesk = {
           this.pollTimer = null;
           this.activeJobId = null;
           btn.disabled = false;
-          this.setProgress('done', '研究完成', job.detail || '已写入数据库', job.sources || {});
+          localStorage.removeItem('gzh2_active_job');
+          document.getElementById('btn-stop-research').style.display = 'none';
+          this.setProgress('done', '研究完成', job.detail || '已写入数据库', job.sources || {}, job.stages || []);
           document.getElementById('research-complete').classList.remove('hidden');
           document.getElementById('research-complete').innerHTML =
             `<a class="btn btn-primary" href="/editor?company=${encodeURIComponent(companyName)}">研究完成 · 进入定稿 →</a>`;
           await this.loadCompanies();
-        } else if (job.status === 'failed') {
+        } else if (job.status === 'failed' || job.status === 'cancelled') {
           clearInterval(this.pollTimer);
           this.pollTimer = null;
           this.activeJobId = null;
           btn.disabled = false;
-          this.setProgress('failed', '研究失败', job.error || job.detail || '未知错误', job.sources || {});
+          localStorage.removeItem('gzh2_active_job');
+          document.getElementById('btn-stop-research').style.display = 'none';
+          if (job.status === 'cancelled') {
+            this.setProgress('cancelled', '已停止', job.detail || '研究已停止', job.sources || {}, job.stages || []);
+          } else {
+            this.setProgress('failed', '研究失败', job.error || job.detail || '未知错误', job.sources || {}, job.stages || []);
+          }
         } else {
-          this.setProgress(job.status, job.stage || 'running', job.detail || '', job.sources || {});
+          this.setProgress(job.status, job.stage || 'running', job.detail || '', job.sources || {}, job.stages || []);
         }
       } catch (e) {
         clearInterval(this.pollTimer);
         this.pollTimer = null;
         this.activeJobId = null;
         btn.disabled = false;
-        this.setProgress('failed', '研究失败', e.message, {});
+        localStorage.removeItem('gzh2_active_job');
+        document.getElementById('btn-stop-research').style.display = 'none';
+        this.setProgress('failed', '研究失败', e.message, {}, []);
       } finally {
         this.pollInFlight = false;
       }
@@ -238,7 +271,77 @@ const ResearchDesk = {
     this.pollTimer = setInterval(poll, 2000);
   },
 
-  setProgress(status, stage, detail, sources) {
+  async stopResearch() {
+    if (!this.activeJobId || this.activeJobId === 'starting') return;
+    try {
+      await fetch(`/api/research/stop/${encodeURIComponent(this.activeJobId)}`, { method: 'POST' });
+      this.setProgress('cancelling', '正在停止', '等待当前步骤完成...', undefined, []);
+    } catch (e) {
+      console.error('停止失败:', e);
+    }
+  },
+
+  async _restoreActiveJob() {
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem('gzh2_active_job') || 'null');
+    } catch {
+      saved = null;
+    }
+
+    if (saved && Date.now() - Number(saved.ts || 0) > 7200000) {
+      localStorage.removeItem('gzh2_active_job');
+      saved = null;
+    }
+
+    let runningJob = null;
+    if (saved?.jobId) {
+      try {
+        const r = await fetch(`/api/research/status/${encodeURIComponent(saved.jobId)}`);
+        const j = await r.json();
+        if (j.status === 'running' || j.status === 'cancelling') {
+          runningJob = j;
+        } else {
+          localStorage.removeItem('gzh2_active_job');
+          saved = null;
+        }
+      } catch {
+        runningJob = null;
+      }
+    }
+
+    if (!runningJob) {
+      try {
+        const r = await fetch('/api/research/running');
+        const j = await r.json();
+        if (j.status && j.status !== 'none') runningJob = j;
+      } catch {
+        runningJob = null;
+      }
+    }
+
+    if (!runningJob) return;
+
+    const btn = document.getElementById('btn-start-research');
+    btn.disabled = true;
+    this.activeJobId = runningJob.job_id;
+    localStorage.setItem('gzh2_active_job', JSON.stringify({
+      jobId: runningJob.job_id,
+      companyName: runningJob.company_name || saved?.companyName || '',
+      ts: Date.now(),
+    }));
+    this.setProgress(
+      runningJob.status,
+      runningJob.stage || '恢复中',
+      runningJob.detail || '已检测到进行中的研究，正在恢复...',
+      runningJob.sources || {},
+      runningJob.stages || []
+    );
+    document.getElementById('btn-stop-research').style.display = '';
+    this.pollJob(runningJob.job_id, runningJob.company_name || saved?.companyName || '', btn);
+  },
+
+  setProgress(status, stage, detail, sources, stages = []) {
     const progress = document.getElementById('research-progress');
     progress.classList.remove('hidden');
     const percent = this.stagePercent(stage, status);
@@ -246,7 +349,10 @@ const ResearchDesk = {
     document.getElementById('research-percent').textContent = `${percent}%`;
     document.getElementById('research-progress-fill').style.width = `${percent}%`;
     document.getElementById('research-detail').textContent = this.detailText(detail);
-    this.renderSourceStatus(sources || {});
+    this.renderProgressSteps(stage, status);
+    this.renderProgressEvents(stages, stage, detail);
+    if (sources !== undefined) this.currentSources = sources || {};
+    this.renderSourceStatus(this.currentSources);
     progress.dataset.status = status;
   },
 
@@ -286,17 +392,68 @@ const ResearchDesk = {
     }[status] || status;
   },
 
+  progressStepIndex(stage) {
+    const text = String(stage || '');
+    if (text.includes('图片') || text.includes('写库') || text.includes('写入') || text.includes('候选图')) {
+      return RESEARCH_PROGRESS_STEPS.findIndex(step => step.id === 'persist');
+    }
+    const index = RESEARCH_PROGRESS_STEPS.findIndex(step =>
+      step.matches.some(keyword => text.includes(keyword))
+    );
+    return index >= 0 ? index : 0;
+  },
+
   stagePercent(stage, status) {
     if (status === 'done') return 100;
-    if (status === 'failed') return 100;
-    const normalized = String(stage || '').toLowerCase();
-    if (normalized.includes('collect') || normalized.includes('采集')) return 20;
-    if (normalized.includes('l0') || normalized.includes('layer0') || normalized.includes('清洗')) return 35;
-    if (normalized.includes('l1') || normalized.includes('layer1')) return 50;
-    if (normalized.includes('l2') || normalized.includes('layer2')) return 65;
-    if (normalized.includes('l3') || normalized.includes('layer3')) return 80;
-    if (normalized.includes('写入')) return 95;
-    return 10;
+    const step = RESEARCH_PROGRESS_STEPS[this.progressStepIndex(stage)];
+    const nextPercent = step?.percent || 5;
+    if (status === 'failed' || status === 'cancelled') {
+      return Math.max(this.currentProgressPercent || 0, nextPercent);
+    }
+    this.currentProgressPercent = Math.max(this.currentProgressPercent || 0, nextPercent);
+    return this.currentProgressPercent;
+  },
+
+  renderProgressSteps(stage, status) {
+    const track = document.getElementById('research-step-track');
+    if (!track) return;
+    const activeIndex = status === 'done'
+      ? RESEARCH_PROGRESS_STEPS.length - 1
+      : this.progressStepIndex(stage);
+    track.innerHTML = RESEARCH_PROGRESS_STEPS.map((step, index) => {
+      let state = 'pending';
+      if (status === 'done' || index < activeIndex) state = 'done';
+      if (index === activeIndex && status !== 'done') state = 'active';
+      if ((status === 'failed' || status === 'cancelled') && index === activeIndex) state = 'failed';
+      return `<div class="research-step research-step-${state}">
+        <span class="research-step-dot"></span>
+        <span class="research-step-label">${this.esc(step.label)}</span>
+      </div>`;
+    }).join('');
+  },
+
+  renderProgressEvents(stages, stage, detail) {
+    const list = document.getElementById('research-event-list');
+    if (!list) return;
+    const events = Array.isArray(stages) ? stages.slice() : [];
+    const latestDetail = this.detailText(detail);
+    const latest = { stage: stage || '当前进度', detail: latestDetail };
+    const tail = events[events.length - 1];
+    if (!tail || tail.stage !== latest.stage || this.detailText(tail.detail) !== latestDetail) {
+      events.push(latest);
+    }
+    const visible = events
+      .filter(item => item && (item.stage || item.detail))
+      .slice(-6)
+      .reverse();
+    list.innerHTML = visible.map((item) => {
+      const eventStage = item.stage || '进度';
+      const eventDetail = this.detailText(item.detail) || '处理中...';
+      return `<div class="research-event">
+        <span>${this.esc(eventStage)}</span>
+        <strong>${this.esc(eventDetail)}</strong>
+      </div>`;
+    }).join('');
   },
 
   formatDate(value) {
