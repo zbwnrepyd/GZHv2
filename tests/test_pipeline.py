@@ -57,6 +57,40 @@ class PipelineFailureTests(unittest.TestCase):
 
         save_records.assert_not_called()
 
+    def test_run_pipeline_cancel_token_stops_after_collection_before_llm(self):
+        with patch.object(pipeline, "_collect_all", return_value={"_source_summary": {}}), \
+             patch.object(pipeline, "llm_analysis") as llm_analysis, \
+             patch.object(pipeline.database, "save_research_records") as save_records:
+            with self.assertRaises(pipeline.PipelineCancelledError):
+                pipeline.run_pipeline(
+                    "CancelCo",
+                    "https://cancel.example",
+                    cancel_token=lambda: True,
+                )
+
+        llm_analysis.assert_not_called()
+        save_records.assert_not_called()
+
+    def test_l3_identity_mismatch_fails_before_writing_database(self):
+        mismatched_records = [
+            {
+                "company_name": "Sardine",
+                "version": "standard",
+                "website_url": "https://www.perplexity.ai",
+                "company_type": "AI原生搜索引擎",
+                "data_confidence": "中",
+            }
+        ]
+        with patch.object(pipeline, "_collect_all", return_value={"website": {"text": "ok"}}), \
+             patch.object(pipeline, "llm_analysis", return_value=mismatched_records), \
+             patch.object(pipeline.database, "save_research_records") as save_records, \
+             patch.object(field_repo, "insert_research_fields_batch"), \
+             patch("asset_pipeline.collect_image_variants_pipeline", return_value={}):
+            with self.assertRaisesRegex(RuntimeError, "公司身份校验失败"):
+                pipeline.run_pipeline("Sardine", "https://www.sardine.ai")
+
+        save_records.assert_not_called()
+
     def test_l3_retries_missing_founder_fields_inside_main_flow(self):
         def record(founder_edu="暂缺", founder_achievement="暂缺"):
             return {
@@ -68,37 +102,24 @@ class PipelineFailureTests(unittest.TestCase):
                 "data_confidence": "中",
             }
 
-        # 枚举组 mock（3组各3字段）
-        enum_a = '{"ai_model_dependency":"multi_model","data_flywheel":"partial","proprietary_data_asset":"yes_supplementary"}'
-        enum_b = '{"incumbent_direct_competitor":"multiple","workflow_integration_level":"workflow_embedded","inference_cost_exposure":"medium"}'
-        enum_c = '{"pricing_model":"subscription","customer_segment_type":"b2b2c","stack_layer":"vertical_app"}'
-        vote_ai = '{"ai_model_dependency":"multi_model"}'
-        vote_inc = '{"incumbent_direct_competitor":"multiple"}'
-        vote_price = '{"pricing_model":"subscription"}'
-
-        # 每个版本：L3(1) + 枚举组ABC(3) + 投票(3) + founder retry(1) = 8 calls
-        e = [enum_a, enum_b, enum_c, vote_ai, vote_inc, vote_price]  # 6 enum calls per version
         responses = [
             "创始人 Ada Demo 毕业于 MIT，曾创办 Demo Labs 并获行业奖项。",  # L0
             "layer1",                                                       # L1
             "layer2",                                                       # L2
             # ── standard 版本 ──
             str(record()).replace("'", '"'),                                # L3
-            *e,
             str(record("MIT", "创办 Demo Labs，获行业奖项")).replace("'", '"'),  # founder
             # ── business 版本 ──
             str(record()).replace("'", '"'),                                # L3
-            *e,
             str(record("MIT", "创办 Demo Labs")).replace("'", '"'),         # founder
             # ── spread 版本 ──
             str(record()).replace("'", '"'),                                # L3
-            *e,
             str(record("MIT", "创办 Demo Labs")).replace("'", '"'),         # founder
         ]
         events = []
 
         with patch.object(pipeline, "call_deepseek", side_effect=responses) as call, \
-             patch.object(pipeline, "run_rule_layer", return_value={}):
+             patch.object(pipeline, "_extract_enum_fields", return_value={}):
             records = pipeline.llm_analysis(
                 "DemoCo",
                 "https://demo.example",
@@ -106,7 +127,7 @@ class PipelineFailureTests(unittest.TestCase):
                 lambda stage, detail: events.append((stage, detail)),
             )
 
-        self.assertGreater(call.call_count, 7)  # 比原7次多出枚举提取调用
+        self.assertEqual(call.call_count, 9)
         self.assertEqual(records[0]["founder_edu"], "MIT")
         self.assertEqual(records[0]["founder_achievement"], "创办 Demo Labs，获行业奖项")
         self.assertFalse(any(stage == "补抓" for stage, _ in events))

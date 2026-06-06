@@ -117,6 +117,51 @@ input, button, select, textarea { font: inherit; }
 #research-progress-fill { height: 100%; width: 0; background: var(--cyan); transition: width .2s ease; }
 .research-detail { margin-top: 8px; font-size: 12px; color: var(--text-muted); }
 .progress-shell[data-status="failed"] #research-progress-fill { background: var(--red); }
+.progress-shell[data-status="cancelled"] #research-progress-fill { background: var(--red); }
+.research-step-track {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px;
+  margin-top: 12px;
+}
+.research-step {
+  display: grid; grid-template-rows: 12px auto; justify-items: center; gap: 4px;
+  min-width: 0; color: var(--text-subtle); font-size: 10px; font-weight: 700;
+}
+.research-step-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid #D8DEE8; background: var(--surface-1);
+}
+.research-step-label {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.research-step-done { color: var(--navy); }
+.research-step-done .research-step-dot {
+  border-color: var(--cyan); background: var(--cyan);
+}
+.research-step-active { color: var(--navy); }
+.research-step-active .research-step-dot {
+  border-color: var(--cyan); background: var(--white);
+  box-shadow: 0 0 0 3px rgba(41,184,212,0.18);
+}
+.research-step-failed { color: var(--red); }
+.research-step-failed .research-step-dot {
+  border-color: var(--red); background: var(--red);
+}
+.research-event-list {
+  display: grid; gap: 6px; margin-top: 12px;
+}
+.research-event {
+  display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px;
+  align-items: baseline; padding: 6px 8px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface-1);
+}
+.research-event span {
+  color: var(--text-subtle); font-size: 11px; font-weight: 800;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.research-event strong {
+  color: var(--text); font-size: 12px; font-weight: 600; line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 .source-status-grid {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
   margin-top: 12px;

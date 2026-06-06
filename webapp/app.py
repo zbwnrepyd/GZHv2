@@ -5,7 +5,7 @@ import db as database
 from deepseek_client import call_deepseek, load_prompt
 from image_client import generate_image
 from firecrawl_local import scrape_url
-from pipeline import run_pipeline
+from pipeline import PipelineCancelledError, run_pipeline
 from asset_store import (
     init_assets_db, ensure_assets_rows, get_assets, upsert_asset,
     list_variants, insert_variant, select_variant, delete_variant,
@@ -217,10 +217,22 @@ def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
                 # 累积阶段历史
                 stages = _jobs[job_id].setdefault("stages", [])
                 if not stages or stages[-1]["stage"] != stage:
-                    stages.append({"stage": stage, "detail": message})
+                    stages.append({"stage": stage, "detail": message, "ts": time.time()})
+                else:
+                    stages[-1]["detail"] = message
+                    stages[-1]["ts"] = time.time()
+
+    def cancel_token():
+        with _jobs_lock:
+            return bool(_jobs.get(job_id, {}).get("cancelled", False))
 
     try:
-        ids = run_pipeline(company_name, company_url, progress_callback=on_progress, job_id=job_id)
+        ids = run_pipeline(
+            company_name, company_url,
+            progress_callback=on_progress,
+            job_id=job_id,
+            cancel_token=cancel_token,
+        )
         with _jobs_lock:
             if job_id in _jobs:
                 _jobs[job_id]["status"] = "done"
@@ -232,6 +244,14 @@ def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
                             stage="完成", detail=f"共 {len(ids)} 条记录")
 
         threading.Thread(target=_collect_assets_silently, args=(company_name,), daemon=True).start()
+    except PipelineCancelledError:
+        with _jobs_lock:
+            if job_id in _jobs:
+                _jobs[job_id]["status"] = "cancelled"
+                _jobs[job_id]["stage"] = "已停止"
+                _jobs[job_id]["detail"] = "用户已停止研究"
+        database.update_job(config.DB_PATH_RESEARCH, job_id,
+                            status="cancelled", stage="已停止", detail="用户已停止研究")
     except Exception as e:
         with _jobs_lock:
             if job_id in _jobs:
@@ -494,6 +514,7 @@ def start_research():
                 "detail": "准备开始...",
                 "record_ids": None,
                 "sources": {},
+                "started_at": time.time(),
             }
 
         t = threading.Thread(target=_run_pipeline_job,
@@ -515,6 +536,63 @@ def get_research_status(job_id: str):
             return jsonify(db_job)
         return jsonify({"error": "任务不存在"}), 404
     return jsonify(job)
+
+
+@app.route("/api/research/running")
+def get_running_research():
+    """返回当前正在运行的研究任务（用于页面刷新后恢复轮询）。"""
+    with _jobs_lock:
+        running = [
+            j for j in _jobs.values()
+            if j.get("status") in ("running", "cancelling")
+        ]
+    if running:
+        return jsonify(sorted(
+            running,
+            key=lambda x: x.get("started_at", 0),
+            reverse=True,
+        )[0])
+    while True:
+        db_job = database.get_latest_running_job(config.DB_PATH_RESEARCH)
+        if not db_job:
+            break
+        database.update_job(
+            config.DB_PATH_RESEARCH,
+            db_job["job_id"],
+            status="cancelled",
+            stage="已停止",
+            detail="服务重启后任务已失效",
+        )
+    return jsonify({"status": "none"})
+
+
+@app.route("/api/research/stop/<job_id>", methods=["POST"])
+def stop_research(job_id: str):
+    """标记取消，pipeline 在下一个 checkpoint 检测到后优雅退出。"""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            db_job = database.get_job(config.DB_PATH_RESEARCH, job_id)
+            if not db_job:
+                return jsonify({"error": "任务不存在或已完成"}), 404
+            if db_job.get("status") not in ("running", "cancelling"):
+                return jsonify({"error": f"任务状态为 {db_job.get('status')}，无法停止"}), 409
+            database.update_job(
+                config.DB_PATH_RESEARCH, job_id,
+                status="cancelled", stage="已停止", detail="用户已停止研究"
+            )
+            return jsonify({"status": "ok"})
+        if job.get("status") != "running":
+            return jsonify({"error": f"任务状态为 {job.get('status')}，无法停止"}), 409
+        job["cancelled"] = True
+        job["status"] = "cancelling"
+        job["stage"] = "正在停止"
+        job["detail"] = "等待当前步骤完成..."
+    database.update_job(
+        config.DB_PATH_RESEARCH, job_id,
+        status="cancelling", stage="正在停止", detail="等待当前步骤完成..."
+    )
+    return jsonify({"status": "ok"})
 
 
 # ── API：保存定稿 ─────────────────────────────────────────────

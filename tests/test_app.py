@@ -40,6 +40,73 @@ class ResearchStartTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"], "缺少 company_name 或 company_url")
 
+    def test_stop_research_marks_running_job_as_cancelling(self):
+        with app_module._jobs_lock:
+            app_module._jobs.clear()
+            app_module._jobs["job-stop"] = {
+                "job_id": "job-stop",
+                "company_name": "DemoCo",
+                "status": "running",
+                "stage": "分析",
+                "detail": "",
+            }
+        db_path = init_sqlite("init_research_db.sql")
+        old_research = app_module.config.DB_PATH_RESEARCH
+        app_module.config.DB_PATH_RESEARCH = db_path
+        db.create_job(db_path, "job-stop", "DemoCo", "https://demo.example")
+        try:
+            response = self.client.post("/api/research/stop/job-stop")
+        finally:
+            app_module.config.DB_PATH_RESEARCH = old_research
+            os.remove(db_path)
+            with app_module._jobs_lock:
+                app_module._jobs.clear()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["status"], "ok")
+
+    def test_running_research_cancels_orphaned_db_job_when_memory_is_empty(self):
+        db_path = init_sqlite("init_research_db.sql")
+        old_research = app_module.config.DB_PATH_RESEARCH
+        app_module.config.DB_PATH_RESEARCH = db_path
+        with app_module._jobs_lock:
+            app_module._jobs.clear()
+        db.create_job(db_path, "job-running", "DemoCo", "https://demo.example")
+        db.create_job(db_path, "job-running-2", "OtherCo", "https://other.example")
+        try:
+            response = self.client.get("/api/research/running")
+            job = db.get_job(db_path, "job-running")
+            job2 = db.get_job(db_path, "job-running-2")
+        finally:
+            app_module.config.DB_PATH_RESEARCH = old_research
+            os.remove(db_path)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "none")
+        self.assertEqual(job["status"], "cancelled")
+        self.assertEqual(job2["status"], "cancelled")
+        self.assertEqual(job["stage"], "已停止")
+
+    def test_stop_research_cancels_db_running_job_when_memory_is_empty(self):
+        db_path = init_sqlite("init_research_db.sql")
+        old_research = app_module.config.DB_PATH_RESEARCH
+        app_module.config.DB_PATH_RESEARCH = db_path
+        with app_module._jobs_lock:
+            app_module._jobs.clear()
+        db.create_job(db_path, "job-db-stop", "DemoCo", "https://demo.example")
+        try:
+            response = self.client.post("/api/research/stop/job-db-stop")
+            job = db.get_job(db_path, "job-db-stop")
+        finally:
+            app_module.config.DB_PATH_RESEARCH = old_research
+            os.remove(db_path)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["status"], "ok")
+        self.assertEqual(job["status"], "cancelled")
+        self.assertEqual(job["stage"], "已停止")
+
 
 class PageRouteTests(unittest.TestCase):
     def setUp(self):

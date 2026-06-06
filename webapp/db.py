@@ -279,6 +279,17 @@ def get_job(db_path: str, job_id: str) -> dict | None:
         return dict(row) if row else None
 
 
+def get_latest_running_job(db_path: str) -> dict | None:
+    """返回最近一条 running/cancelling 状态的 job，用于页面刷新恢复。"""
+    with get_db(db_path) as conn:
+        row = conn.execute(
+            """SELECT * FROM research_jobs
+               WHERE status IN ('running', 'cancelling')
+               ORDER BY created_at DESC LIMIT 1"""
+        ).fetchone()
+        return dict(row) if row else None
+
+
 # ── final_db 读写 ─────────────────────────────────────────────
 
 
