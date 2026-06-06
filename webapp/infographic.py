@@ -558,15 +558,7 @@ var opt={{
   }},
   backgroundColor:'{bg}',
   color:["{accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF"],
-  // 四象限分割线 + 标签
-  markLine:{{
-    silent:true, symbol:'none',
-    lineStyle:{{color:'rgba(255,255,255,0.15)',type:'dashed',width:1}},
-    data:[
-      {{xAxis:5,label:{{show:false}}}},
-      {{yAxis:5,label:{{show:false}}}},
-    ],
-  }},
+  series: series,
   graphic:[
     {{type:'text',left:62,top:52,style:{{text:{json.dumps(p.get("quadrant_tl") or "Sweet Spot", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:13,fontWeight:600}}}},
     {{type:'text',right:32,top:52,style:{{text:{json.dumps(p.get("quadrant_tr") or "Kill Zone", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:13,fontWeight:600}}}},
@@ -574,6 +566,17 @@ var opt={{
     {{type:'text',right:32,bottom:42,style:{{text:{json.dumps(p.get("quadrant_br") or "Battlefield", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:13,fontWeight:600}}}}{no_data_graphic},
   ],
 }};
+// 四象限分割线：加在首个 series 上（ECharts markLine 必须在 series 内，不能在 opt 顶层）
+if (series[0]) {{
+  series[0].markLine = {{
+    silent:true, symbol:'none',
+    lineStyle:{{color:'rgba(255,255,255,0.15)',type:'dashed',width:1}},
+    data:[
+      {{xAxis:5,label:{{show:false}}}},
+      {{yAxis:5,label:{{show:false}}}},
+    ],
+  }};
+}}
 var chart=echarts.init(document.getElementById('chart'));
 chart.setOption(opt);
 {_echarts_fit_script("chart")}
@@ -625,7 +628,7 @@ def _build_ecosystem_positioning_html(
         })
 
     ds_json = json.dumps(ds, ensure_ascii=False)
-    no_data_graphic = "" if ds else f"graphic:[{{type:'text',left:'center',top:'middle',style:{{text:{json.dumps('暂无可用图表数据', ensure_ascii=False)},fill:'{accent}',fontSize:18,fontWeight:700,textAlign:'center'}}}}],"
+    no_data_graphic = "" if ds else f"{{type:'text',left:'center',top:'middle',style:{{text:{json.dumps('暂无可用图表数据', ensure_ascii=False)},fill:'{accent}',fontSize:18,fontWeight:700,textAlign:'center'}}}}"
     bg = "#0B1629" if theme == "dark" else "#fff"
     text_color = "#fff" if theme == "dark" else "#333"
     muted = "rgba(255,255,255,0.5)" if theme == "dark" else "#999"
@@ -689,23 +692,24 @@ var opt={{
     splitNumber:10,
   }},
   backgroundColor:'{bg}',
-  {no_data_graphic}
-  // 高价值截留区（y≥7 绿色半透明带）
-  markLine:{{
+  series: series,
+  graphic:[{no_data_graphic}],
+}};
+// 高价值截留区（y≥阈值）：markLine + markArea 加在首个 series 上
+if (series[0]) {{
+  series[0].markLine = {{
     silent:true, symbol:'none',
-    lineStyle:{{color:'rgba(129,199,132,0.25)',type:'solid',width:0}},
     data:[
       {{yAxis:{float(p.get("value_threshold") or 7)},label:{{show:true,formatter:{json.dumps("高价值截留区 ≥" + str(p.get("value_threshold") or 7), ensure_ascii=False)},position:'end',color:'{muted}',fontSize:10}},lineStyle:{{color:'rgba(129,199,132,0.3)',type:'dashed',width:1.5}}}},
     ],
-  }},
-  // 高价值区域背景
-  markArea:{{
+  }};
+  series[0].markArea = {{
     silent:true,
     data:[[
       {{yAxis:{float(p.get("value_threshold") or 7)},itemStyle:{{color:'rgba(129,199,132,0.05)'}}}},
       {{yAxis:10}},
     ]],
-  }},
+  }};
 }};
 var chart=echarts.init(document.getElementById('chart'));
 chart.setOption(opt);
