@@ -20,6 +20,9 @@ node_modules/
 .vscode/
 .idea/
 
+# Patch files
+*.patch
+
 # OS
 .DS_Store
 Thumbs.db

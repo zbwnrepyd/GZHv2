@@ -26,10 +26,6 @@ from image_quality import inspect_local_image, validate_candidate
 from image_scorer import score_candidate
 from pipeline import _search_tavily_query
 
-# 忽略 SSL 警告（部分图片源证书可能有问题）
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 
 def asset_dir(images_root: str, company_name: str) -> str:
     """返回某公司的图片目录，确保存在"""
@@ -129,7 +125,7 @@ def _download(url: str, dest: str, timeout: int = 15) -> bool:
     try:
         resp = requests.get(url, timeout=timeout,
                           headers={"User-Agent": "Mozilla/5.0"},
-                          verify=False, stream=True)
+                          stream=True)
         if resp.status_code >= 400:
             return False
         with open(dest, "wb") as f:
@@ -331,7 +327,7 @@ def _scrape_page_hero_image(page_url: str, company_name: str = "") -> str | None
     """
     from bs4 import BeautifulSoup
     try:
-        resp = requests.get(page_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
+        resp = requests.get(page_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
         soup = BeautifulSoup(resp.text, "lxml")
 
         candidates = []
@@ -363,7 +359,7 @@ def _extract_og_image(page_url: str) -> str | None:
     """Extract og:image/twitter:image from an official page."""
     from bs4 import BeautifulSoup
     try:
-        resp = requests.get(page_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
+        resp = requests.get(page_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
         soup = BeautifulSoup(resp.text, "lxml")
         selectors = [
             ("meta", {"property": "og:image"}),
@@ -1155,7 +1151,7 @@ def _render_static_map_card(map_url: str, location: str, label: str, dest: str) 
 
 
 def _render_map_via_playwright(lat: float, lon: float, label: str, dest: str) -> bool:
-    """用 Leaflet + Playwright 截图生成地图图片"""
+    """用 Leaflet + Playwright 截图生成地图图片（Leaflet CDN 需网络，国内环境需 HTTPS_PROXY）"""
     import tempfile
 
     safe_label = label.replace("'", "\\'")
@@ -1176,15 +1172,15 @@ def _render_map_via_playwright(lat: float, lon: float, label: str, dest: str) ->
 <div id="map"></div>
 <script>
   const map = L.map('map', {{ zoomControl: true, attributionControl: true }}).setView([{lat}, {lon}], 14);
-  L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+  var tileLayer = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap contributors'
   }}).addTo(map);
   L.marker([{lat}, {lon}]).addTo(map)
     .bindPopup('{safe_label}')
     .openPopup();
-  // 等瓦片加载完再截图
-  map.on('load', function() {{ document.title = 'ready'; }});
+  // Signal when tile layer finishes loading
+  tileLayer.on('load', function() {{ document.title = 'ready'; }});
 </script>
 </body>
 </html>"""
@@ -1210,6 +1206,10 @@ def _render_map_via_playwright(lat: float, lon: float, label: str, dest: str) ->
             browser = p.chromium.launch(**launch_args)
             page = browser.new_page(viewport={"width": 800, "height": 400})
             page.goto(f"file://{html_path}", wait_until="networkidle", timeout=30000)
+            try:
+                page.wait_for_function("document.title === 'ready'", timeout=10000)
+            except Exception:
+                pass  # tiles may have loaded before event fired
             page.screenshot(path=dest, type="png")
             browser.close()
         return os.path.exists(dest) and os.path.getsize(dest) > 512

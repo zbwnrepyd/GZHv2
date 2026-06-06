@@ -313,7 +313,11 @@ def _html_to_png(html: str, dest: str, width: int = 800, height: int = 600, scal
                 device_scale_factor=scale,
             )
             page.goto(f"file://{tmp}", wait_until="networkidle", timeout=15000)
-            page.wait_for_timeout(2000)
+            # Wait for web fonts to load (Google Fonts for SVG; ECharts uses system fonts)
+            try:
+                page.wait_for_function("document.fonts && document.fonts.ready", timeout=5000)
+            except Exception:
+                pass
             page.screenshot(path=dest, full_page=False, clip={
                 "x": 0, "y": 0, "width": width, "height": height,
             })
@@ -327,6 +331,7 @@ def _html_to_png(html: str, dest: str, width: int = 800, height: int = 600, scal
 
 def _svg_to_png(svg_content: str, dest: str, width: int = 800, height: int = 800, scale: int = 2):
     """用 Playwright 将 SVG 渲染为高清 PNG"""
+    # NOTE: Google Fonts require network access; domestic deployments may need HTTPS_PROXY
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
@@ -382,7 +387,6 @@ def generate_timeline_from_markdown(markdown: str, dest: str, deepseek_call) -> 
 # ECharts 散点图 — 竞争格局矩阵 + 产业链生态位图
 # ═══════════════════════════════════════════════════════════════
 
-_ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
 _ECHARTS_VENDOR_PATH = os.path.join(
     os.path.dirname(__file__), "static", "vendor", "echarts.min.js"
 )
@@ -395,10 +399,9 @@ def _echarts_inline_js() -> str:
         return f.read()
 
 
-def _echarts_script_tag(inline: bool = False) -> str:
-    if inline:
-        return f"<script>{_echarts_inline_js()}</script>"
-    return f'<script src="{_ECHARTS_CDN}"></script>'
+def _echarts_script_tag() -> str:
+    """Always use vendored ECharts (CLAUDE.md: 散点图用本地 vendor echarts)."""
+    return f"<script>{_echarts_inline_js()}</script>"
 
 _STACK_LABELS = ["基础设施", "基础模型", "中间件", "垂直应用", "分发渠道"]
 _STACK_LAYER_COLORS = ["#4FC3F7", "#BA68C8", "#FFB74D", "#81C784", "#E57373"]
@@ -464,7 +467,6 @@ fitChartCanvas();
 def _build_competitive_landscape_html(
     companies: list[dict], highlight: str,
     params: dict | None = None,
-    inline: bool = False,
 ) -> str:
     """竞争格局矩阵 HTML — 四象限 + 气泡大小按融资阶段缩放 + 主公司高亮"""
     p = params or {}
@@ -506,7 +508,7 @@ def _build_competitive_landscape_html(
 {_echarts_fit_style(bg)}
 </style></head><body>
 <div id="chart-frame"><div id="chart"></div></div>
-{_echarts_script_tag(inline)}
+{_echarts_script_tag()}
 <script>
 var ds={ds_json};
 var hiName={json.dumps(highlight, ensure_ascii=False)};
@@ -579,7 +581,6 @@ chart.setOption(opt);
 def _build_ecosystem_positioning_html(
     companies: list[dict], highlight: str,
     params: dict | None = None,
-    inline: bool = False,
 ) -> str:
     """产业链生态位图 HTML — 离散X轴中文标签 + 层级颜色 + 高价值截留区"""
     p = params or {}
@@ -636,7 +637,7 @@ def _build_ecosystem_positioning_html(
 {_echarts_fit_style(bg)}
 </style></head><body>
 <div id="chart-frame"><div id="chart"></div></div>
-{_echarts_script_tag(inline)}
+{_echarts_script_tag()}
 <script>
 var ds={ds_json};
 var hiName={json.dumps(highlight, ensure_ascii=False)};
@@ -708,88 +709,22 @@ chart.setOption(opt);
 </script></body></html>"""
 
 
-def _build_zrender_flywheel(data: dict, params: dict | None = None) -> str:
-    """ZRender 增长飞轮 HTML"""
-    p = params or {}
-    accent = p.get("accent_color", "#29B8D4")
-    stages = data.get("stages", [])
-    center_label = data.get("center", "增长飞轮")
-    n = len(stages)
-    if n < 2: n = 2
-    import math
-    nodes_json = json.dumps([{"label": s.get("label", f"S{i}"), "desc": s.get("desc", "")} for i, s in enumerate(stages)], ensure_ascii=False)
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>body{{margin:0;width:800px;height:800px;overflow:hidden;background:#0B1629}}</style></head><body>
-<div id="zr" style="width:800px;height:800px"></div>
-<script src="{_ZRENDER_CDN}"></script>
-<script>
-var zr=zrender.init(document.getElementById('zr'));
-var cx=400,cy=380,r=220,nodes={nodes_json},accent="{accent}";
-// 外圈虚线
-zr.add(new zrender.Circle({{shape:{{cx:cx,cy:cy,r:r}}}},style:{{fill:'none',stroke:'rgba(41,184,212,0.18)',lineWidth:1.5,lineDash:[8,6]}}}}));
-// 节点
-nodes.forEach(function(s,i){{
-  var a=(-90+i*360/nodes.length)*Math.PI/180;
-  var sx=cx+r*Math.cos(a),sy=cy+r*Math.sin(a);
-  zr.add(new zrender.Circle({{shape:{{cx:sx,cy:sy,r:48}},style:{{fill:'#162440',stroke:accent,lineWidth:2}}}}));
-  var tl=new zrender.Text({{style:{{text:s.label,fontSize:16,fontWeight:'bold',fill:'#fff',textAlign:'center',textVerticalAlign:'middle'}},position:[sx,sy]}});zr.add(tl);
-}});
-// 中心
-zr.add(new zrender.Circle({{shape:{{cx:cx,cy:cy,r:56}},style:{{fill:'#0B1629',stroke:'rgba(41,184,212,0.35)',lineWidth:1.5}}}}));
-zr.add(new zrender.Text({{style:{{text:'{center_label}',fontSize:24,fontWeight:'bold',fill:accent,textAlign:'center',textVerticalAlign:'middle'}},position:[cx,cy-8]}}));
-</script></body></html>"""
-
-
-def _build_zrender_timeline(data: dict, params: dict | None = None) -> str:
-    """ZRender 时间线 HTML"""
-    events = data.get("events", [])
-    if not events: events = [{"year": "2020", "title": "暂无数据", "desc": ""}]
-    p = params or {}
-    accent = p.get("accent_color", "#29B8D4")
-    row_h = 90
-    total_h = 60 + len(events) * row_h + 40
-    ev_json = json.dumps(events, ensure_ascii=False)
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>body{{margin:0;width:800px;height:{total_h}px;overflow:hidden;background:#0B1629}}</style></head><body>
-<div id="zr" style="width:800px;height:{total_h}px"></div>
-<script src="{_ZRENDER_CDN}"></script>
-<script>
-var zr=zrender.init(document.getElementById('zr'));
-var evs={ev_json},accent="{accent}",row_h={row_h},top_pad=60;
-// 中线
-zr.add(new zrender.Line({{shape:{{x1:160,y1:60,x2:160,y2:{total_h-20}}},style:{{stroke:accent,lineWidth:2}}}}));
-evs.forEach(function(e,i){{
-  var y=top_pad+i*row_h+45;
-  zr.add(new zrender.Circle({{shape:{{cx:160,cy:y,r:6}},style:{{fill:accent}}}}));
-  zr.add(new zrender.Circle({{shape:{{cx:160,cy:y,r:14}},style:{{fill:'none',stroke:'rgba(41,184,212,0.25)',lineWidth:1}}}}));
-  zr.add(new zrender.Text({{style:{{text:e.year||'',fontSize:15,fontWeight:'bold',fill:accent,textAlign:'right'}},position:[110,y+5]}}));
-  zr.add(new zrender.Text({{style:{{text:e.title||'',fontSize:18,fontWeight:'bold',fill:'#fff'}},position:[200,y-8]}}));
-  zr.add(new zrender.Text({{style:{{text:(e.desc||'').substring(0,60),fontSize:13,fill:'rgba(255,255,255,0.55)'}},position:[200,y+18]}}));
-}});
-</script></body></html>"""
-
-
 def build_competitive_landscape_svg(companies: list[dict], highlight: str,
-                                     params: dict | None = None,
-                                     inline: bool = False) -> str:
+                                     params: dict | None = None) -> str:
     """竞争格局矩阵 HTML（ECharts 四象限散点图）"""
-    return _build_competitive_landscape_html(companies, highlight, params, inline=inline)
+    return _build_competitive_landscape_html(companies, highlight, params)
 
 
 def build_stack_positioning_svg(companies: list[dict], highlight: str,
-                                 params: dict | None = None,
-                                 inline: bool = False) -> str:
+                                 params: dict | None = None) -> str:
     """产业链生态位图 HTML（ECharts 离散轴散点图）"""
-    return _build_ecosystem_positioning_html(companies, highlight, params, inline=inline)
+    return _build_ecosystem_positioning_html(companies, highlight, params)
 
 
 def render_competitive_landscape(companies: list[dict], highlight: str, dest: str,
-                                  params: dict | None = None,
-                                  inline: bool = True) -> bool:
+                                  params: dict | None = None) -> bool:
     try:
-        html = build_competitive_landscape_svg(companies, highlight, params, inline=inline)
+        html = build_competitive_landscape_svg(companies, highlight, params)
         _html_to_png(html, dest, width=800, height=600, scale=2)
         return os.path.getsize(dest) > 1024
     except Exception:
@@ -797,10 +732,9 @@ def render_competitive_landscape(companies: list[dict], highlight: str, dest: st
 
 
 def render_stack_positioning(companies: list[dict], highlight: str, dest: str,
-                              params: dict | None = None,
-                              inline: bool = True) -> bool:
+                              params: dict | None = None) -> bool:
     try:
-        html = build_stack_positioning_svg(companies, highlight, params, inline=inline)
+        html = build_stack_positioning_svg(companies, highlight, params)
         _html_to_png(html, dest, width=800, height=600, scale=2)
         return os.path.getsize(dest) > 1024
     except Exception:

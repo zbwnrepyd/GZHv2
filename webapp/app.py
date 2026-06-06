@@ -88,8 +88,13 @@ def _init_new_composition_dbs():
     _run_migrations(config.DB_PATH_FINAL, ["002_final_fields.sql"])
 
 
-# 初始化新数据库
-_init_new_composition_dbs()
+# 初始化新数据库（幂等，失败不阻塞 import）
+try:
+    _init_new_composition_dbs()
+    database.ensure_research_schema_once(config.DB_PATH_RESEARCH)
+except Exception as e:
+    import logging
+    logging.warning("composition/template DB init skipped: %s", e)
 
 
 def _quality_kwargs_for_variant(company: str, asset_key: str, local_file: str,
@@ -211,6 +216,13 @@ def save_research():
         data = request.get_json()
         if not data or not isinstance(data, list):
             return jsonify({"error": "请求体应为记录数组"}), 400
+        for i, rec in enumerate(data):
+            if not isinstance(rec, dict):
+                return jsonify({"error": f"记录 {i} 应为对象"}), 400
+            if not rec.get("company_name", "").strip():
+                return jsonify({"error": f"记录 {i} 缺少 company_name"}), 400
+            if not rec.get("version", "").strip():
+                return jsonify({"error": f"记录 {i} 缺少 version"}), 400
         ids = database.save_research_records(config.DB_PATH_RESEARCH, data)
         return jsonify({"status": "ok", "record_ids": ids, "count": len(ids)})
     except Exception as e:
@@ -1030,9 +1042,9 @@ def preview_chart_html(company: str, asset_key: str):
         params.update(body.get("params", {}) or {})
         companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
         if asset_key == "chart_competitive":
-            html = build_competitive_landscape_svg(companies, company, params, inline=True)
+            html = build_competitive_landscape_svg(companies, company, params)
         else:
-            html = build_stack_positioning_svg(companies, company, params, inline=True)
+            html = build_stack_positioning_svg(companies, company, params)
         return app.response_class(html, mimetype="text/html")
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1140,6 +1152,10 @@ def canvas_card_page(company: str, card_id: str):
 
 @app.route("/canvas/<path:filename>")
 def canvas_assets(filename):
+    # Validate each path segment against traversal (Flask send_from_directory also does safe_join internally)
+    for part in filename.split("/"):
+        if part in ("..", ".") or part.startswith(".."):
+            return jsonify({"error": "非法路径"}), 400
     return send_from_directory("../canvas", filename)
 
 
@@ -1152,6 +1168,9 @@ def image_studio_page():
 
 @app.route("/image-studio/<path:filename>")
 def image_studio_assets(filename):
+    for part in filename.split("/"):
+        if part in ("..", ".") or part.startswith(".."):
+            return jsonify({"error": "非法路径"}), 400
     return send_from_directory("../image-studio", filename)
 
 

@@ -9,6 +9,19 @@ from contextlib import contextmanager
 from competitive_scoring import compute_scores, normalize_fields
 from path_safety import safe_path_segment
 
+# Track whether research schema has been ensured (one-time migration, not per-query)
+_schema_ensured: set[str] = set()
+
+
+def ensure_research_schema_once(db_path: str):
+    """幂等确保 research DB schema 包含评分字段（仅首次调用时执行 ALTER TABLE）。"""
+    if db_path in _schema_ensured:
+        return
+    with get_db(db_path) as conn:
+        _ensure_research_schema(conn)
+        conn.commit()
+    _schema_ensured.add(db_path)
+
 
 @contextmanager
 def get_db(db_path: str):
@@ -26,8 +39,6 @@ def get_db(db_path: str):
 def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
     """列出所有已研究公司，附带定稿进度"""
     with get_db(db_path) as conn:
-        _ensure_research_schema(conn)
-        conn.commit()
         rows = conn.execute(
             "SELECT DISTINCT company_name, MAX(created_at) as created_at "
             "FROM research GROUP BY company_name ORDER BY created_at DESC"
