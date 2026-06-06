@@ -471,11 +471,11 @@ def _build_competitive_landscape_html(
     """竞争格局矩阵 HTML — 四象限 + 气泡大小按融资阶段缩放 + 主公司高亮"""
     p = params or {}
     accent = p.get("accent_color", "#29B8D4")
-    pt_base = p.get("point_size", 10)
-    t_size = p.get("title_size", 16)
-    a_size = p.get("axis_size", 12)
+    pt_base = p.get("point_size", 14)
+    t_size = p.get("title_size", 22)
+    a_size = p.get("axis_size", 15)
     theme = p.get("theme", "dark")
-    show_label = p.get("show_label", True)
+    show_label = p.get("show_label", False)
 
     hi_data, ot_data = [], []
     for c in companies:
@@ -517,13 +517,15 @@ var series=ds.map(function(d){{
     name:d.name, type:'scatter', data:d.data,
     symbolSize:function(val){{return val[2]||{pt_base};}},
     label:{{
-      show:{json.dumps(show_label)},
+      show:function(p){{return p.value[3]===hiName;}},
       formatter:function(p){{return p.value[3]||'';}},
-      fontSize:10,
-      color:'{muted}',
+      fontSize:{p.get("label_size", 16)},
+      fontWeight:700,
+      color:'{accent}',
       position:'right',
-      distance:6,
+      distance:8,
     }},
+    labelLayout:{{hideOverlap:true}},
     emphasis:{{focus:'series'}},
     itemStyle:{{borderColor:'rgba(0,0,0,0.3)',borderWidth:0.5}},
   }};
@@ -534,11 +536,11 @@ series[0].itemStyle.color='{accent}';
 if(series[1]) series[1].itemStyle.color='rgba(255,255,255,0.25)';
 
 var opt={{
-  title:{{text:{json.dumps(p.get("title") or "竞争格局矩阵", ensure_ascii=False)},subtext:{json.dumps(p.get("subtitle") or "", ensure_ascii=False)},left:'center',textStyle:{{color:'{text_color}',fontSize:{t_size},fontWeight:700}},subtextStyle:{{color:'{muted}',fontSize:11}}}},
+  title:{{text:{json.dumps(p.get("title") or "竞争格局矩阵", ensure_ascii=False)},subtext:{json.dumps(p.get("subtitle") or "", ensure_ascii=False)},left:'center',textStyle:{{color:'{text_color}',fontSize:{t_size},fontWeight:700}},subtextStyle:{{color:'{muted}',fontSize:13}}}},
   tooltip:{{
     formatter:function(p){{return p.value[3]+'<br/>Defensibility: '+p.value[0]+'<br/>Incumbent Attention: '+p.value[1];}}
   }},
-  legend:{{bottom:10,textStyle:{{color:'{muted}',fontSize:11}}}},
+  legend:{{show:false}},
   grid:{{left:70,right:40,top:60,bottom:50}},
   xAxis:{{
     name:'Defensibility', min:0, max:10,
@@ -585,11 +587,11 @@ def _build_ecosystem_positioning_html(
     """产业链生态位图 HTML — 离散X轴中文标签 + 层级颜色 + 高价值截留区"""
     p = params or {}
     accent = p.get("accent_color", "#29B8D4")
-    pt_base = p.get("point_size", 10)
-    t_size = p.get("title_size", 16)
-    a_size = p.get("axis_size", 12)
+    pt_base = p.get("point_size", 14)
+    t_size = p.get("title_size", 22)
+    a_size = p.get("axis_size", 15)
     theme = p.get("theme", "dark")
-    show_label = p.get("show_label", True)
+    show_label = p.get("show_label", False)
 
     st_map = {"infrastructure": 0, "foundation_model": 1, "middleware": 2, "vertical_app": 3, "distribution": 4}
     st_labels = _STACK_LABELS
@@ -646,13 +648,15 @@ var series=ds.map(function(d){{
     name:d.name, type:'scatter', data:d.data,
     symbolSize:function(val){{return val[2]||{pt_base};}},
     label:{{
-      show:{json.dumps(show_label)},
-      formatter:function(p){{return p.value[3]||'';}},
-      fontSize:10,
-      color:'{muted}',
+      show:true,
+      formatter:function(p){{return (p.data&&p.data.is_highlight)?(p.value[3]||''):'';}},
+      fontSize:{p.get("label_size", 16)},
+      fontWeight:700,
+      color:'{accent}',
       position:'top',
-      distance:8,
+      distance:10,
     }},
+    labelLayout:{{hideOverlap:true}},
     emphasis:{{focus:'series'}},
     itemStyle:{{
       color:d.color,
@@ -663,11 +667,11 @@ var series=ds.map(function(d){{
 }});
 
 var opt={{
-  title:{{text:{json.dumps(p.get("title") or "AI Stack 定位图", ensure_ascii=False)},subtext:{json.dumps(p.get("subtitle") or "", ensure_ascii=False)},left:'center',textStyle:{{color:'{text_color}',fontSize:{t_size},fontWeight:700}},subtextStyle:{{color:'{muted}',fontSize:11}}}},
+  title:{{text:{json.dumps(p.get("title") or "AI Stack 定位图", ensure_ascii=False)},subtext:{json.dumps(p.get("subtitle") or "", ensure_ascii=False)},left:'center',textStyle:{{color:'{text_color}',fontSize:{t_size},fontWeight:700}},subtextStyle:{{color:'{muted}',fontSize:13}}}},
   tooltip:{{
     formatter:function(p){{return p.value[3]+'<br/>Stack: '+p.seriesName+'<br/>Value Capture: '+p.value[1];}}
   }},
-  legend:{{bottom:10,textStyle:{{color:'{muted}',fontSize:11}}}},
+  legend:{{show:false}},
   grid:{{left:70,right:40,top:60,bottom:50}},
   xAxis:{{
     name:'Stack Layer', type:'category',

@@ -238,13 +238,20 @@ const DEFAULT_CARD_CSS = `
 }
 
 /* ── 图片框（卡片2-8，中轴线在卡片1/3处，宽6/7）── */
+:root {
+  --image-top: 33.33%;
+  --image-width: 85.7%;
+  --image-max-height: 28%;
+  --body-with-image-top: calc(33.33% + 14% + 70px);
+}
+
 .img-box {
   position: absolute;
-  top: 33.33%;
+  top: var(--image-top, 33.33%);
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 85.7%;
-  max-height: 28%;
+  width: var(--image-width, 85.7%);
+  max-height: var(--image-max-height, 28%);
   border-radius: 6px;
   box-shadow: 0 2px 14px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
   overflow: hidden;
@@ -260,10 +267,30 @@ const DEFAULT_CARD_CSS = `
 
 /* ── 当有图片时，正文在图片下方70px ── */
 .card-body.with-image {
-  margin-top: calc(33.33% + 14% + 70px);
+  margin-top: var(--body-with-image-top, calc(33.33% + 14% + 70px));
 }
 .img-box--office {
   background: #F8FAFC;
+}
+
+/* ── 图表专用图片区：更大、深色底、适配散点图 ── */
+.img-box--chart {
+  top: 43%;
+  width: 92%;
+  max-height: 46%;
+  background: #0B1629;
+  border-radius: 10px;
+}
+
+.img-box--chart img {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+
+.card-body.with-chart {
+  margin-top: 760px;
 }
 
 /* ── 卡片1 — 封面 ── */
@@ -341,7 +368,7 @@ const RENDERER_CARD_ASSET_MAP = {
   4: "product_main",
   5: "products_other",
   6: "flywheel",
-  7: "competitors",
+  7: "chart_competitive",
 };
 
 // ─── 工具函数 ────────────────────────────────────────────────
@@ -393,6 +420,7 @@ function imageBox(imageUrl, assetKey = '') {
   const imgTag = imageUrl ? `<img src="${escapeHTML(imageUrl)}" alt="">` : '';
   const classes = ['img-box'];
   if (assetKey === 'office') classes.push('img-box--office');
+  if (assetKey && assetKey.startsWith('chart_')) classes.push('img-box--chart');
   return `<div class="${classes.join(' ')}">${imgTag}</div>`;
 }
 
@@ -622,6 +650,15 @@ function applyParamOverrides(paramOverrides) {
   if (c.inkSecondary)      vars['--ink-secondary'] = c.inkSecondary;
   if (c.inkMuted)          vars['--ink-muted']     = c.inkMuted;
 
+  const l = paramOverrides.layout || {};
+  if (l.imageTopPercent != null)         vars['--image-top'] = l.imageTopPercent + '%';
+  if (l.imageMaxHeightPercent != null)   vars['--image-max-height'] = l.imageMaxHeightPercent + '%';
+  if (l.imageWidthPercent != null)       vars['--image-width'] = l.imageWidthPercent + '%';
+  if (l.imageTopPercent != null && l.imageMaxHeightPercent != null) {
+    const bodyTop = Math.round(1200 * (l.imageTopPercent / 100 + l.imageMaxHeightPercent / 200) + 70);
+    vars['--body-with-image-top'] = bodyTop + 'px';
+  }
+
   return vars;
 }
 
@@ -677,7 +714,10 @@ function renderPageGeneric(cardIndex, cardData, opts = {}) {
   // 图片标题：优先 markdown 中的 ## h2，回退到卡片数据的 _title 或空
   const imageTitle = title || cardData?._title || '';
 
-  const bodyClass = (showImage && displayImage) ? 'card-body with-image' : 'card-body';
+  const isChart = assetKey && assetKey.startsWith('chart_');
+  const bodyClass = (showImage && displayImage)
+    ? `card-body ${isChart ? 'with-chart' : 'with-image'}`
+    : 'card-body';
 
   const imageSection = (showImage && displayImage) ? `
     ${imageTitle ? `<h2 class="card-image-title">${escapeHTML(imageTitle)}</h2>` : ''}
