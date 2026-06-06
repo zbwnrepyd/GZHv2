@@ -3,6 +3,7 @@
     "export:cards": "node canvas/screenshot.js"
   },
   "dependencies": {
+    "echarts": "^5.6.0",
     "puppeteer": "^24.43.1"
   }
 }

@@ -12,8 +12,10 @@ The app no longer depends on n8n for the main path. Research is started from the
 
 - `webapp/app.py`: Flask routes, background job status, static asset routes, and asset API.
 - `webapp/pipeline.py`: four-source collection, DeepSeek L0-L3 analysis, validation, database write.
-- `webapp/db.py`: SQLite access helpers for research records, job tracking, and final card content.
-- `webapp/asset_store.py`: CRUD layer for `company_assets` table (8 asset types per company).
+- `webapp/db.py`: SQLite access helpers for research records, job tracking, final fields, and legacy final card content.
+- `db/migrate.py`: idempotent SQLite migration runner. It records applied SQL files in `schema_migrations` and is used by app startup for research/final field migrations.
+- `webapp/path_safety.py`: shared path-segment sanitizer for company image directories and media upload paths.
+- `webapp/asset_store.py`: CRUD layer for `company_assets` table (11 asset types per company).
 - `webapp/competitive_scoring.py`: enum normalization and scoring formulas for defensibility, incumbent attention, value capture, and funding-stage bubble size. Also contains Chinese funding-round normalization (`FUNDING_CN_MAP`).
 - `webapp/field_rules.py`: rule-layer enum extraction (no LLM). Infers `stack_layer` from `company_type` via 100+ keyword patterns. Scrapes `/pricing` page for `pricing_model` and `customer_segment_type` signals. Rule hits are passed to LLM Group C so it skips already-determined fields.
 - `webapp/field_validator.py`: Pydantic `CompetitiveFields` model with per-field enum validation. `validate_enum_fields()` rejects illegal values before database write, preventing dirty data from reaching the scoring formulas.
@@ -24,10 +26,10 @@ The app no longer depends on n8n for the main path. Research is started from the
 - `webapp/screenshot_client.py`: screenshot abstraction. The first implementation uses local Playwright and rejects login/captcha/Cloudflare/empty pages before saving screenshots.
 - `webapp/image_query.py`: builds structured image search strategies per slot from research data, with per-product and per-competitor URL-prioritised collection plans.
 - `webapp/image_search.py`: multi-source image search (Pexels → Unsplash → Tavily) used by the image studio manual search interface.
-- `webapp/infographic.py`: SVG/HTML renderers for infographics. Flywheel/timeline use LLM-extracted JSON → SVG templates → Playwright PNG. Competitive positioning scatter plots use Frappe Charts CDN rendered in an HTML page → Playwright screenshot at 2x deviceScaleFactor. All rendered via `_html_to_png()` for sharp output.
+- `webapp/infographic.py`: SVG/HTML renderers for infographics. Flywheel/timeline use LLM-extracted JSON → SVG templates → Playwright PNG. Competitive positioning scatter plots use ECharts HTML; preview and `file://` Playwright rendering can inline the local `webapp/static/vendor/echarts.min.js` runtime, so chart rendering does not depend on jsDelivr/CDN availability.
 - `prompts/`: prompt templates loaded by `webapp/deepseek_client.py`.
-- `webapp/static/js/index.js`: research desk orchestration, research job polling, and finalization progress display as `confirmed/8`.
-- `webapp/static/js/editor.js`: finalization desk orchestration, three-section accordion (content finalization / hook copy / image finalization), four-column line choice, hook-copy view, card confirmation, and embedded image-studio integration.
+- `webapp/static/js/index.js`: research desk orchestration, research job polling, source-chain status, recent-event display, and finalization progress display from `final_fields` when available.
+- `webapp/static/js/editor.js`: finalization desk orchestration. Left navigation has card settings, text finalization, image finalization, and a fixed bottom “进入排版” link; the three work panels are mutually exclusive overlays.
 - `image-studio/`: standalone image finalization module with three-column layout (slot overview | middle preview + toolbar or chart bar | right candidate thumbnails/code + confirm). Two slot modes: **image slots** (logo/office/website_screenshot/product/competitors/competitors_logo_strip) use preview/search toggle + toolbar; **chart slots** (flywheel/timeline/chart_competitive/chart_ecosystem) use a proportional real-time iframe preview, bottom parameter bar, and right-side code/action dock with the final confirm button. Supports `?embed=1` for iframe integration into the editor; slot navigation moves to the editor accordion in embed mode.
 - `image-studio/js/studio-app.js` and `image-studio/js/workspace-chart.js`: main controllers. Generated chart slots are routed to the chart workspace: flywheel/timeline use SVG template params + preview; chart_competitive/chart_ecosystem use editable ECharts/HTML preview with syntax-highlighted code and live application.
 - `image-studio/js/search-panel.js`: middle panel for image slots — preview/search toggle bar, large preview stage, search results grid with pagination, and toolbar (search bar + engine selector, recollect all/slot, AI generation, upload, URL import).
@@ -60,8 +62,12 @@ Job status is persisted in the `research_jobs` table. The `/api/research/status/
 `research_db.sqlite` contains:
 - `research`: generated research records, 3 rows per run (one per version). It also stores competitive-positioning enum fields (`ai_model_dependency`, `workflow_integration_level`, `data_flywheel`, `proprietary_data_asset`, `incumbent_direct_competitor`, `customer_segment_type`, `funding_stage`, `pricing_model`, `inference_cost_exposure`, `stack_layer`) plus cached scores (`funding_stage_score`, `score_defensibility`, `score_incumbent_attention`, `score_value_capture`).
 - `research_jobs`: task lifecycle tracking (status, stage, error). Survives restarts; the status endpoint falls back to this table when the in-memory job dict is cold.
+- `research_fields`: field-level research pool split from the wide research row. It is keyed by `(company_name, version, field_key)` and created by migration `001_research_fields.sql`.
 
-`final_db.sqlite` contains human-confirmed card content in `final_content`. The current finalization desk saves each confirmed card as one `markdown_full` field. Legacy field-level rows are still supported by the export path. The unique key is:
+`final_db.sqlite` contains:
+
+- `final_fields`: current field-level finalization table, keyed by `(company_name, field_key)`. Text finalization writes here with `status` values such as `draft` and `confirmed`. Company-library progress is computed as confirmed fields divided by total fields when rows exist.
+- `final_content`: legacy card-level content table. It is still supported by export and compatibility paths. The unique key is:
 
 ```text
 company_name + card_index + field_name

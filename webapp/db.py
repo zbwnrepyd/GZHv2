@@ -7,6 +7,7 @@ import sqlite3
 from contextlib import contextmanager
 
 from competitive_scoring import compute_scores, normalize_fields
+from path_safety import safe_path_segment
 
 
 @contextmanager
@@ -45,8 +46,9 @@ def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
                         filled += 1
             completeness = round(filled / len(REQUIRED_RESEARCH_FIELDS) * 100) if latest else 0
             confirmed = 0
+            total = 8
             if final_db_path:
-                confirmed = _count_confirmed_cards(final_db_path, row["company_name"])
+                confirmed, total = _count_final_fields_progress(final_db_path, row["company_name"])
             website_url = latest["website_url"] if latest else ""
             if not website_url or str(website_url).strip() in ("", "暂缺"):
                 website_url = _latest_job_company_url(conn, row["company_name"])
@@ -61,7 +63,7 @@ def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
                     "researched_at": row["created_at"],
                     "completeness": completeness,
                     "confirmed": confirmed,
-                    "total": 8,
+                    "total": total,
                     **scoring,
                 }
             )
@@ -135,6 +137,25 @@ def _count_confirmed_cards(final_db_path: str, company_name: str) -> int:
             return row["cnt"] if row else 0
     except Exception:
         return 0
+
+
+def _count_final_fields_progress(final_db_path: str, company_name: str) -> tuple[int, int]:
+    try:
+        with get_db(final_db_path) as conn:
+            row = conn.execute(
+                """SELECT
+                     COUNT(CASE WHEN status='confirmed' THEN 1 END) as confirmed,
+                     COUNT(*) as total
+                   FROM final_fields
+                   WHERE company_name=?""",
+                (company_name,),
+            ).fetchone()
+            total = row["total"] if row else 0
+            if total:
+                return row["confirmed"], total
+    except Exception:
+        pass
+    return _count_confirmed_cards(final_db_path, company_name), 8
 
 
 def get_research(db_path: str, company_name: str, version: str) -> dict | None:
@@ -399,13 +420,7 @@ def export_json(db_path: str, company_name: str) -> dict | None:
 
 
 def _safe_image_dir_name(company_name: str) -> str:
-    name = str(company_name or "company").strip()
-    name = name.replace("/", "_").replace("\\", "_")
-    name = re.sub(r"\s+", "_", name)
-    name = re.sub(r"[\x00-\x1f\x7f?%*:|\"<>]", "_", name)
-    while ".." in name:
-        name = name.replace("..", "_")
-    return name.strip("._ ") or "company"
+    return safe_path_segment(company_name)
 
 
 def delete_company(research_db_path: str, final_db_path: str, assets_db_path: str,

@@ -3,6 +3,7 @@
 流程：LLM 生成结构化 JSON → SVG 模板确定性绘图 → Playwright 截成 PNG
 """
 from __future__ import annotations
+import functools
 import json
 import os
 import tempfile
@@ -382,6 +383,22 @@ def generate_timeline_from_markdown(markdown: str, dest: str, deepseek_call) -> 
 # ═══════════════════════════════════════════════════════════════
 
 _ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
+_ECHARTS_VENDOR_PATH = os.path.join(
+    os.path.dirname(__file__), "static", "vendor", "echarts.min.js"
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _echarts_inline_js() -> str:
+    """读取并缓存本地 ECharts JS，供 srcdoc/file:// 渲染路径内联使用。"""
+    with open(_ECHARTS_VENDOR_PATH, encoding="utf-8") as f:
+        return f.read()
+
+
+def _echarts_script_tag(inline: bool = False) -> str:
+    if inline:
+        return f"<script>{_echarts_inline_js()}</script>"
+    return f'<script src="{_ECHARTS_CDN}"></script>'
 
 _STACK_LABELS = ["基础设施", "基础模型", "中间件", "垂直应用", "分发渠道"]
 _STACK_LAYER_COLORS = ["#4FC3F7", "#BA68C8", "#FFB74D", "#81C784", "#E57373"]
@@ -447,6 +464,7 @@ fitChartCanvas();
 def _build_competitive_landscape_html(
     companies: list[dict], highlight: str,
     params: dict | None = None,
+    inline: bool = False,
 ) -> str:
     """竞争格局矩阵 HTML — 四象限 + 气泡大小按融资阶段缩放 + 主公司高亮"""
     p = params or {}
@@ -488,7 +506,7 @@ def _build_competitive_landscape_html(
 {_echarts_fit_style(bg)}
 </style></head><body>
 <div id="chart-frame"><div id="chart"></div></div>
-<script src="{_ECHARTS_CDN}"></script>
+{_echarts_script_tag(inline)}
 <script>
 var ds={ds_json};
 var hiName={json.dumps(highlight, ensure_ascii=False)};
@@ -561,6 +579,7 @@ chart.setOption(opt);
 def _build_ecosystem_positioning_html(
     companies: list[dict], highlight: str,
     params: dict | None = None,
+    inline: bool = False,
 ) -> str:
     """产业链生态位图 HTML — 离散X轴中文标签 + 层级颜色 + 高价值截留区"""
     p = params or {}
@@ -617,7 +636,7 @@ def _build_ecosystem_positioning_html(
 {_echarts_fit_style(bg)}
 </style></head><body>
 <div id="chart-frame"><div id="chart"></div></div>
-<script src="{_ECHARTS_CDN}"></script>
+{_echarts_script_tag(inline)}
 <script>
 var ds={ds_json};
 var hiName={json.dumps(highlight, ensure_ascii=False)};
@@ -753,21 +772,24 @@ evs.forEach(function(e,i){{
 
 
 def build_competitive_landscape_svg(companies: list[dict], highlight: str,
-                                     params: dict | None = None) -> str:
+                                     params: dict | None = None,
+                                     inline: bool = False) -> str:
     """竞争格局矩阵 HTML（ECharts 四象限散点图）"""
-    return _build_competitive_landscape_html(companies, highlight, params)
+    return _build_competitive_landscape_html(companies, highlight, params, inline=inline)
 
 
 def build_stack_positioning_svg(companies: list[dict], highlight: str,
-                                 params: dict | None = None) -> str:
+                                 params: dict | None = None,
+                                 inline: bool = False) -> str:
     """产业链生态位图 HTML（ECharts 离散轴散点图）"""
-    return _build_ecosystem_positioning_html(companies, highlight, params)
+    return _build_ecosystem_positioning_html(companies, highlight, params, inline=inline)
 
 
 def render_competitive_landscape(companies: list[dict], highlight: str, dest: str,
-                                  params: dict | None = None) -> bool:
+                                  params: dict | None = None,
+                                  inline: bool = True) -> bool:
     try:
-        html = build_competitive_landscape_svg(companies, highlight, params)
+        html = build_competitive_landscape_svg(companies, highlight, params, inline=inline)
         _html_to_png(html, dest, width=800, height=600, scale=2)
         return os.path.getsize(dest) > 1024
     except Exception:
@@ -775,9 +797,10 @@ def render_competitive_landscape(companies: list[dict], highlight: str, dest: st
 
 
 def render_stack_positioning(companies: list[dict], highlight: str, dest: str,
-                              params: dict | None = None) -> bool:
+                              params: dict | None = None,
+                              inline: bool = True) -> bool:
     try:
-        html = build_stack_positioning_svg(companies, highlight, params)
+        html = build_stack_positioning_svg(companies, highlight, params, inline=inline)
         _html_to_png(html, dest, width=800, height=600, scale=2)
         return os.path.getsize(dest) > 1024
     except Exception:

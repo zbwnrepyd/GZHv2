@@ -8,6 +8,8 @@ npm install
 sqlite3 db/research_db.sqlite < db/init_research_db.sql
 sqlite3 db/final_db.sqlite < db/init_final_db.sql
 sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
+python3 db/migrate.py db/research_db.sqlite --only 001_research_fields.sql
+python3 db/migrate.py db/final_db.sqlite --only 002_final_fields.sql
 ```
 
 Put secrets in environment variables or the project root `.env`. The app does not read `~/.env`. Do not commit secrets.
@@ -76,8 +78,18 @@ FLASK_PORT=5051 python3 app.py
 ```bash
 python3 -m unittest discover -s tests -v
 python3 -m py_compile webapp/*.py
+python3 db/migrate.py --help
 node canvas/screenshot.js --help
 ```
+
+Chart runtime:
+
+```bash
+test -s webapp/static/vendor/echarts.min.js
+node -e "console.log(require('./package.json').dependencies.echarts)"
+```
+
+Expected dependency line is `^5.6.0`. The vendor file is copied from `node_modules/echarts/dist/echarts.min.js` and is used for inline chart rendering.
 
 Prompt loading:
 
@@ -149,9 +161,9 @@ http://127.0.0.1:5050/image-studio/?company=Anthropic
 
 The image studio is also embedded in the editor via the left-side "图片定稿" accordion section; in embed mode it hides its top bar and slot overview panel. Standalone layout: left slot overview, middle preview/search toggle + toolbar (search, recollect, AI gen, upload, URL import), right 2-column candidate thumbnails + "确定图片" confirm button. Candidate thumbnails show source, dimensions, `final_score`, previewed/selected state, and `reject_reason`.
 
-In the finalization desk, each card is edited row by row across four columns: standard version, business version, spread version, and final input. Confirm cards 1-8. Card 7 is the competition landscape; card 8 is the summary and contains the market opportunity. The spread hook paragraphs are available from the left-side `传播钩子文案` entry; they are copy options for the article opening and are not written into cards.
+The finalization desk uses the flow: 卡片设置 (card settings) → 文字定稿 (text finalization) → 图片定稿 (image finalization) → 进入排版 (layout). The first three sections are mutually exclusive panels that occupy the right work area; “进入排版” is a fixed button at the bottom of the left rail. The old per-card content editing, hook copy, and database field panels have been removed. Text finalization supports adopting content from standard/business/spread versions into editable final fields. Card 7 is the competition landscape (moat + ecosystem niche analysis + competitors); card 8 is the summary (market opportunity). The spread hook paragraphs (`hook_paragraph_1/2/3`) are research fields and are not written into knowledge cards.
 
-The research desk company table shows finalization progress as `confirmed/8`. The card workbench `返回定稿台` button should return to `/editor?company=<company>` for the currently loaded company.
+The research desk company table shows finalization progress from `final_fields` as `confirmed/total` field counts. If a company only has legacy `final_content`, the app falls back to legacy card-count progress. The card workbench `返回定稿台` button should return to `/editor?company=<company>` for the currently loaded company.
 
 Export for canvas:
 
@@ -302,6 +314,8 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
 - If Tavily / GitHub / YouTube requests time out during research, confirm the proxy is running on the port configured in `.env` (`HTTPS_PROXY`). Timeout values are set in `pipeline.py` (connect/read: Tavily 30s/120s, GitHub 15s/45s, YouTube 15s/45s). Tavily now uses explicit `proxies=` parameter (not just env-var auto-detection).
 - If PNG export says Puppeteer is missing, run `npm install` from the project root.
 - If imports fail in a new environment, reinstall with `pip install -r requirements.txt`.
+- If chart preview or PNG export is blank, confirm `npm install` has run and `webapp/static/vendor/echarts.min.js` exists. Chart preview and Playwright rendering inline this local runtime; CDN access should not be required for `chart_competitive` or `chart_ecosystem`.
+- If a migration table is missing after schema initialization, run `python3 db/migrate.py <db-path> --only <migration.sql>`. The runner records applied files in `schema_migrations` and skips unchanged migrations on later runs.
 - `urllib3` may warn about LibreSSL on the system Python. The warning is noisy but was not a blocker in local verification.
 - If Playwright fails with "找不到 Chromium 可执行文件", run `playwright install chromium` or set `PLAYWRIGHT_CHROMIUM_PATH` to the chromium binary path. In Docker, install `chromium` via apt and add `--no-sandbox` etc. The pipeline auto-detects macOS/Linux Playwright caches and system chromium.
 - If the office map asset fails, confirm outbound access to Nominatim/OpenStreetMap tile hosts and Playwright Chromium. In domestic networks, set `HTTPS_PROXY` in project `.env`; `config.py` does not set proxy automatically.

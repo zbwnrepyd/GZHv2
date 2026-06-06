@@ -82,6 +82,32 @@ class ResearchScoringSaveTests(unittest.TestCase):
         self.assertEqual(companies[0]["stack_layer"], "middleware")
         self.assertIn("score_defensibility", companies[0])
 
+    def test_company_list_uses_final_fields_progress_when_available(self):
+        fd, final_db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        self.addCleanup(lambda: os.path.exists(final_db_path) and os.remove(final_db_path))
+        with sqlite3.connect(final_db_path) as conn:
+            with open(os.path.join(ROOT, "db", "migrations", "002_final_fields.sql"), encoding="utf-8") as f:
+                conn.executescript(f.read())
+            conn.executemany(
+                "INSERT INTO final_fields (company_name, field_key, final_value, status) VALUES (?, ?, ?, ?)",
+                [
+                    ("FieldCo", "company_name", "FieldCo", "confirmed"),
+                    ("FieldCo", "company_type", "AI 工具", "confirmed"),
+                    ("FieldCo", "main_product_def", "Demo", "draft"),
+                ],
+            )
+
+        db.save_research_records(
+            self.db_path,
+            [{"company_name": "FieldCo", "version": "standard", "company_type": "AI 工具"}],
+        )
+
+        companies = db.get_companies(self.db_path, final_db_path)
+
+        self.assertEqual(companies[0]["confirmed"], 2)
+        self.assertEqual(companies[0]["total"], 3)
+
     def test_company_list_computes_default_scores_for_legacy_rows(self):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(

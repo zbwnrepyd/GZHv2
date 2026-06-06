@@ -439,8 +439,12 @@ const ResearchDesk = {
     const latestDetail = this.detailText(detail);
     const latest = { stage: stage || '当前进度', detail: latestDetail };
     const tail = events[events.length - 1];
-    if (!tail || tail.stage !== latest.stage || this.detailText(tail.detail) !== latestDetail) {
+    if (!tail) {
       events.push(latest);
+    } else if (tail.stage !== latest.stage) {
+      events.push(latest);
+    } else {
+      events[events.length - 1] = latest;
     }
     const visible = events
       .filter(item => item && (item.stage || item.detail))

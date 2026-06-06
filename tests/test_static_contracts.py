@@ -111,6 +111,8 @@ class StaticContractTests(unittest.TestCase):
             editor_html = f.read()
         with open(os.path.join(ROOT, "webapp", "static", "js", "editor.js"), encoding="utf-8") as f:
             editor_js = f.read()
+        with open(os.path.join(ROOT, "webapp", "static", "css", "editor.css"), encoding="utf-8") as f:
+            editor_css = f.read()
         with open(os.path.join(ROOT, "webapp", "static", "js", "editor", "card-settings-panel.js"), encoding="utf-8") as f:
             card_settings_js = f.read()
         with open(os.path.join(ROOT, "webapp", "static", "js", "editor", "text-finalize-panel.js"), encoding="utf-8") as f:
@@ -125,11 +127,19 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn('data-section="text-finalize"', editor_html)
         self.assertIn('data-section="image"', editor_html)
         self.assertIn('id="btn-go-layout"', editor_html)
+        self.assertIn('class="editor-goto-layout"', editor_html)
+        self.assertNotIn('id="editor-middle-pane"', editor_html)
+        self.assertNotIn('id="editor-right-pane"', editor_html)
+        self.assertNotIn('id="btn-go-canvas"', editor_html)
+        self.assertIn("grid-template-columns: 180px 1fr", editor_css)
+        self.assertNotIn("grid-template-columns: 180px 1fr 360px", editor_css)
+        self.assertNotIn("editor-middle-pane", editor_js)
+        self.assertNotIn("editor-right-pane", editor_js)
         self.assertIn('/static/js/editor/card-settings-panel.js', editor_html)
         self.assertIn('/static/js/editor/text-finalize-panel.js', editor_html)
-        self.assertIn("CardSettingsPanel.init(company)", editor_html)
-        self.assertIn("TextFinalizePanel.init(company)", editor_html)
         self.assertIn("switchSection(section)", editor_js)
+        self.assertIn("CardSettingsPanel.init(this.companyName)", editor_js)
+        self.assertIn("TextFinalizePanel.init(this.companyName)", editor_js)
         self.assertIn("showCardSettingsMode", editor_js)
         self.assertIn("showTextFinalizeMode", editor_js)
         self.assertIn("showImageMode", editor_js)
@@ -373,9 +383,15 @@ class StaticContractTests(unittest.TestCase):
             editor_html = f.read()
         with open(os.path.join(ROOT, "webapp", "static", "js", "editor", "card-settings-panel.js"), encoding="utf-8") as f:
             card_settings_js = f.read()
+        with open(os.path.join(ROOT, "db", "migrate.py"), encoding="utf-8") as f:
+            migrate_py = f.read()
 
         self.assertIn('host=os.environ.get("FLASK_HOST", "127.0.0.1")', app_py)
         self.assertIn('debug=os.environ.get("FLASK_DEBUG") == "1"', app_py)
+        self.assertIn("run_migrations", migrate_py)
+        self.assertIn("schema_migrations", migrate_py)
+        self.assertIn("_run_migrations(config.DB_PATH_RESEARCH", app_py)
+        self.assertIn("_run_migrations(config.DB_PATH_FINAL", app_py)
         self.assertIn('media_bp = Blueprint("media"', routes_init)
         self.assertIn("media_routes", routes_init)
         self.assertIn("/media/<company>/<media_key>/upload", media_routes)

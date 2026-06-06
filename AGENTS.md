@@ -46,6 +46,7 @@ curl http://127.0.0.1:5050/api/research/status/<job_id>
 ```bash
 python3 -m unittest discover -s tests -v
 python3 -m py_compile webapp/*.py
+python3 db/migrate.py --help
 node canvas/screenshot.js --help
 ```
 
@@ -64,6 +65,7 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - 卡片制作台左侧公司名是只读项目状态，来自定稿台跳转或 `?company=<公司名>`；不要恢复可输入公司名框
 - 卡片制作台返回按钮应回到当前公司的定稿台 `/editor?company=<公司名>`
 - 数据库用sqlite3标准库，不用ORM
+- SQLite 迁移使用 `db/migrate.py`，通过 `schema_migrations` 幂等记录已执行 SQL；不要在启动路径手工重复 `executescript` 迁移文件
 - 网页抓取用本地 trafilatura（`webapp/firecrawl_local.py`），不依赖外部 API
 - 环境变量只读取系统环境变量和项目根目录 `.env`；不要读取或恢复用户目录 `~/.env`
 - Tavily 可用 `TAVILY_API_KEYS` 配置逗号分隔的多 Key，额度限制时自动尝试下一个；不要把真实 Key 写进代码、测试、文档或日志
@@ -78,7 +80,8 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - L3 枚举字段（10个竞争评分维度）改三层解耦：规则层 `field_rules.py`（爬 pricing 页+关键词推断）→ LLM 拆为3组独立调用（prompts/layer3-group-a/b/c）→ Pydantic 验证 `field_validator.py`；关键字段多数投票。不改动 L3 主调用的 45 个非枚举字段提取
 - 创始人 `founder_edu/founder_achievement` 缺失修复属于 L3 主流程内重试，不要恢复后置补抓流程
 - 图片 API Key 可通过环境变量配置，也可在图片定稿台搜索面板 AI 生图时随请求发送；临时 Key 不写入 localStorage 或响应
-- 公司图片资产通过 `company_assets` 表管理（11 种 asset_key），不用路径约定或 localStorage。采集统一走 `collect_image_variants_pipeline`（含官网首页截图 candidate，不抢 OSM 默认）。信息图（飞轮/时间线/散点图）走 `infographic.py`：飞轮/时间线用 SVG 模板渲染，散点图用 ECharts CDN 渲染为 HTML 再 Playwright 截图（2x scale 高清）
+- 公司名/图片路径片段统一用 `webapp/path_safety.py:safe_path_segment` 消毒；不要在各模块新增不同的路径清理规则
+- 公司图片资产通过 `company_assets` 表管理（11 种 asset_key），不用路径约定或 localStorage。采集统一走 `collect_image_variants_pipeline`（含官网首页截图 candidate，不抢 OSM 默认）。信息图（飞轮/时间线/散点图）走 `infographic.py`：飞轮/时间线用 SVG 模板渲染，散点图用本地 `webapp/static/vendor/echarts.min.js` 内联渲染为 HTML，再由 Playwright 截图（2x scale 高清）；不要恢复 CDN 依赖作为主路径
 - 自动图片采集必须走候选池：下载后用 `image_quality.py` 检测、`image_scorer.py` 评分，写入尺寸/分数/失败原因；Tavily 不允许取第一张直接当最终图
 - `office` 素材默认使用公司位置地图：OSM 瓦片本地拼接 + HTML pin/legend 生成 PNG，并默认选中；Google Street View/Tavily 办公室图只作为后续候选变体，不抢默认选中
 - 图片定稿台两类槽位两种界面：①采集图片类（logo/office/product/competitors）→ 三栏布局，中间栏上部预览/搜索切换 + 下部工具栏（搜索/采集/AI生图/上传）；②图表类（flywheel/timeline/positioning_charts）→ 中间栏 iframe 实时预览（Frappe Charts / SVG）+ 下部功能区 bar（调参+重置+渲染保存），无搜索框
@@ -89,10 +92,13 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - 国内环境访问 Tavily 和 YouTube API 需配 HTTPS_PROXY（在 `.env` 手动配置）。Tavily 使用显式 `proxies=` 传参并支持超时后换 Key；超时配置在 `pipeline.py`
 - Pexels（200 req/h，支持中文）和 Unsplash（50 req/h，英文关键词）API Key 通过环境变量配置，用于图片定稿台手动搜索
 - 图片自动采集不再使用 Lorem Flickr / Picsum 通用图；搜不到真实图片时标记 `failed`，进入图片定稿台手动补
-- 定稿台左侧结构：卡片设置、文字定稿、图片定稿、进入排版。每个面板点击后占据中右全区域，互斥切换。旧版内容定稿/钩子文案/数据库字段面板已删除
+- 定稿台左侧结构：卡片设置、文字定稿、图片定稿、进入排版。前三个面板点击后占据右侧主区域，互斥切换；「进入排版」是左侧底部固定按钮。旧版内容定稿/钩子文案/数据库字段面板已删除
+- 研究台公司库定稿进度优先读取 `final_fields` 的 confirmed/total 字段数；旧 `final_content` 卡片数仅作兼容回退
 - 研究台要展示 Tavily/GitHub/YouTube/官网抓取的链路状态与数量；公司库点击一条只展开该公司研究信息，点另一条时其他行折叠
 
 ## 参考
-- 新人入口：`README.md`
+- 新人入口：`docs/project-guide.md`
 - 架构说明：`docs/architecture.md`
+- 评分体系：`docs/scoring-system.md`
+- 卡片规范：`docs/card-spec.md`
 - 运行手册：`docs/runbook.md`
