@@ -399,13 +399,64 @@ def save_final_markdown(db_path: str, company_name: str, card_index: int, markdo
 
 
 def get_final_card_markdown(db_path: str, company_name: str, card_index: int) -> str | None:
-    """读取单张卡片已定稿的 markdown_full"""
+    """读取单张卡片已定稿的 markdown_full（旧 final_content 兼容路径）"""
     with get_db(db_path) as conn:
         row = conn.execute(
             "SELECT field_value FROM final_content WHERE company_name=? AND card_index=? AND field_name='markdown_full'",
             (company_name, card_index),
         ).fetchone()
         return row["field_value"] if row else None
+
+
+def get_finalized_field(final_db_path: str, research_db_path: str,
+                        company_name: str, field_key: str) -> str | None:
+    """读取定稿字段值：final_fields → research DB → final_content（兼容旧数据）。"""
+    # 1. 优先从 final_fields 读（表可能尚未创建，如旧 DB 未迁移）
+    try:
+        from repositories.field_repo import get_final_field_value
+        value = get_final_field_value(final_db_path, company_name, field_key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    except Exception:
+        pass
+
+    # 2. 回退到 research DB 原始数据
+    research = get_research(research_db_path, company_name, "standard")
+    if research:
+        raw = research.get(field_key)
+        if raw is not None and str(raw).strip() not in ("", "暂缺"):
+            val = str(raw).strip()
+            # 如果是 JSON 字符串（如 timeline_events），解析为 markdown 友好格式
+            if val.startswith("[") and val.endswith("]"):
+                try:
+                    import json as _json
+                    items = _json.loads(val)
+                    lines = []
+                    for item in items:
+                        if isinstance(item, dict):
+                            # 兼容两种字段名：{year,title,desc} 或 {date,event,impact}
+                            time = item.get("year") or item.get("date") or ""
+                            title = item.get("title") or item.get("event") or ""
+                            desc = item.get("desc") or item.get("impact") or ""
+                            parts = [f"**{time}**" if time else ""]
+                            if title: parts.append(title)
+                            if desc: parts.append(f"— {desc}")
+                            lines.append(" ".join(p for p in parts if p))
+                        else:
+                            lines.append(f"- {item}")
+                    return "\n".join(lines)
+                except Exception:
+                    pass
+            return val
+
+    # 3. 回退到旧 final_content 表（兼容迁移前的数据）
+    field_to_card = {"timeline_events": 3, "growth_flywheel": 6}
+    card_index = field_to_card.get(field_key)
+    if card_index:
+        markdown = get_final_card_markdown(final_db_path, company_name, card_index)
+        if markdown:
+            return markdown
+    return None
 
 
 def get_final_status(db_path: str, company_name: str) -> dict:

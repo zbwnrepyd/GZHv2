@@ -313,7 +313,9 @@ def _pre_extract_svg_data(company_name: str, card_index: int):
     """从定稿卡片 Markdown 预提取飞轮/时间线结构化 JSON，缓存到资产 meta 中。"""
     try:
         asset_key = "timeline" if card_index == 3 else "flywheel"
-        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company_name, card_index)
+        field_key = "timeline_events" if card_index == 3 else "growth_flywheel"
+        markdown = database.get_finalized_field(config.DB_PATH_FINAL, config.DB_PATH_RESEARCH,
+                                                company_name, field_key)
         if not markdown:
             return
 
@@ -858,10 +860,11 @@ def generate_asset(company: str, asset_key: str):
             })
 
         # ── flywheel / timeline：需要 markdown + LLM 提取 ──
-        card_index = 6 if asset_key == "flywheel" else 3
-        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+        field_key = "growth_flywheel" if asset_key == "flywheel" else "timeline_events"
+        markdown = database.get_finalized_field(config.DB_PATH_FINAL, config.DB_PATH_RESEARCH,
+                                                company, field_key)
         if not markdown:
-            return jsonify({"error": f"未找到公司 {company} 卡片 {card_index} 的定稿内容"}), 404
+            return jsonify({"error": f"未找到公司 {company} 的{field_key}定稿内容"}), 404
 
         # 包装 deepseek 调用
         def ds_call(system_prompt, user_message, temperature=0.1, max_tokens=2048):
@@ -1078,8 +1081,9 @@ def get_generated_chart_data(company: str, asset_key: str):
             }
             return jsonify(payload)
 
-        card_index = 6 if asset_key == "flywheel" else 3
-        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+        field_key = "growth_flywheel" if asset_key == "flywheel" else "timeline_events"
+        markdown = database.get_finalized_field(config.DB_PATH_FINAL, config.DB_PATH_RESEARCH,
+                                                company, field_key)
         data = {}
         cached = False
         if markdown:
@@ -1638,10 +1642,11 @@ def extract_svg_data(company: str, asset_key: str):
         return jsonify({"error": "仅支持 flywheel / timeline"}), 400
 
     try:
-        card_index = 6 if asset_key == "flywheel" else 3
-        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+        field_key = "growth_flywheel" if asset_key == "flywheel" else "timeline_events"
+        markdown = database.get_finalized_field(config.DB_PATH_FINAL, config.DB_PATH_RESEARCH,
+                                                company, field_key)
         if not markdown:
-            return jsonify({"error": f"未找到卡片 {card_index} 的定稿内容"}), 404
+            return jsonify({"error": f"未找到 {field_key} 的定稿内容"}), 404
 
         data, cached = _load_svg_data(company, asset_key, markdown)
         if not data:
@@ -1699,10 +1704,11 @@ def render_svg_variant(company: str, asset_key: str):
             })
 
         # ── flywheel / timeline：LLM 提取结构化数据 ──
-        card_index = 6 if asset_key == "flywheel" else 3
-        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+        field_key = "growth_flywheel" if asset_key == "flywheel" else "timeline_events"
+        markdown = database.get_finalized_field(config.DB_PATH_FINAL, config.DB_PATH_RESEARCH,
+                                                company, field_key)
         if not markdown:
-            return jsonify({"error": f"未找到卡片 {card_index} 的定稿内容"}), 404
+            return jsonify({"error": f"未找到 {field_key} 的定稿内容"}), 404
 
         data, _cached = _load_svg_data(company, asset_key, markdown)
         if not data:
