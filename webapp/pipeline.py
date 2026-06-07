@@ -911,6 +911,40 @@ def run_pipeline(company_name: str, company_url: str,
     )
     _check_cancel()
 
+    # P2: 采集审计 + 缺口预补采（LLM 分析之前，确保证据充分）
+    if os.environ.get("COLLECTION_ENABLE_GAP_REFETCH", "1") == "1":
+        src = raw.get("_source_summary", {})
+        tavily_src = src.get("tavily", {})
+        unique_urls = tavily_src.get("unique_url_count", 0)
+        intents_found = tavily_src.get("intent_count", 0)
+        min_urls = int(os.environ.get("COLLECTION_MIN_UNIQUE_URLS", "18"))
+        if unique_urls < min_urls or intents_found < 4:
+            identity_display = raw.get("display_name", company_name)
+            identity_host = raw.get("website_host", "")
+            identity_root = identity_host.split(".")[0] if identity_host else ""
+            # 预补采：用 search_plan 的宽泛覆盖生成额外 query
+            from search_plan import build_search_plan as _plan
+            pre_plan = _plan(identity_display, identity_root, identity_host,
+                           raw.get("aliases", []))
+            # 取前 6 组核心意图 query 做补充
+            extra = [{"query": q.query, "intent": q.intent}
+                    for q in pre_plan.tavily_queries[:6]]
+            if extra:
+                _report(progress_callback, "补采", {
+                    "message": f"采集不足({unique_urls}URL/{intents_found}意图)，预补采 {len(extra)} 组",
+                }, job_id=job_id)
+                supplement = _search_tavily(extra, progress_callback, job_id)
+                existing = raw.get("tavily", [])
+                if isinstance(existing, list):
+                    raw["tavily"] = existing + supplement
+                else:
+                    raw["tavily"] = supplement
+                raw["_evidence_pool"] = _build_evidence_pool(raw)
+                raw["_pre_gap_refetch"] = {"extra_queries": len(extra)}
+                _report(progress_callback, "补采", {
+                    "message": f"预补采完成，证据池更新为 {len(raw['_evidence_pool'])} 条",
+                }, job_id=job_id)
+
     # Step 2: AI 分析
     _report(progress_callback, "分析", "开始 4 层 LLM 分析...", job_id=job_id)
     records = llm_analysis(
@@ -964,7 +998,12 @@ def run_pipeline(company_name: str, company_url: str,
     from repositories.field_repo import insert_research_fields_batch
     for record in records:
         version = record.get('version', 'standard')
-        field_record = {**record, "company_name": company_name}
+        field_record = {
+            **record,
+            "company_name": company_name,
+            "company_key": raw.get("company_key", ""),
+            "display_name": raw.get("display_name", company_name),
+        }
         field_rows = split_research_to_fields(field_record, version)
         if field_rows:
             insert_research_fields_batch(config.DB_PATH_RESEARCH, field_rows)
@@ -975,6 +1014,8 @@ def run_pipeline(company_name: str, company_url: str,
     standard_record = records[0] if records else {}
     company_data = {
         "company_name": company_name,
+        "company_key": raw.get("company_key", ""),
+        "display_name": raw.get("display_name", company_name),
         "company_url": company_url,
         "website_url": company_url,
         "location": standard_record.get("location", ""),

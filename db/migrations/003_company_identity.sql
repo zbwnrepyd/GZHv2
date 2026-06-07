@@ -34,6 +34,12 @@ ALTER TABLE final_fields ADD COLUMN company_key TEXT;
 CREATE INDEX IF NOT EXISTS idx_final_fields_company_key
   ON final_fields(company_key);
 
+-- research_fields (research_db)
+ALTER TABLE research_fields ADD COLUMN company_key TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_research_fields_company_key
+  ON research_fields(company_key, version);
+
 -- NOTE: card_compositions + card_items 在 composition_db.sqlite 中，
 -- 需要在 composition_db 上单独执行:
 -- ALTER TABLE card_compositions ADD COLUMN company_key TEXT;
