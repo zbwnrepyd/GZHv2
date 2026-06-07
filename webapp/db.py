@@ -226,13 +226,38 @@ def _count_final_fields_progress(final_db_path: str, company_name: str) -> tuple
 
 
 def get_research(db_path: str, company_name: str, version: str) -> dict | None:
-    """读取指定版本的全部字段"""
+    """读取指定版本的全部字段（按展示名）"""
     with get_db(db_path) as conn:
         row = conn.execute(
             "SELECT * FROM research WHERE company_name=? AND version=? "
             "ORDER BY created_at DESC LIMIT 1",
             (company_name, version),
         ).fetchone()
+        return dict(row) if row else None
+
+
+def get_research_by_key(db_path: str, company_key: str, version: str) -> dict | None:
+    """读取指定版本的全部字段（按 company_key）"""
+    with get_db(db_path) as conn:
+        has_ckey = any(
+            r["name"] == "company_key"
+            for r in conn.execute("PRAGMA table_info(research)").fetchall()
+        )
+        if has_ckey:
+            row = conn.execute(
+                "SELECT * FROM research "
+                "WHERE COALESCE(NULLIF(company_key,''), LOWER(company_name))=? "
+                "AND version=? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (company_key, version),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM research "
+                "WHERE LOWER(company_name)=? AND version=? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (company_key, version),
+            ).fetchone()
         return dict(row) if row else None
 
 
@@ -297,6 +322,11 @@ def _ensure_research_schema(conn: sqlite3.Connection):
         "score_defensibility": "REAL",
         "score_incumbent_attention": "REAL",
         "score_value_capture": "REAL",
+        # identity fields (P1)
+        "company_key": "TEXT",
+        "display_name": "TEXT",
+        "input_name": "TEXT",
+        "website_host": "TEXT",
     }
     for name, definition in columns.items():
         if name not in existing:
@@ -323,9 +353,16 @@ def save_research_records(db_path: str, records: list[dict]) -> list[int]:
 
             values = [rec.get("company_name", "未知"), rec.get("version", "unknown")]
             values += [rec.get(f, "暂缺") for f in RESEARCH_SAVE_FIELDS]
-            placeholders = ",".join(["?"] * (len(RESEARCH_SAVE_FIELDS) + 2))
+            # identity columns (P1 — available when _collect_all runs with company_identity)
+            id_cols = []
+            for col in ["company_key", "display_name", "input_name", "website_host"]:
+                if col in rec:
+                    id_cols.append(col)
+                    values.append(rec[col])
+            placeholders = ",".join(["?"] * (len(RESEARCH_SAVE_FIELDS) + 2 + len(id_cols)))
+            all_cols = ["company_name", "version"] + RESEARCH_SAVE_FIELDS + id_cols
             cur = conn.execute(
-                f"INSERT INTO research (company_name, version, {','.join(RESEARCH_SAVE_FIELDS)}) VALUES ({placeholders})",
+                f"INSERT INTO research ({','.join(all_cols)}) VALUES ({placeholders})",
                 values,
             )
             ids.append(cur.lastrowid)

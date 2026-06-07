@@ -163,6 +163,21 @@ def list_companies():
 
 # ── API：读取研究数据 ─────────────────────────────────────────
 
+@app.route("/api/research/by-key/<company_key>/<version>")
+def get_research_by_key(company_key: str, version: str):
+    """按 company_key 读取研究数据（推荐新接口）。"""
+    if version not in ("standard", "business", "spread"):
+        return jsonify({"error": f"无效的版本: {version}"}), 400
+    try:
+        data = database.get_research_by_key(config.DB_PATH_RESEARCH, company_key, version)
+        if not data:
+            return jsonify({"error": "公司或版本不存在"}), 404
+        data.pop("id", None)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/research/<company>/<version>")
 def get_research(company: str, version: str):
     if version not in ("standard", "business", "spread"):
@@ -557,11 +572,19 @@ def start_research():
                 "started_at": time.time(),
             }
 
+        from company_identity import build_company_identity
+        identity = build_company_identity(company_name, company_url)
+
         t = threading.Thread(target=_run_pipeline_job,
                              args=(job_id, company_name, company_url), daemon=True)
         t.start()
 
-        return jsonify({"job_id": job_id, "status": "running"})
+        return jsonify({
+            "job_id": job_id,
+            "status": "running",
+            "company_key": identity.company_key,
+            "display_name": identity.display_name,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

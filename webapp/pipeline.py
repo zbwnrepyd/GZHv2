@@ -134,11 +134,11 @@ def _search_tavily_query(query: str, include_images: bool = False):
                 "search_depth": "advanced",
                 "include_answer": True,
                 "include_raw_content": True,
-                "max_results": 8,
+                "max_results": int(os.environ.get("TAVILY_RESULTS_PER_QUERY", "8")),
             }
             if include_images:
                 body["include_images"] = True
-                body["max_results"] = 10
+                body["max_results"] = int(os.environ.get("TAVILY_RESULTS_PER_QUERY", "10"))
             resp = requests.post(
                 "https://api.tavily.com/search",
                 json=body,
