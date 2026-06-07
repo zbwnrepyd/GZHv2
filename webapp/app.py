@@ -319,9 +319,9 @@ def _pre_extract_svg_data(company_name: str, card_index: int):
         if not markdown:
             return
 
-        def ds_call(sys_prompt, usr_msg, **kw):
+        def ds_call(system_prompt, user_message, **kw):
             return call_deepseek(
-                config.DEEPSEEK_API_KEY, sys_prompt, usr_msg,
+                config.DEEPSEEK_API_KEY, system_prompt, user_message,
                 model=config.DEEPSEEK_MODEL, **kw
             )
 
@@ -511,9 +511,9 @@ def _load_svg_data(company: str, asset_key: str, markdown: str) -> tuple[dict | 
     if cached:
         return cached, True
 
-    def ds_call(sys, usr, **kw):
+    def ds_call(system_prompt, user_message, **kw):
         return call_deepseek(
-            config.DEEPSEEK_API_KEY, sys, usr,
+            config.DEEPSEEK_API_KEY, system_prompt, user_message,
             model=config.DEEPSEEK_MODEL, **kw
         )
 

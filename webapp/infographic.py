@@ -257,12 +257,14 @@ def extract_flywheel_json(markdown: str, deepseek_call) -> dict | None:
             temperature=0.1,
             max_tokens=2048,
         )
-        # 清理 markdown 代码块
+        # 清理 markdown 代码块（兼容带/不带 trailing 空行的 LLM 输出）
         result = result.strip()
         if result.startswith("```"):
-            result = result.split("\n", 1)[1]
-            if result.endswith("```"):
-                result = result[:-3]
+            lines = result.splitlines()
+            lines = lines[1:]                          # 去掉 ```json 行
+            if lines and lines[-1].strip() == "```":   # 去掉结尾 ``` 行（即使后有空格）
+                lines = lines[:-1]
+            result = "\n".join(lines)
         return json.loads(result.strip())
     except Exception:
         return None
@@ -279,9 +281,11 @@ def extract_timeline_json(markdown: str, deepseek_call) -> dict | None:
         )
         result = result.strip()
         if result.startswith("```"):
-            result = result.split("\n", 1)[1]
-            if result.endswith("```"):
-                result = result[:-3]
+            lines = result.splitlines()
+            lines = lines[1:]                          # 去掉 ```json 行
+            if lines and lines[-1].strip() == "```":   # 去掉结尾 ``` 行（即使后有空格）
+                lines = lines[:-1]
+            result = "\n".join(lines)
         return json.loads(result.strip())
     except Exception:
         return None
