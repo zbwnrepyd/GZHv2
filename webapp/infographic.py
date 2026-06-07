@@ -485,7 +485,7 @@ def _build_competitive_landscape_html(
         if dx == 0 and dy == 0:
             continue
         fs = float(c.get("funding_stage_score") or 0)
-        sz = max(6, fs * 4 + 6) if fs > 0 else pt_base
+        sz = max(8, fs * 2.5 + 8) if fs > 0 else pt_base  # 缩小气泡上限避免遮挡
         (hi_data if n == highlight else ot_data).append({
             "name": n, "value": [dx, dy, sz, n],
         })
@@ -500,7 +500,7 @@ def _build_competitive_landscape_html(
     text_color = "#fff" if theme == "dark" else "#333"
     muted = "rgba(255,255,255,0.5)" if theme == "dark" else "#999"
     line_color = "rgba(255,255,255,0.12)" if theme == "dark" else "#e0e0e0"
-    quad_label_color = "rgba(255,255,255,0.18)" if theme == "dark" else "rgba(0,0,0,0.08)"
+    quad_label_color = "rgba(255,255,255,0.42)" if theme == "dark" else "rgba(0,0,0,0.20)"
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
@@ -533,7 +533,8 @@ var series=ds.map(function(d){{
 // 主公司用 accent 色，其他用灰色系
 series[0].itemStyle=series[0].itemStyle||{{}};
 series[0].itemStyle.color='{accent}';
-if(series[1]) series[1].itemStyle.color='rgba(255,255,255,0.25)';
+// 其他公司提亮到 0.50，避免在小卡片上消失在深色背景里
+if(series[1]) series[1].itemStyle.color='rgba(255,255,255,0.50)';
 
 var opt={{
   title:{{text:{json.dumps(p.get("title") or "竞争格局矩阵", ensure_ascii=False)},subtext:{json.dumps(p.get("subtitle") or "", ensure_ascii=False)},left:'center',textStyle:{{color:'{text_color}',fontSize:{t_size},fontWeight:700}},subtextStyle:{{color:'{muted}',fontSize:13}}}},
@@ -560,10 +561,10 @@ var opt={{
   color:["{accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF"],
   series: series,
   graphic:[
-    {{type:'text',left:62,top:52,style:{{text:{json.dumps(p.get("quadrant_tl") or "Sweet Spot", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:13,fontWeight:600}}}},
-    {{type:'text',right:32,top:52,style:{{text:{json.dumps(p.get("quadrant_tr") or "Kill Zone", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:13,fontWeight:600}}}},
-    {{type:'text',left:62,bottom:42,style:{{text:{json.dumps(p.get("quadrant_bl") or "Waiting Room", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:13,fontWeight:600}}}},
-    {{type:'text',right:32,bottom:42,style:{{text:{json.dumps(p.get("quadrant_br") or "Battlefield", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:13,fontWeight:600}}}}{no_data_graphic},
+    {{type:'text',left:62,top:52,style:{{text:{json.dumps(p.get("quadrant_tl") or "Kill Zone", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:17,fontWeight:700}}}},
+    {{type:'text',right:32,top:52,style:{{text:{json.dumps(p.get("quadrant_tr") or "Battlefield", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:17,fontWeight:700}}}},
+    {{type:'text',left:62,bottom:42,style:{{text:{json.dumps(p.get("quadrant_bl") or "Waiting Room", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:17,fontWeight:700}}}},
+    {{type:'text',right:32,bottom:42,style:{{text:{json.dumps(p.get("quadrant_br") or "Sweet Spot", ensure_ascii=False)},fill:'{quad_label_color}',fontSize:17,fontWeight:700}}}}{no_data_graphic},
   ],
 }};
 // 四象限分割线：加在首个 series 上（ECharts markLine 必须在 series 内，不能在 opt 顶层）
@@ -700,7 +701,7 @@ if (series[0]) {{
   series[0].markLine = {{
     silent:true, symbol:'none',
     data:[
-      {{yAxis:{float(p.get("value_threshold") or 7)},label:{{show:true,formatter:{json.dumps("高价值截留区 ≥" + str(p.get("value_threshold") or 7), ensure_ascii=False)},position:'end',color:'{muted}',fontSize:10}},lineStyle:{{color:'rgba(129,199,132,0.3)',type:'dashed',width:1.5}}}},
+      {{yAxis:{float(p.get("value_threshold") or 7)},label:{{show:true,formatter:{json.dumps("高价值截留区 ≥" + str(p.get("value_threshold") or 7), ensure_ascii=False)},position:'end',color:'{muted}',fontSize:14}},lineStyle:{{color:'rgba(129,199,132,0.3)',type:'dashed',width:1.5}}}},
     ],
   }};
   series[0].markArea = {{

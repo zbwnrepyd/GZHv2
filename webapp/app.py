@@ -416,10 +416,15 @@ def _load_all_scored_companies(research_db_path: str) -> list[dict]:
     conn = sqlite3.connect(research_db_path)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
-        "SELECT DISTINCT company_name, score_defensibility, score_incumbent_attention, "
+        "SELECT company_name, score_defensibility, score_incumbent_attention, "
         "score_value_capture, funding_stage_score, stack_layer "
-        "FROM research WHERE version='standard' "
-        "AND score_defensibility IS NOT NULL AND score_value_capture IS NOT NULL"
+        "FROM research "
+        "WHERE version='standard' "
+        "AND score_defensibility IS NOT NULL AND score_value_capture IS NOT NULL "
+        "AND id IN ("
+        "  SELECT MAX(id) FROM research "
+        "  WHERE version='standard' GROUP BY company_name"
+        ")"
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -430,9 +435,10 @@ def _default_chart_params(asset_key: str) -> dict:
     base = {
         "theme": "dark",
         "accent_color": "#29B8D4",
-        "title_size": 22,
-        "axis_size": 15,
-        "label_size": 16,
+        # 卡片最终显示约 300-350px，是设计尺寸 800px 的 ~0.4x，字号需放大补偿
+        "title_size": 32,
+        "axis_size": 22,
+        "label_size": 22,
         "point_size": 14,
         "show_label": False,
         "subtitle": "",
@@ -447,12 +453,13 @@ def _default_chart_params(asset_key: str) -> dict:
             "y_label": "Incumbent Attention",
             "x_split": 5,
             "y_split": 5,
-            "quadrant_tl": "Sweet Spot",
-            "quadrant_tr": "Kill Zone",
+            # X=Defensibility低→高, Y=IncumbentAttention低→高
+            "quadrant_tl": "Kill Zone",
+            "quadrant_tr": "Battlefield",
             "quadrant_bl": "Waiting Room",
-            "quadrant_br": "Battlefield",
+            "quadrant_br": "Sweet Spot",
             "bubble_min": 8,
-            "bubble_max": 42,
+            "bubble_max": 30,
         })
     elif asset_key == "chart_ecosystem":
         base.update({
