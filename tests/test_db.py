@@ -106,7 +106,7 @@ class ResearchScoringSaveTests(unittest.TestCase):
         companies = db.get_companies(self.db_path, final_db_path)
 
         self.assertEqual(companies[0]["confirmed"], 2)
-        self.assertEqual(companies[0]["total"], 3)
+        self.assertEqual(companies[0]["total"], 8)  # 固定8张卡，不是字段行数
 
     def test_company_list_computes_default_scores_for_legacy_rows(self):
         with sqlite3.connect(self.db_path) as conn:

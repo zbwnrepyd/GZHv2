@@ -163,7 +163,10 @@ def _count_final_fields_progress(final_db_path: str, company_name: str) -> tuple
             ).fetchone()
             total = row["total"] if row else 0
             if total:
-                return row["confirmed"], total
+                # total 应为卡片数(8)，不是字段行数。final_fields 是字段级存储，
+                # 每家公司的字段行数不同(3~15+不等)，统一按 8 张卡显示。
+                confirmed = min(row["confirmed"] or 0, 8)
+                return confirmed, 8
     except Exception:
         pass
     return _count_confirmed_cards(final_db_path, company_name), 8
