@@ -7,6 +7,10 @@ from urllib.parse import urlparse
 
 import requests
 
+from company_identity import build_company_identity
+from search_plan import build_search_plan
+from evidence_pool import normalize_url
+
 from config import config
 from deepseek_client import call_deepseek, load_prompt
 from firecrawl_local import scrape_url
@@ -51,14 +55,30 @@ def _detail_text(detail) -> str:
 
 # ── Step 1: 4路并行采集 ──────────────────────────
 
-def _search_tavily(company_name: str, company_url: str = ""):
-    domain = urlparse(company_url).netloc.replace("www.", "") if company_url else ""
-    domain_hint = f" {domain}" if domain else ""
-    queries = [
-        f"{company_name} AI startup overview funding founders{domain_hint}",
-        f"{company_name} AI company news competitors product{domain_hint}",
-    ]
-    return [_search_tavily_query(q) for q in queries]
+def _search_tavily(queries, progress_callback=None, job_id: str = None) -> list:
+    """Multi-query Tavily search. Each query is a TavilyQuery or dict with query/intent.
+    Backward-compatible: if a string is passed, wraps it as a single query."""
+    if isinstance(queries, str):
+        # Backward-compatible: old API with company_name string → 2 queries
+        queries = [
+            {"query": f"{queries} AI startup overview funding founders",
+             "intent": "overview"},
+            {"query": f"{queries} AI company news competitors product",
+             "intent": "competitors"},
+        ]
+    batches = []
+    for q in queries:
+        query_str = q.query if hasattr(q, "query") else q.get("query", str(q))
+        intent = q.intent if hasattr(q, "intent") else q.get("intent", "")
+        try:
+            result = _search_tavily_query(query_str)
+            result["_query"] = query_str
+            result["_intent"] = intent
+            batches.append(result)
+        except Exception as e:
+            batches.append({"error": str(e), "_query": query_str,
+                           "_intent": intent, "results": []})
+    return batches
 
 
 def _tavily_keys() -> list[str]:
@@ -134,39 +154,79 @@ def _search_tavily_query(query: str, include_images: bool = False):
     return {"error": last_error or "Tavily request failed", "results": []}
 
 
-def _search_github(company_name: str):
-    try:
-        resp = requests.get(
-            "https://api.github.com/search/repositories",
-            params={"q": f"{company_name} in:name", "sort": "stars", "per_page": 5},
-            headers={"Accept": "application/vnd.github.v3+json"},
-            timeout=(15, 45),
-        )
-        if resp.status_code == 200:
-            return resp.json()
-        return {"error": resp.status_code, "items": []}
-    except Exception as e:
-        return {"error": str(e), "items": []}
+def _search_github(queries: list[str]) -> dict:
+    """Multi-query GitHub search with dedup by repo id."""
+    merged = []
+    errors = []
+    for q in (queries or [])[:4]:
+        if not q.strip():
+            continue
+        try:
+            resp = requests.get(
+                "https://api.github.com/search/repositories",
+                params={"q": q, "sort": "stars", "per_page": 5},
+                headers={"Accept": "application/vnd.github.v3+json"},
+                timeout=(15, 45),
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get("items", []):
+                    item["_query"] = q
+                    merged.append(item)
+            else:
+                errors.append({"query": q, "error": resp.status_code})
+        except Exception as e:
+            errors.append({"query": q, "error": str(e)})
+
+    seen = set()
+    deduped = []
+    for item in merged:
+        rid = item.get("id")
+        if rid and rid not in seen:
+            seen.add(rid)
+            deduped.append(item)
+    return {"items": deduped, "errors": errors}
 
 
-def _search_youtube(company_name: str):
+def _search_youtube(queries: list[str]) -> dict:
+    """Multi-query YouTube search with dedup by video id."""
     if not config.YOUTUBE_API_KEY:
-        return {"items": [], "note": "no API key"}
-    try:
-        resp = requests.get(
-            "https://www.googleapis.com/youtube/v3/search",
-            params={
-                "part": "snippet",
-                "q": f"{company_name} founder interview",
-                "type": "video",
-                "maxResults": 3,
-                "key": config.YOUTUBE_API_KEY,
-            },
-            timeout=(15, 45),
-        )
-        return resp.json() if resp.status_code == 200 else {"items": [], "error": resp.status_code}
-    except Exception as e:
-        return {"items": [], "error": str(e)}
+        return {"items": [], "note": "no API key", "errors": []}
+
+    merged = []
+    errors = []
+    for q in dict.fromkeys([x for x in (queries or []) if x.strip()]):
+        try:
+            resp = requests.get(
+                "https://www.googleapis.com/youtube/v3/search",
+                params={
+                    "part": "snippet",
+                    "q": q,
+                    "type": "video",
+                    "maxResults": 5,
+                    "key": config.YOUTUBE_API_KEY,
+                },
+                timeout=(15, 45),
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get("items", []):
+                    item["_query"] = q
+                    merged.append(item)
+            else:
+                errors.append({"query": q, "error": resp.status_code})
+        except Exception as e:
+            errors.append({"query": q, "error": str(e)})
+
+    seen = set()
+    deduped = []
+    for item in merged:
+        vid = (item.get("id", {}).get("videoId")
+               if isinstance(item.get("id"), dict) else item.get("id"))
+        if vid and vid not in seen:
+            seen.add(vid)
+            deduped.append(item)
+    return {"items": deduped, "errors": errors}
 
 
 def _scrape_website(company_url: str):
@@ -193,11 +253,21 @@ def _summarize_collection_source(name: str, data) -> dict:
         items = data if isinstance(data, list) else []
         count = sum(len(item.get("results", [])) for item in items if isinstance(item, dict))
         errors = [str(item.get("error")) for item in items if isinstance(item, dict) and item.get("error")]
-        summary.update({"count": count, "unit": "条结果"})
+        urls: set[str] = set()
+        intents: set[str] = set()
+        for item in items:
+            if isinstance(item, dict) and not item.get("error"):
+                intents.add(item.get("_intent", ""))
+                for r in item.get("results", []):
+                    u = r.get("url", "")
+                    if u:
+                        urls.add(normalize_url(u))
+        summary.update({"count": count, "unit": "条结果",
+                        "unique_url_count": len(urls), "intent_count": len(intents)})
         if count > 0:
-            detail = f"获得 {count} 条搜索结果"
+            detail = f"{count}条结果，{len(urls)}个唯一URL，{len(intents)}类意图"
             if errors:
-                detail += f"，部分查询失败：{errors[0]}"
+                detail += f"，部分查询失败：{errors[0][:40]}"
             summary.update({"status": "ok", "detail": detail})
         elif errors:
             summary.update({"status": "failed", "detail": errors[0]})
@@ -243,22 +313,39 @@ def _summarize_collection_source(name: str, data) -> dict:
 
 
 def _collect_all(company_name: str, company_url: str, progress_callback=None, job_id: str = None) -> dict:
-    """4路并行采集"""
-    source_summary = {}
-    _report(
-        progress_callback,
-        "采集",
-        {"message": "4路并行采集中...", "sources": source_summary},
-        job_id=job_id,
+    """多源并行采集 — 使用 company_identity + search_plan 驱动。"""
+    identity = build_company_identity(company_name, company_url)
+    plan = build_search_plan(
+        identity.display_name, identity.root_domain,
+        identity.website_host, identity.aliases,
     )
+
+    source_summary = {}
+    _report(progress_callback, "采集", {
+        "message": f"多源并行采集中... ({plan.query_count} Tavily, {len(plan.github_queries)} GitHub, {len(plan.youtube_queries)} YouTube)",
+        "sources": source_summary,
+    }, job_id=job_id)
+
     tasks = {
-        "tavily": lambda: _search_tavily(company_name, company_url),
-        "github": lambda: _search_github(company_name),
-        "youtube": lambda: _search_youtube(company_name),
-        "website": lambda: _scrape_website(company_url),
+        "tavily": lambda: _search_tavily(plan.tavily_queries, progress_callback, job_id),
+        "github": lambda: _search_github(plan.github_queries),
+        "youtube": lambda: _search_youtube(plan.youtube_queries),
+        "website": lambda: _scrape_website(identity.website_url),
     }
 
-    raw = {"company_name": company_name, "company_url": company_url}
+    raw = {
+        "company_name": identity.display_name,
+        "company_key": identity.company_key,
+        "display_name": identity.display_name,
+        "input_name": identity.input_name,
+        "company_url": identity.website_url,
+        "website_host": identity.website_host,
+        "aliases": identity.aliases,
+        "search_plan": {
+            "tavily_queries": [q.query for q in plan.tavily_queries],
+            "query_count": plan.query_count,
+        },
+    }
     with ThreadPoolExecutor(max_workers=4) as ex:
         futures = {ex.submit(fn): name for name, fn in tasks.items()}
         for future in as_completed(futures):
@@ -268,15 +355,10 @@ def _collect_all(company_name: str, company_url: str, progress_callback=None, jo
             except Exception as e:
                 raw[name] = {"error": str(e)}
             source_summary[name] = _summarize_collection_source(name, raw[name])
-            _report(
-                progress_callback,
-                "采集",
-                {
-                    "message": f"{source_summary[name]['label']}完成：{source_summary[name]['detail']}",
-                    "sources": dict(source_summary),
-                },
-                job_id=job_id,
-            )
+            _report(progress_callback, "采集", {
+                "message": f"{source_summary[name]['label']}完成：{source_summary[name]['detail']}",
+                "sources": dict(source_summary),
+            }, job_id=job_id)
     raw["_source_summary"] = source_summary
     return raw
 
