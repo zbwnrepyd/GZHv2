@@ -154,7 +154,8 @@ _jobs_lock = threading.Lock()
 @app.route("/api/companies")
 def list_companies():
     try:
-        companies = database.get_companies(config.DB_PATH_RESEARCH, config.DB_PATH_FINAL)
+        companies = database.get_companies(config.DB_PATH_RESEARCH, config.DB_PATH_FINAL,
+                                          config.DB_PATH_COMPOSITION)
         return jsonify(companies)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

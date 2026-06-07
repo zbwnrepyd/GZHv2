@@ -36,8 +36,9 @@ def get_db(db_path: str):
 # ── research_db 查询 ──────────────────────────────────────────
 
 
-def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
-    """列出所有已研究公司，附带定稿进度"""
+def get_companies(db_path: str, final_db_path: str = "",
+                  composition_db_path: str = "") -> list[dict]:
+    """列出所有已研究公司，附带定稿进度。total 从卡片设置的启用卡片数读取。"""
     with get_db(db_path) as conn:
         rows = conn.execute(
             "SELECT DISTINCT company_name, MAX(created_at) as created_at "
@@ -57,9 +58,11 @@ def get_companies(db_path: str, final_db_path: str = "") -> list[dict]:
                         filled += 1
             completeness = round(filled / len(REQUIRED_RESEARCH_FIELDS) * 100) if latest else 0
             confirmed = 0
-            total = 8
+            # total 优先从卡片设置(composition_db)取启用卡片数，否则默认8
+            total = _count_enabled_cards(composition_db_path, row["company_name"])
             if final_db_path:
-                confirmed, total = _count_final_fields_progress(final_db_path, row["company_name"])
+                confirmed, _ = _count_final_fields_progress(final_db_path, row["company_name"])
+            confirmed = min(confirmed or 0, total)
             website_url = latest["website_url"] if latest else ""
             if not website_url or str(website_url).strip() in ("", "暂缺"):
                 website_url = _latest_job_company_url(conn, row["company_name"])
@@ -150,6 +153,24 @@ def _count_confirmed_cards(final_db_path: str, company_name: str) -> int:
         return 0
 
 
+def _count_enabled_cards(composition_db_path: str, company_name: str) -> int:
+    """返回卡片设置中启用的卡片数。无数据则默认 8。"""
+    if not composition_db_path:
+        return 8
+    try:
+        with get_db(composition_db_path) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM card_compositions "
+                "WHERE company_name=? AND enabled=1",
+                (company_name,),
+            ).fetchone()
+            if row and row["cnt"] > 0:
+                return row["cnt"]
+    except Exception:
+        pass
+    return 8
+
+
 def _count_final_fields_progress(final_db_path: str, company_name: str) -> tuple[int, int]:
     try:
         with get_db(final_db_path) as conn:
@@ -163,13 +184,11 @@ def _count_final_fields_progress(final_db_path: str, company_name: str) -> tuple
             ).fetchone()
             total = row["total"] if row else 0
             if total:
-                # total 应为卡片数(8)，不是字段行数。final_fields 是字段级存储，
-                # 每家公司的字段行数不同(3~15+不等)，统一按 8 张卡显示。
-                confirmed = min(row["confirmed"] or 0, 8)
-                return confirmed, 8
+                # confirmed 从 final_fields 读取，total 由调用方根据卡片设置确定
+                return row["confirmed"] or 0, 0
     except Exception:
         pass
-    return _count_confirmed_cards(final_db_path, company_name), 8
+    return _count_confirmed_cards(final_db_path, company_name), 0
 
 
 def get_research(db_path: str, company_name: str, version: str) -> dict | None:
