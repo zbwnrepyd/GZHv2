@@ -40,16 +40,48 @@ def get_companies(db_path: str, final_db_path: str = "",
                   composition_db_path: str = "") -> list[dict]:
     """列出所有已研究公司，附带定稿进度。total 从卡片设置的启用卡片数读取。"""
     with get_db(db_path) as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT company_name, MAX(created_at) as created_at "
-            "FROM research GROUP BY company_name ORDER BY created_at DESC"
-        ).fetchall()
+        # 兼容旧 schema（无 company_key 列）
+        has_ckey = any(
+            row["name"] == "company_key"
+            for row in conn.execute("PRAGMA table_info(research)").fetchall()
+        )
+        if has_ckey:
+            rows = conn.execute(
+                "SELECT COALESCE(NULLIF(company_key,''), LOWER(company_name)) as company_key, "
+                "MAX(created_at) as created_at "
+                "FROM research "
+                "GROUP BY COALESCE(NULLIF(company_key,''), LOWER(company_name)) "
+                "ORDER BY created_at DESC LIMIT 200"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT LOWER(company_name) as company_key, "
+                "MAX(created_at) as created_at "
+                "FROM research "
+                "GROUP BY LOWER(company_name) "
+                "ORDER BY created_at DESC LIMIT 200"
+            ).fetchall()
         companies = []
         for row in rows:
-            latest = conn.execute(
-                "SELECT * FROM research WHERE company_name=? ORDER BY created_at DESC, CASE version WHEN 'standard' THEN 0 ELSE 1 END LIMIT 1",
-                (row["company_name"],),
-            ).fetchone()
+            ckey = row["company_key"]
+            if has_ckey:
+                latest = conn.execute(
+                    "SELECT * FROM research "
+                    "WHERE COALESCE(NULLIF(company_key,''), LOWER(company_name))=? "
+                    "ORDER BY created_at DESC, "
+                    "CASE version WHEN 'standard' THEN 0 ELSE 1 END LIMIT 1",
+                    (ckey,),
+                ).fetchone()
+            else:
+                latest = conn.execute(
+                    "SELECT * FROM research "
+                    "WHERE LOWER(company_name)=? "
+                    "ORDER BY created_at DESC, "
+                    "CASE version WHEN 'standard' THEN 0 ELSE 1 END LIMIT 1",
+                    (ckey,),
+                ).fetchone()
+            display_name = latest["company_name"] if latest else ckey
+            latest_cname = latest["company_name"] if latest else ckey
             filled = 0
             if latest:
                 for field in REQUIRED_RESEARCH_FIELDS:
@@ -59,17 +91,19 @@ def get_companies(db_path: str, final_db_path: str = "",
             completeness = round(filled / len(REQUIRED_RESEARCH_FIELDS) * 100) if latest else 0
             confirmed = 0
             # total 优先从卡片设置(composition_db)取启用卡片数，否则默认8
-            total = _count_enabled_cards(composition_db_path, row["company_name"])
+            total = _count_enabled_cards(composition_db_path, latest_cname)
             if final_db_path:
-                confirmed, _ = _count_final_fields_progress(final_db_path, row["company_name"])
+                confirmed, _ = _count_final_fields_progress(final_db_path, latest_cname)
             confirmed = min(confirmed or 0, total)
             website_url = latest["website_url"] if latest else ""
             if not website_url or str(website_url).strip() in ("", "暂缺"):
-                website_url = _latest_job_company_url(conn, row["company_name"])
+                website_url = _latest_job_company_url(conn, latest_cname)
             scoring = _company_scoring_payload(latest)
             companies.append(
                 {
-                    "company_name": row["company_name"],
+                    "company_name": display_name,
+                    "company_key": ckey,
+                    "display_name": display_name,
                     "category": latest["company_type"] if latest else "",
                     "company_url": website_url,
                     "website_url": website_url,

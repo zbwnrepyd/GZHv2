@@ -1,7 +1,7 @@
 """研究流水线：4路并行采集 → 4层LLM分析 → 写库"""
 from __future__ import annotations
 import copy
-import json, re, time
+import json, os, re, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
@@ -9,7 +9,12 @@ import requests
 
 from company_identity import build_company_identity
 from search_plan import build_search_plan
-from evidence_pool import normalize_url
+from evidence_pool import (
+    normalize_url, EvidenceItem, source_score as evidence_source_score,
+    entity_score as evidence_entity_score, final_score as evidence_final_score,
+    dedupe_evidence, filter_evidence,
+)
+from gap_detector import detect_gaps, build_gap_queries
 
 from config import config
 from deepseek_client import call_deepseek, load_prompt
@@ -361,6 +366,80 @@ def _collect_all(company_name: str, company_url: str, progress_callback=None, jo
             }, job_id=job_id)
     raw["_source_summary"] = source_summary
     return raw
+
+
+def _build_evidence_pool(raw: dict) -> list:
+    """将采集原始结果转为打分、去重后的 EvidenceItem 列表。"""
+    items = []
+    identity_display = raw.get("display_name", raw.get("company_name", ""))
+    identity_host = raw.get("website_host", "")
+    identity_root = identity_host.split(".")[0] if identity_host else ""
+
+    # Tavily
+    for batch in (raw.get("tavily") or []):
+        if not isinstance(batch, dict) or batch.get("error"):
+            continue
+        for r in batch.get("results", []):
+            url = r.get("url", "")
+            nurl = normalize_url(url)
+            title = r.get("title", "")
+            content = r.get("content", "")
+            fs = evidence_final_score(
+                url, "tavily", title, content,
+                identity_display, identity_host, identity_root)
+            items.append(EvidenceItem(
+                source="tavily", intent=batch.get("_intent", ""),
+                title=title, url=url, normalized_url=nurl,
+                content=content, raw_content=r.get("raw_content", ""),
+                source_score=evidence_source_score(url, "tavily"),
+                entity_score=evidence_entity_score(
+                    title, url, content, identity_display,
+                    identity_host, identity_root),
+                final_score=fs, query=batch.get("_query", "")))
+
+    # GitHub
+    for r in (raw.get("github", {}) or {}).get("items", []):
+        url = r.get("html_url", "")
+        nurl = normalize_url(url)
+        title = r.get("full_name", "")
+        desc = r.get("description", "") or ""
+        fs = evidence_final_score(
+            url, "github", title, desc,
+            identity_display, identity_host, identity_root)
+        items.append(EvidenceItem(
+            source="github", intent="product",
+            title=title, url=url, normalized_url=nurl,
+            content=desc, source_score=evidence_source_score(url, "github"),
+            final_score=fs))
+
+    # YouTube
+    for r in (raw.get("youtube", {}) or {}).get("items", []):
+        snippet = r.get("snippet", {})
+        vid = (r.get("id", {}).get("videoId")
+               if isinstance(r.get("id"), dict) else r.get("id", ""))
+        url = f"https://www.youtube.com/watch?v={vid}" if vid else ""
+        title = snippet.get("title", "")
+        desc = snippet.get("description", "") or ""
+        fs = evidence_final_score(
+            url, "youtube", title, desc,
+            identity_display, identity_host, identity_root)
+        items.append(EvidenceItem(
+            source="youtube", intent="interview",
+            title=title, url=url, normalized_url=url,
+            content=desc, source_score=evidence_source_score(url, "youtube"),
+            final_score=fs))
+
+    # Website
+    ws = raw.get("website", {}) or {}
+    text = ws.get("text") or ws.get("markdown") or ""
+    url = raw.get("company_url", "")
+    items.append(EvidenceItem(
+        source="website", intent="overview",
+        title=f"{identity_display} 官网", url=url,
+        normalized_url=normalize_url(url),
+        content=str(text)[:5000], source_score=1.0, final_score=1.0))
+
+    return filter_evidence(dedupe_evidence(items), min_score=0.35)
 
 
 # ── Step 2: AI 分析 ──────────────────────────────
@@ -819,12 +898,13 @@ def run_pipeline(company_name: str, company_url: str,
 
     # Step 1: 采集
     raw = _collect_all(company_name, company_url, progress_callback, job_id=job_id)
+    raw["_evidence_pool"] = _build_evidence_pool(raw)
     t1 = time.time()
     _report(
         progress_callback,
         "采集完成",
         {
-            "message": f"4路采集完成（{t1 - t0:.1f}s）",
+            "message": f"采集完成（{t1 - t0:.1f}s），{len(raw['_evidence_pool'])} 条有效证据",
             "sources": raw.get("_source_summary", {}),
         },
         job_id=job_id,
@@ -847,6 +927,33 @@ def run_pipeline(company_name: str, company_url: str,
 
     t2 = time.time()
     _report(progress_callback, "分析完成", f"({t2 - t1:.1f}s)", job_id=job_id)
+
+    # P2: 缺口检测 + 补采
+    if os.environ.get("COLLECTION_ENABLE_GAP_REFETCH", "1") == "1":
+        standard = next((r for r in records
+                        if r.get("version") == "standard"), None)
+        if standard:
+            gaps = detect_gaps(standard)
+            if gaps:
+                _report(progress_callback, "补采", {
+                    "message": f"检测到 {len(gaps)} 类缺口: {', '.join(gaps.keys())}",
+                }, job_id=job_id)
+                identity_display = raw.get("display_name", company_name)
+                identity_host = raw.get("website_host", "")
+                identity_root = identity_host.split(".")[0] if identity_host else ""
+                gap_queries = build_gap_queries(
+                    identity_display, identity_host, identity_root, gaps)
+                if gap_queries:
+                    supplement = _search_tavily(gap_queries,
+                                               progress_callback, job_id)
+                    raw["tavily_supplement"] = supplement
+                    raw["_gap_info"] = {
+                        "gaps": {k: v for k, v in gaps.items()},
+                        "query_count": len(gap_queries),
+                    }
+                    _report(progress_callback, "补采", {
+                        "message": f"补采完成：{len(gap_queries)} 组 query",
+                    }, job_id=job_id)
 
     # Step 3: 写库
     _report(progress_callback, "写库", "写入数据库...", job_id=job_id)
