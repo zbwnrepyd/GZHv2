@@ -27,9 +27,10 @@ from image_scorer import score_candidate
 from pipeline import _search_tavily_query
 
 
-def asset_dir(images_root: str, company_name: str) -> str:
-    """返回某公司的图片目录，确保存在"""
-    d = os.path.join(images_root, company_name)
+def asset_dir(images_root: str, company_name: str, company_key: str = "") -> str:
+    """返回某公司的图片目录，确保存在。优先用 company_key 做路径片段。"""
+    seg = _safe_path_segment(company_key or company_name)
+    d = os.path.join(images_root, seg)
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -38,40 +39,45 @@ def _safe_path_segment(value) -> str:
     return safe_path_segment(value)
 
 
-def _company_image_dir(images_root: str, company_name: str, *parts: str) -> str:
+def _company_image_dir(images_root: str, company_name: str, *parts: str,
+                       company_key: str = "") -> str:
     base = os.path.abspath(images_root)
-    target = os.path.abspath(os.path.join(base, _safe_path_segment(company_name), *parts))
+    seg = _safe_path_segment(company_key or company_name)
+    target = os.path.abspath(os.path.join(base, seg, *parts))
     if os.path.commonpath([base, target]) != base:
         raise ValueError("公司图片目录越界")
     return target
 
 
-def _image_url_path(company_name: str, *parts: str) -> str:
-    url_parts = [_safe_path_segment(company_name), *[str(p) for p in parts]]
+def _image_url_path(company_name: str, *parts: str, company_key: str = "") -> str:
+    seg = _safe_path_segment(company_key or company_name)
+    url_parts = [seg, *[str(p) for p in parts]]
     return "/images/" + "/".join(quote(p, safe="") for p in url_parts)
 
 
-def _variant_url_path(company_name: str, filename: str) -> str:
-    return _image_url_path(company_name, "variants", filename)
+def _variant_url_path(company_name: str, filename: str, company_key: str = "") -> str:
+    return _image_url_path(company_name, "variants", filename, company_key=company_key)
 
 
-def _variant_path(images_root: str, company_name: str, asset_key: str, suffix) -> str:
+def _variant_path(images_root: str, company_name: str, asset_key: str, suffix,
+                  company_key: str = "") -> str:
     """生成变体文件路径，确保 variants 子目录存在"""
-    d = _company_image_dir(images_root, company_name, "variants")
+    d = _company_image_dir(images_root, company_name, "variants", company_key=company_key)
     os.makedirs(d, exist_ok=True)
     safe_asset_key = _safe_path_segment(asset_key)
     safe_suffix = _safe_path_segment(suffix)
     return os.path.join(d, f"{safe_asset_key}__{safe_suffix}.png")
 
 
-def _variant_browser_path(company_name: str, file_path: str) -> str:
-    return _variant_url_path(company_name, os.path.basename(file_path))
+def _variant_browser_path(company_name: str, file_path: str, company_key: str = "") -> str:
+    return _variant_url_path(company_name, os.path.basename(file_path), company_key=company_key)
 
 
 def _collect_candidates(
     db_path: str, images_root: str, company_name: str, asset_key: str,
     sources: list[dict],
     max_candidates: int = 3,
+    company_key: str = "",
 ) -> int:
     """
     依次尝试 sources，成功则写 image_variants。
@@ -83,7 +89,8 @@ def _collect_candidates(
     for src in sources:
         if count >= max_candidates:
             break
-        dest = _variant_path(images_root, company_name, asset_key, count)
+        dest = _variant_path(images_root, company_name, asset_key, count,
+                           company_key=company_key)
         ok, source_url = False, ""
 
         if src["type"] == "scrape":
@@ -113,9 +120,10 @@ def _collect_candidates(
 
         if ok:
             insert_variant(db_path, company_name, asset_key,
-                           local_path=_variant_browser_path(company_name, dest),
+                           local_path=_variant_browser_path(company_name, dest, company_key=company_key),
                            source_type=f"screenshot_{src['type']}",
-                           source_url=source_url)
+                           source_url=source_url,
+                           company_key=company_key)
             count += 1
     return count
 
@@ -1472,7 +1480,8 @@ def _resolve_office_location(company_name: str, location: str, company_url: str 
 
 
 def _collect_office_variants(db_path: str, images_root: str, company_name: str,
-                             location: str, query_config: dict, company_url: str = "") -> int:
+                             location: str, query_config: dict, company_url: str = "",
+                             company_key: str = "") -> int:
     """Office asset: map first, then supplemental street-view/Tavily candidates."""
     from asset_store import insert_variant
 
@@ -1550,7 +1559,7 @@ def _collect_office_variants(db_path: str, images_root: str, company_name: str,
 
 
 def _collect_product_main_variants(db_path: str, images_root: str, company_name: str,
-                                   query_config: dict) -> int:
+                                   query_config: dict, company_key: str = "") -> int:
     """Card 4: official OG + Playwright + Tavily -> scored variants."""
 
     count = 0
@@ -1598,7 +1607,7 @@ def _collect_product_main_variants(db_path: str, images_root: str, company_name:
 
 
 def _collect_products_other_variants(db_path: str, images_root: str, company_name: str,
-                                     query_config: dict) -> int:
+                                     query_config: dict, company_key: str = "") -> int:
     """Card 5: Per product OG + Playwright + Tavily -> scored variants."""
 
     count = 0
@@ -1641,7 +1650,7 @@ def _collect_products_other_variants(db_path: str, images_root: str, company_nam
 
 
 def _collect_competitors_variants(db_path: str, images_root: str, company_name: str,
-                                  query_config: dict) -> int:
+                                  query_config: dict, company_key: str = "") -> int:
     """Card 7: Per competitor OG + Playwright + Tavily + Clearbit fallback."""
 
     count = 0
@@ -1695,7 +1704,7 @@ def _collect_competitors_variants(db_path: str, images_root: str, company_name: 
 
 
 def _collect_competitor_logo_strip_variants(db_path: str, images_root: str, company_name: str,
-                                            query_config: dict) -> int:
+                                            query_config: dict, company_key: str = "") -> int:
     """Card 7: one 16:9 horizontal strip made from up to three competitor logos."""
     comp_items = (query_config.get("per_comp") or [])[:3]
     if not comp_items:
@@ -1756,20 +1765,26 @@ def collect_image_variants_pipeline(
     query_config = build_image_queries(company_data)
     location = company_data.get("location", "")
     company_url = company_data.get("company_url") or company_data.get("website_url") or ""
+    company_key = company_data.get("company_key", "")
 
-    ensure_assets_rows(db_path, company_name)
+    ensure_assets_rows(db_path, company_name, company_key=company_key)
 
     stages = [
-        ("office", "公司位置地图", lambda: _collect_office_variants(
-            db_path, images_root, company_name, location, query_config.get("office", {}), company_url)),
-        ("product_main", "主产品截图", lambda: _collect_product_main_variants(
-            db_path, images_root, company_name, query_config.get("product_main", {}))),
-        ("products_other", "其他产品截图", lambda: _collect_products_other_variants(
-            db_path, images_root, company_name, query_config.get("products_other", {}))),
-        ("competitors", "竞争格局截图", lambda: _collect_competitors_variants(
-            db_path, images_root, company_name, query_config.get("competitors", {}))),
-        ("competitors_logo_strip", "三个竞品 Logo 横排图", lambda: _collect_competitor_logo_strip_variants(
-            db_path, images_root, company_name, query_config.get("competitors", {}))),
+        ("office", "公司位置地图", lambda ck=company_key: _collect_office_variants(
+            db_path, images_root, company_name, location, query_config.get("office", {}), company_url,
+            company_key=ck)),
+        ("product_main", "主产品截图", lambda ck=company_key: _collect_product_main_variants(
+            db_path, images_root, company_name, query_config.get("product_main", {}),
+            company_key=ck)),
+        ("products_other", "其他产品截图", lambda ck=company_key: _collect_products_other_variants(
+            db_path, images_root, company_name, query_config.get("products_other", {}),
+            company_key=ck)),
+        ("competitors", "竞争格局截图", lambda ck=company_key: _collect_competitors_variants(
+            db_path, images_root, company_name, query_config.get("competitors", {}),
+            company_key=ck)),
+        ("competitors_logo_strip", "三个竞品 Logo 横排图", lambda ck=company_key: _collect_competitor_logo_strip_variants(
+            db_path, images_root, company_name, query_config.get("competitors", {}),
+            company_key=ck)),
     ]
 
     # 如果指定了 asset_key，只跑对应阶段
@@ -1788,13 +1803,15 @@ def collect_image_variants_pipeline(
             n = collector()
             results[asset_key] = n
             if n > 0:
-                variants = list_variants(db_path, company_name, asset_key)
+                variants = list_variants(db_path, company_name, asset_key, company_key=company_key)
                 if variants and not any(v.get("is_selected") for v in variants):
                     ready = [v for v in variants if not v.get("reject_reason")]
                     if ready:
-                        select_variant(db_path, company_name, asset_key, ready[0]["id"], auto_selected=True)
+                        select_variant(db_path, company_name, asset_key, ready[0]["id"],
+                                      auto_selected=True, company_key=company_key)
             upsert_asset(db_path, company_name, asset_key,
-                        status="ready" if n > 0 else "failed")
+                        status="ready" if n > 0 else "failed",
+                        company_key=company_key)
             if progress_callback:
                 progress_callback("图片采集", {
                     "message": f"{label}完成：{n} 张候选图",
@@ -1804,7 +1821,8 @@ def collect_image_variants_pipeline(
                 })
         except Exception as e:
             results[asset_key] = 0
-            upsert_asset(db_path, company_name, asset_key, status="failed")
+            upsert_asset(db_path, company_name, asset_key, status="failed",
+                        company_key=company_key)
             if progress_callback:
                 progress_callback("图片采集", {
                     "message": f"{label}失败：{e}",

@@ -34,11 +34,20 @@ ALTER TABLE final_fields ADD COLUMN company_key TEXT;
 CREATE INDEX IF NOT EXISTS idx_final_fields_company_key
   ON final_fields(company_key);
 
--- NOTE: card_compositions + card_items 在 composition_db.sqlite 中，
--- 需要在 composition_db 上单独执行:
--- ALTER TABLE card_compositions ADD COLUMN company_key TEXT;
--- ALTER TABLE card_items ADD COLUMN company_key TEXT;
--- CREATE INDEX IF NOT EXISTS idx_card_compositions_company_key
---   ON card_compositions(company_key);
--- CREATE INDEX IF NOT EXISTS idx_card_items_company_key_card
---   ON card_items(company_key, card_id);
+-- research_fields (research_db)
+ALTER TABLE research_fields ADD COLUMN company_key TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_research_fields_company_key
+  ON research_fields(company_key, version);
+
+-- composition_db 迁移已通过 db/migrate.py 直接对 composition_db.sqlite 执行:
+--   python3 db/migrate.py db/composition_db.sqlite --names 003_company_identity.sql
+-- 如 composition_db 也使用同一迁移目录，以下 ALTER TABLE 会被幂等执行:
+ALTER TABLE card_compositions ADD COLUMN company_key TEXT;
+ALTER TABLE card_items ADD COLUMN company_key TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_card_compositions_company_key
+  ON card_compositions(company_key);
+
+CREATE INDEX IF NOT EXISTS idx_card_items_company_key_card
+  ON card_items(company_key, card_id);

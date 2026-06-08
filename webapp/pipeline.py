@@ -134,11 +134,11 @@ def _search_tavily_query(query: str, include_images: bool = False):
                 "search_depth": "advanced",
                 "include_answer": True,
                 "include_raw_content": True,
-                "max_results": int(os.environ.get("TAVILY_RESULTS_PER_QUERY", "8")),
+                "max_results": config.TAVILY_RESULTS_PER_QUERY,
             }
             if include_images:
                 body["include_images"] = True
-                body["max_results"] = int(os.environ.get("TAVILY_RESULTS_PER_QUERY", "10"))
+                body["max_results"] = config.TAVILY_RESULTS_PER_QUERY
             resp = requests.post(
                 "https://api.tavily.com/search",
                 json=body,
@@ -279,26 +279,38 @@ def _summarize_collection_source(name: str, data) -> dict:
         return summary
 
     if name == "github":
-        count = len(data.get("items", [])) if isinstance(data, dict) else 0
-        error = data.get("error") if isinstance(data, dict) else None
-        summary.update({"count": count, "unit": "个仓库"})
+        items = data.get("items", []) if isinstance(data, dict) else []
+        errors = data.get("errors", []) if isinstance(data, dict) else []
+        count = len(items)
+        urls: set[str] = set()
+        for item in items:
+            u = item.get("html_url", "")
+            if u:
+                urls.add(normalize_url(u))
+        err_msg = errors[0].get("error") if errors else (data.get("error") if isinstance(data, dict) else None)
+        summary.update({"count": count, "unit": "个仓库",
+                        "unique_url_count": len(urls),
+                        "query_count": len(data.get("errors", [])) + (1 if count > 0 else 0) if isinstance(data, dict) else 0})
         if count > 0:
-            summary.update({"status": "ok", "detail": f"找到 {count} 个相关仓库"})
-        elif error:
-            summary.update({"status": "failed", "detail": str(error)})
+            summary.update({"status": "ok", "detail": f"找到 {count} 个仓库，{len(urls)} 个唯一"})
+        elif err_msg:
+            summary.update({"status": "failed", "detail": str(err_msg)})
         return summary
 
     if name == "youtube":
-        count = len(data.get("items", [])) if isinstance(data, dict) else 0
+        items = data.get("items", []) if isinstance(data, dict) else []
         note = data.get("note") if isinstance(data, dict) else None
-        error = data.get("error") if isinstance(data, dict) else None
-        summary.update({"count": count, "unit": "个视频"})
+        errors = data.get("errors", []) if isinstance(data, dict) else []
+        count = len(items)
+        err_msg = errors[0].get("error") if errors else (data.get("error") if isinstance(data, dict) else None)
+        summary.update({"count": count, "unit": "个视频",
+                        "query_count": len(errors) + (1 if count > 0 else 0)})
         if count > 0:
-            summary.update({"status": "ok", "detail": f"找到 {count} 个相关视频"})
+            summary.update({"status": "ok", "detail": f"找到 {count} 个视频"})
         elif note:
             summary.update({"status": "skipped", "detail": str(note)})
-        elif error:
-            summary.update({"status": "failed", "detail": str(error)})
+        elif err_msg:
+            summary.update({"status": "failed", "detail": str(err_msg)})
         return summary
 
     if name == "website":
@@ -309,7 +321,11 @@ def _summarize_collection_source(name: str, data) -> dict:
         error = data.get("error") if isinstance(data, dict) else None
         summary.update({"count": count, "unit": "字符"})
         if count > 0:
-            summary.update({"status": "ok", "detail": f"抓取 {count} 个正文字符"})
+            if count < 500:
+                summary.update({"status": "warning", "detail": f"仅 {count} 个字符（可能抓取不足）",
+                               "warning": "website_low_content"})
+            else:
+                summary.update({"status": "ok", "detail": f"抓取 {count} 个正文字符"})
         elif error:
             summary.update({"status": "failed", "detail": str(error)})
         return summary
@@ -365,6 +381,22 @@ def _collect_all(company_name: str, company_url: str, progress_callback=None, jo
                 "sources": dict(source_summary),
             }, job_id=job_id)
     raw["_source_summary"] = source_summary
+
+    # 构建顶层 warnings
+    warnings = []
+    for src_name, src in source_summary.items():
+        if src.get("status") == "skipped":
+            if src_name == "youtube":
+                warnings.append("youtube_api_key_missing")
+        elif src.get("status") == "warning":
+            warnings.append(src.get("warning", f"{src_name}_warning"))
+        elif src.get("status") == "failed":
+            warnings.append(f"{src_name}_failed")
+    # Tavily 低召回
+    tavily_src = source_summary.get("tavily", {})
+    if tavily_src.get("unique_url_count", 0) < config.COLLECTION_MIN_UNIQUE_URLS:
+        warnings.append("tavily_low_recall")
+    raw["_source_warnings"] = warnings
     return raw
 
 
@@ -911,6 +943,40 @@ def run_pipeline(company_name: str, company_url: str,
     )
     _check_cancel()
 
+    # P2: 采集审计 + 缺口预补采（LLM 分析之前，确保证据充分）
+    if config.COLLECTION_ENABLE_GAP_REFETCH:
+        src = raw.get("_source_summary", {})
+        tavily_src = src.get("tavily", {})
+        unique_urls = tavily_src.get("unique_url_count", 0)
+        intents_found = tavily_src.get("intent_count", 0)
+        min_urls = config.COLLECTION_MIN_UNIQUE_URLS
+        if unique_urls < min_urls or intents_found < 4:
+            identity_display = raw.get("display_name", company_name)
+            identity_host = raw.get("website_host", "")
+            identity_root = identity_host.split(".")[0] if identity_host else ""
+            # 预补采：用 search_plan 的宽泛覆盖生成额外 query
+            from search_plan import build_search_plan as _plan
+            pre_plan = _plan(identity_display, identity_root, identity_host,
+                           raw.get("aliases", []))
+            # 取前 6 组核心意图 query 做补充
+            extra = [{"query": q.query, "intent": q.intent}
+                    for q in pre_plan.tavily_queries[:6]]
+            if extra:
+                _report(progress_callback, "补采", {
+                    "message": f"采集不足({unique_urls}URL/{intents_found}意图)，预补采 {len(extra)} 组",
+                }, job_id=job_id)
+                supplement = _search_tavily(extra, progress_callback, job_id)
+                existing = raw.get("tavily", [])
+                if isinstance(existing, list):
+                    raw["tavily"] = existing + supplement
+                else:
+                    raw["tavily"] = supplement
+                raw["_evidence_pool"] = _build_evidence_pool(raw)
+                raw["_pre_gap_refetch"] = {"extra_queries": len(extra)}
+                _report(progress_callback, "补采", {
+                    "message": f"预补采完成，证据池更新为 {len(raw['_evidence_pool'])} 条",
+                }, job_id=job_id)
+
     # Step 2: AI 分析
     _report(progress_callback, "分析", "开始 4 层 LLM 分析...", job_id=job_id)
     records = llm_analysis(
@@ -928,8 +994,8 @@ def run_pipeline(company_name: str, company_url: str,
     t2 = time.time()
     _report(progress_callback, "分析完成", f"({t2 - t1:.1f}s)", job_id=job_id)
 
-    # P2: 缺口检测 + 补采
-    if os.environ.get("COLLECTION_ENABLE_GAP_REFETCH", "1") == "1":
+    # P2: 缺口检测 + 补采 → 重新 L0-L3
+    if config.COLLECTION_ENABLE_GAP_REFETCH:
         standard = next((r for r in records
                         if r.get("version") == "standard"), None)
         if standard:
@@ -946,14 +1012,35 @@ def run_pipeline(company_name: str, company_url: str,
                 if gap_queries:
                     supplement = _search_tavily(gap_queries,
                                                progress_callback, job_id)
-                    raw["tavily_supplement"] = supplement
+                    # 合并补采结果到 tavily batches，重建证据池
+                    existing_tavily = raw.get("tavily", [])
+                    if isinstance(existing_tavily, list):
+                        raw["tavily"] = existing_tavily + supplement
+                    else:
+                        raw["tavily"] = supplement
+                    raw["_evidence_pool"] = _build_evidence_pool(raw)
                     raw["_gap_info"] = {
                         "gaps": {k: v for k, v in gaps.items()},
                         "query_count": len(gap_queries),
                     }
                     _report(progress_callback, "补采", {
-                        "message": f"补采完成：{len(gap_queries)} 组 query",
+                        "message": f"补采完成：{len(gap_queries)} 组 query，证据池 {len(raw['_evidence_pool'])} 条，重新分析...",
                     }, job_id=job_id)
+                    # 用补采后的数据重新跑 L0-L3
+                    _report(progress_callback, "分析", "补采后重新 4 层 LLM 分析...", job_id=job_id)
+                    records = llm_analysis(
+                        company_name, company_url, raw, progress_callback,
+                        job_id=job_id, cancel_token=cancel_token,
+                    )
+                    errors = [r for r in records if r.get("_error")]
+                    if errors:
+                        details = ", ".join(f"{r.get('version', '?')}: {r.get('_error')}" for r in errors)
+                        raise RuntimeError(f"补采后 L3 字段提取失败: {details}")
+                    _check_cancel()
+                    _validate_record_identity(records, company_url)
+                    records = _validate_records(records)
+                    t2 = time.time()
+                    _report(progress_callback, "分析完成", f"补采后重分析完成（{t2 - t1:.1f}s）", job_id=job_id)
 
     # Step 3: 写库
     _report(progress_callback, "写库", "写入数据库...", job_id=job_id)
@@ -964,7 +1051,12 @@ def run_pipeline(company_name: str, company_url: str,
     from repositories.field_repo import insert_research_fields_batch
     for record in records:
         version = record.get('version', 'standard')
-        field_record = {**record, "company_name": company_name}
+        field_record = {
+            **record,
+            "company_name": company_name,
+            "company_key": raw.get("company_key", ""),
+            "display_name": raw.get("display_name", company_name),
+        }
         field_rows = split_research_to_fields(field_record, version)
         if field_rows:
             insert_research_fields_batch(config.DB_PATH_RESEARCH, field_rows)
@@ -975,6 +1067,8 @@ def run_pipeline(company_name: str, company_url: str,
     standard_record = records[0] if records else {}
     company_data = {
         "company_name": company_name,
+        "company_key": raw.get("company_key", ""),
+        "display_name": raw.get("display_name", company_name),
         "company_url": company_url,
         "website_url": company_url,
         "location": standard_record.get("location", ""),
@@ -1003,4 +1097,37 @@ def run_pipeline(company_name: str, company_url: str,
 
     t4 = time.time()
     _report(progress_callback, "完成", f"总耗时 {t4 - t0:.1f}s, IDs: {ids}", job_id=job_id)
+
+    # 持久化采集审计数据到 research_jobs（研究结束后仍可追溯）
+    if job_id:
+        try:
+            src_summary = raw.get("_source_summary", {})
+            source_audit = {
+                "company_key": raw.get("company_key", ""),
+                "display_name": raw.get("display_name", ""),
+                "search_terms": raw.get("aliases", []),
+                "total_query_count": len(raw.get("tavily", [])),
+                "unique_url_count": sum(
+                    s.get("unique_url_count", 0) for s in src_summary.values()
+                    if isinstance(s, dict)
+                ),
+                "sources": {
+                    name: {
+                        "status": s.get("status", "unknown"),
+                        "query_count": s.get("query_count", s.get("count", 0)),
+                        "raw_count": s.get("count", 0),
+                        "unique_count": s.get("unique_url_count", s.get("count", 0)),
+                        "detail": s.get("detail", ""),
+                    }
+                    for name, s in src_summary.items() if isinstance(s, dict)
+                },
+                "warnings": raw.get("_source_warnings", []),
+                "pre_gap_refetch": raw.get("_pre_gap_refetch", {}),
+                "gap_refetch": raw.get("_gap_info", {}),
+            }
+            database.update_job(config.DB_PATH_RESEARCH, job_id,
+                              detail=json.dumps(source_audit, ensure_ascii=False))
+        except Exception:
+            pass
+
     return ids

@@ -109,17 +109,11 @@ const ParamInspector = {
     ];
     const chartSpecific = {
       chart_competitive: [
-        { group: 'chart', key: 'x_split', label: 'X 分割线', type: 'range', min: 1, max: 9, step: 0.5 },
-        { group: 'chart', key: 'y_split', label: 'Y 分割线', type: 'range', min: 1, max: 9, step: 0.5 },
-        { group: 'chart', key: 'quadrant_tl', label: '左上象限', type: 'text' },
-        { group: 'chart', key: 'quadrant_tr', label: '右上象限', type: 'text' },
-        { group: 'chart', key: 'quadrant_bl', label: '左下象限', type: 'text' },
-        { group: 'chart', key: 'quadrant_br', label: '右下象限', type: 'text' },
+        { group: 'chart', key: 'x_split', label: '象限分割点', type: 'range', min: 1, max: 9, step: 0.5 },
+        { group: 'chart', key: 'y_split', label: '象限分割点', type: 'range', min: 1, max: 9, step: 0.5 },
         { group: 'chart', key: 'point_size', label: '基础气泡', type: 'range', min: 4, max: 28, step: 1 },
       ],
       chart_ecosystem: [
-        { group: 'chart', key: 'value_threshold', label: '价值阈值', type: 'range', min: 1, max: 10, step: 0.5 },
-        { group: 'chart', key: 'jitter', label: '散点抖动', type: 'range', min: 0, max: 0.5, step: 0.05 },
         { group: 'chart', key: 'point_size', label: '基础气泡', type: 'range', min: 4, max: 28, step: 1 },
       ],
       flywheel: [
