@@ -249,7 +249,12 @@ def save_research():
 
 
 def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
-    database.create_job(config.DB_PATH_RESEARCH, job_id, company_name, company_url)
+    from company_identity import build_company_identity
+    identity = build_company_identity(company_name, company_url)
+    database.create_job(config.DB_PATH_RESEARCH, job_id, company_name, company_url,
+                        company_key=identity.company_key,
+                        display_name=identity.display_name,
+                        website_host=identity.website_host)
 
     def on_progress(stage: str, detail: str):
         message = detail.get("message", "") if isinstance(detail, dict) else detail
@@ -448,43 +453,25 @@ def _load_all_scored_companies(research_db_path: str) -> list[dict]:
 def _default_chart_params(asset_key: str) -> dict:
     """Default editable params for generated chart demands."""
     base = {
-        "theme": "dark",
+        "theme": "light",
         "accent_color": "#29B8D4",
-        # 卡片最终显示约 300-350px，是设计尺寸 800px 的 ~0.4x，字号需放大补偿
-        "title_size": 32,
-        "axis_size": 22,
-        "label_size": 22,
-        "point_size": 14,
+        "title_size": 16,
+        "axis_size": 12,
+        "label_size": 13,
+        "point_size": 12,
         "show_label": False,
         "subtitle": "",
         "note": "",
-        "width": 800,
+        "width": 900,
         "height": 600,
     }
     if asset_key == "chart_competitive":
         base.update({
-            "title": "AI 创业公司竞争格局图",
-            "x_label": "Defensibility",
-            "y_label": "Incumbent Attention",
-            "x_split": 5,
-            "y_split": 5,
-            # X=Defensibility低→高, Y=IncumbentAttention低→高
-            "quadrant_tl": "Kill Zone",
-            "quadrant_tr": "Battlefield",
-            "quadrant_bl": "Waiting Room",
-            "quadrant_br": "Sweet Spot",
-            "bubble_min": 8,
-            "bubble_max": 30,
+            "title": "竞争格局定位图",
         })
     elif asset_key == "chart_ecosystem":
         base.update({
-            "title": "AI 产业链生态位图",
-            "x_label": "Stack Layer",
-            "y_label": "Value Capture",
-            "value_threshold": 7,
-            "stack_labels": ["基础设施", "基础模型", "中间件", "垂直应用", "分发渠道"],
-            "stack_colors": ["#4FC3F7", "#BA68C8", "#FFB74D", "#81C784", "#E57373"],
-            "jitter": 0.16,
+            "title": "AI 栈生态位图",
         })
     elif asset_key == "flywheel":
         base.update({

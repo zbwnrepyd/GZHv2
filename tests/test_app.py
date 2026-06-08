@@ -572,7 +572,7 @@ class AssetPathSafetyTests(unittest.TestCase):
         assets_db_path = init_sqlite("init_assets_db.sql")
         self.addCleanup(lambda: os.path.exists(assets_db_path) and os.remove(assets_db_path))
 
-        def collect_office(db_path, images_root, company_name, location, query_config, company_url=""):
+        def collect_office(db_path, images_root, company_name, location, query_config, company_url="", company_key=""):
             asset_store.insert_variant(
                 db_path,
                 company_name,

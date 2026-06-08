@@ -91,9 +91,9 @@ def get_companies(db_path: str, final_db_path: str = "",
             completeness = round(filled / len(REQUIRED_RESEARCH_FIELDS) * 100) if latest else 0
             confirmed = 0
             # total 优先从卡片设置(composition_db)取启用卡片数，否则默认8
-            total = _count_enabled_cards(composition_db_path, latest_cname)
+            total = _count_enabled_cards(composition_db_path, latest_cname, ckey)
             if final_db_path:
-                confirmed, _ = _count_final_fields_progress(final_db_path, latest_cname)
+                confirmed, _ = _count_final_fields_progress(final_db_path, latest_cname, ckey)
             confirmed = min(confirmed or 0, total)
             website_url = latest["website_url"] if latest else ""
             if not website_url or str(website_url).strip() in ("", "暂缺"):
@@ -187,12 +187,29 @@ def _count_confirmed_cards(final_db_path: str, company_name: str) -> int:
         return 0
 
 
-def _count_enabled_cards(composition_db_path: str, company_name: str) -> int:
-    """返回卡片设置中启用的卡片数。无数据则默认 8。"""
+def _count_enabled_cards(composition_db_path: str, company_name: str,
+                         company_key: str = "") -> int:
+    """返回卡片设置中启用的卡片数。无数据则默认 8。
+    优先按 company_key 查询，回退到 company_name（兼容旧数据）。"""
     if not composition_db_path:
         return 8
     try:
         with get_db(composition_db_path) as conn:
+            # 优先 company_key（如果列存在且有值匹配）
+            if company_key:
+                has_ckey = any(
+                    r["name"] == "company_key"
+                    for r in conn.execute("PRAGMA table_info(card_compositions)").fetchall()
+                )
+                if has_ckey:
+                    row = conn.execute(
+                        "SELECT COUNT(*) as cnt FROM card_compositions "
+                        "WHERE (company_key=? OR (company_key IS NULL AND company_name=?)) "
+                        "AND enabled=1",
+                        (company_key, company_name),
+                    ).fetchone()
+                    if row and row["cnt"] > 0:
+                        return row["cnt"]
             row = conn.execute(
                 "SELECT COUNT(*) as cnt FROM card_compositions "
                 "WHERE company_name=? AND enabled=1",
@@ -205,9 +222,27 @@ def _count_enabled_cards(composition_db_path: str, company_name: str) -> int:
     return 8
 
 
-def _count_final_fields_progress(final_db_path: str, company_name: str) -> tuple[int, int]:
+def _count_final_fields_progress(final_db_path: str, company_name: str,
+                                  company_key: str = "") -> tuple[int, int]:
     try:
         with get_db(final_db_path) as conn:
+            # 优先 company_key（如果 final_fields 表有此列且有值）
+            if company_key:
+                has_ckey = any(
+                    r["name"] == "company_key"
+                    for r in conn.execute("PRAGMA table_info(final_fields)").fetchall()
+                )
+                if has_ckey:
+                    row = conn.execute(
+                        """SELECT
+                             COUNT(CASE WHEN status='confirmed' THEN 1 END) as confirmed,
+                             COUNT(*) as total
+                           FROM final_fields
+                           WHERE (company_key=? OR (company_key IS NULL AND company_name=?))""",
+                        (company_key, company_name),
+                    ).fetchone()
+                    if row and row["total"] > 0:
+                        return row["confirmed"] or 0, 0
             row = conn.execute(
                 """SELECT
                      COUNT(CASE WHEN status='confirmed' THEN 1 END) as confirmed,
@@ -218,7 +253,6 @@ def _count_final_fields_progress(final_db_path: str, company_name: str) -> tuple
             ).fetchone()
             total = row["total"] if row else 0
             if total:
-                # confirmed 从 final_fields 读取，total 由调用方根据卡片设置确定
                 return row["confirmed"] or 0, 0
     except Exception:
         pass
@@ -226,8 +260,32 @@ def _count_final_fields_progress(final_db_path: str, company_name: str) -> tuple
 
 
 def get_research(db_path: str, company_name: str, version: str) -> dict | None:
-    """读取指定版本的全部字段（按展示名）"""
+    """读取指定版本的全部字段。先按 company_key 查（支持传 key），再按 company_name 回退。"""
     with get_db(db_path) as conn:
+        has_ckey = any(
+            r["name"] == "company_key"
+            for r in conn.execute("PRAGMA table_info(research)").fetchall()
+        )
+        if has_ckey:
+            # 先按 company_key 精确匹配
+            row = conn.execute(
+                "SELECT * FROM research "
+                "WHERE company_key=? AND version=? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (company_name, version),
+            ).fetchone()
+            if row:
+                return dict(row)
+            # 再按 COALESCE 回退（兼容 company_key 为空的历史数据）
+            row = conn.execute(
+                "SELECT * FROM research "
+                "WHERE COALESCE(NULLIF(company_key,''), LOWER(company_name))=LOWER(?) "
+                "AND version=? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (company_name, version),
+            ).fetchone()
+            return dict(row) if row else None
+        # 旧 schema：精确 company_name 匹配
         row = conn.execute(
             "SELECT * FROM research WHERE company_name=? AND version=? "
             "ORDER BY created_at DESC LIMIT 1",
@@ -373,13 +431,27 @@ def save_research_records(db_path: str, records: list[dict]) -> list[int]:
 # ── research_jobs 追踪 ──────────────────────────────────────────
 
 
-def create_job(db_path: str, job_id: str, company_name: str, company_url: str):
+def create_job(db_path: str, job_id: str, company_name: str, company_url: str,
+               company_key: str = "", display_name: str = "", website_host: str = ""):
     with get_db(db_path) as conn:
-        conn.execute(
-            """INSERT INTO research_jobs (job_id, company_name, company_url, status, stage, detail)
-               VALUES (?, ?, ?, 'running', '启动', '准备开始...')""",
-            (job_id, company_name, company_url),
+        # 兼容旧 schema（无 company_key 列）
+        has_ckey = any(
+            row["name"] == "company_key"
+            for row in conn.execute("PRAGMA table_info(research_jobs)").fetchall()
         )
+        if has_ckey:
+            conn.execute(
+                """INSERT INTO research_jobs (job_id, company_name, company_url, company_key, display_name, website_host, status, stage, detail)
+                   VALUES (?, ?, ?, ?, ?, ?, 'running', '启动', '准备开始...')""",
+                (job_id, company_name, company_url, company_key or None,
+                 display_name or None, website_host or None),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO research_jobs (job_id, company_name, company_url, status, stage, detail)
+                   VALUES (?, ?, ?, 'running', '启动', '准备开始...')""",
+                (job_id, company_name, company_url),
+            )
         conn.commit()
 
 

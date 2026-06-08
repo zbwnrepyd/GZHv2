@@ -5,7 +5,7 @@ deep 模式覆盖 10 类意图，standard 模式覆盖 6 类核心意图。
 """
 from __future__ import annotations
 from dataclasses import dataclass
-import os
+from config import config
 
 
 @dataclass
@@ -67,13 +67,13 @@ TAVILY_QUERY_TEMPLATES: dict[str, list[str]] = {
 
 
 def _depth() -> str:
-    return os.environ.get("RESEARCH_DEPTH", "deep")
+    return config.RESEARCH_DEPTH
 
 
 def _query_budget() -> int:
     if _depth() == "deep":
-        return int(os.environ.get("TAVILY_QUERY_BUDGET_DEEP", "18"))
-    return int(os.environ.get("TAVILY_QUERY_BUDGET_STANDARD", "8"))
+        return config.TAVILY_QUERY_BUDGET_DEEP
+    return config.TAVILY_QUERY_BUDGET_STANDARD
 
 
 def build_search_plan(display_name: str, root_domain: str,

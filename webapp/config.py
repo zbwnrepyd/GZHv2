@@ -85,5 +85,13 @@ class Config:
     DEEPSEEK_MODEL: str = "deepseek-v4-pro"
     DEEPSEEK_FLASH_MODEL: str = "deepseek-v4-flash"
 
+    # 研究深度与预算
+    RESEARCH_DEPTH: str = os.environ.get("RESEARCH_DEPTH", "deep")
+    TAVILY_QUERY_BUDGET_STANDARD: int = int(os.environ.get("TAVILY_QUERY_BUDGET_STANDARD", "8"))
+    TAVILY_QUERY_BUDGET_DEEP: int = int(os.environ.get("TAVILY_QUERY_BUDGET_DEEP", "18"))
+    TAVILY_RESULTS_PER_QUERY: int = int(os.environ.get("TAVILY_RESULTS_PER_QUERY", "8"))
+    COLLECTION_MIN_UNIQUE_URLS: int = int(os.environ.get("COLLECTION_MIN_UNIQUE_URLS", "18"))
+    COLLECTION_ENABLE_GAP_REFETCH: bool = os.environ.get("COLLECTION_ENABLE_GAP_REFETCH", "1") == "1"
+
 
 config = Config()

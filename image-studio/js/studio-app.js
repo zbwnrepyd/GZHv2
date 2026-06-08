@@ -7,8 +7,8 @@ const DEMAND_LABELS = {
   products_other: '其他产品截图',
   competitors: '竞品截图',
   competitors_logo_strip: '三个竞品 Logo 横排图',
-  chart_competitive: 'AI 创业公司竞争格局图',
-  chart_ecosystem: 'AI 产业链生态位图',
+  chart_competitive: '竞争格局定位图',
+  chart_ecosystem: 'AI 栈生态位图',
   flywheel: '飞轮图',
   timeline: '时间线图',
 };
@@ -324,62 +324,12 @@ const StudioApp = {
     } catch (e) { /* non-blocking */ }
   },
 
-  _buildScatterPreview(chartType, companies, params) {
-    const p = params || {};
-    const accent = p.accent_color || '#29B8D4';
-    const pt = p.point_size || 10, ts = p.title_size || 16, as = p.axis_size || 12;
-    const theme = p.theme || 'dark';
-    const showLabel = p.show_label !== false;
-    const title = chartType === 'competitive_landscape' ? '竞争格局矩阵' : 'AI Stack 定位图';
-    const hi = this._company, hiData = [], otData = [];
-    const stMap = { infrastructure:1, foundation_model:2, middleware:3, vertical_app:4, distribution:5 };
-    for (const c of (companies||[])) {
-      const n = c.company_name || '';
-      if (chartType === 'competitive_landscape') {
-        const dx = parseFloat(c.score_defensibility||0), dy = parseFloat(c.score_incumbent_attention||0);
-        if (!dx&&!dy) continue;
-        (n===hi?hiData:otData).push([dx,dy,n]);
-      } else {
-        const sx = stMap[c.stack_layer||'vertical_app']||3, dy = parseFloat(c.score_value_capture||0);
-        if (!dy) continue;
-        (n===hi?hiData:otData).push([sx,dy,n]);
-      }
-    }
-    const ds = [];
-    if (hiData.length) ds.push({name:hi,data:hiData});
-    if (otData.length) ds.push({name:'其他公司',data:otData});
-    const dsj = JSON.stringify(ds);
-    return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>body{margin:0;width:100%;height:100%;overflow:hidden;background:${theme==='dark'?'#0B1629':'#fff'}}
-#chart{width:100%;height:100%}</style></head><body>
-<div id="chart"></div>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
-<script>
-var ds=${dsj};
-var series=ds.map(function(d){return{name:d.name,type:'scatter',data:d.data,
-  symbolSize:${pt},
-  label:{show:${showLabel},formatter:function(p){return p.value[2]||''},fontSize:10,color:'${theme==="dark"?"rgba(255,255,255,0.6)":"#666"}'},
-  emphasis:{focus:'series'}
-}});
-echarts.init(document.getElementById('chart')).setOption({
-  title:{text:'${title}',left:'center',textStyle:{color:'${theme==="dark"?"#fff":"#333"}',fontSize:${ts},fontWeight:700}},
-  tooltip:{formatter:function(p){return p.value[2]+'<br/>('+p.value[0]+', '+p.value[1]+')'}},
-  legend:{bottom:10,textStyle:{color:'${theme==="dark"?"rgba(255,255,255,0.5)":"#999"}',fontSize:11}},
-  grid:{left:70,right:40,top:60,bottom:50},
-  xAxis:{name:'${chartType==='competitive_landscape'?'Defensibility':'Stack Layer'}',nameTextStyle:{color:'${theme==="dark"?"rgba(255,255,255,0.5)":"#999"}',fontSize:${as}}},
-  yAxis:{name:'${chartType==='competitive_landscape'?'Incumbent Attention':'Value Capture'}',nameTextStyle:{color:'${theme==="dark"?"rgba(255,255,255,0.5)":"#999"}',fontSize:${as}}},
-  backgroundColor:'${theme==="dark"?"#0B1629":"#fff"}',
-  color:["${accent}","#7DD3FC","#F9E2AF","#A7F3D0","#C4B5FD","#FDA4AF"]
-});
-</script></body></html>`;
-  },
-
   _chartRenderBar(slot) {
     const p = this._svParams || {};
-    if (!('accent_color' in p)) { p.accent_color = '#29B8D4'; p.point_size = 10; p.title_size = 16; p.axis_size = 12; p.theme = 'dark'; p.show_label = true; }
+    if (!('accent_color' in p)) { p.accent_color = '#29B8D4'; p.point_size = 12; p.title_size = 16; p.axis_size = 12; p.theme = 'light'; p.show_label = false; }
     this._svParams = p;
     const chartType = slot.asset_key === 'chart_competitive' ? 'competitive_landscape' : 'stack_positioning';
-    const chartLabel = slot.asset_key === 'chart_competitive' ? '竞争格局矩阵' : 'AI Stack 定位图';
+    const chartLabel = slot.asset_key === 'chart_competitive' ? '竞争格局定位图' : 'AI 栈生态位图';
     return `
       <div class="bar-controls">
         <div class="bar-control-row">
@@ -420,7 +370,7 @@ echarts.init(document.getElementById('chart')).setOption({
   },
 
   _resetChartParams() {
-    this._svParams = { accent_color:'#29B8D4', point_size:10, title_size:16, axis_size:12, theme:'dark', show_label:true };
+    this._svParams = { accent_color:'#29B8D4', point_size:12, title_size:16, axis_size:12, theme:'light', show_label:false };
     this._renderChartUI(this._activeSlot, null);
     this._updateChartPreview();
   },
