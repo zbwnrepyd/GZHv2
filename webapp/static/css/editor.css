@@ -735,3 +735,54 @@ input, button, select, textarea { font: inherit; }
   cursor: pointer; white-space: nowrap; flex-shrink: 0;
 }
 .tf-save-btn:hover { background: var(--cyan-hover); }
+
+/* ── 套卡选择器 ── */
+.card-set-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.cs-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  user-select: none;
+}
+.cs-tab:hover { background: rgba(41,184,212,.06); color: var(--cyan); }
+.cs-tab.active {
+  background: var(--cyan);
+  color: #fff;
+  border-color: var(--cyan);
+}
+.cs-tab-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  line-height: 1;
+}
+.cs-tab.active .cs-tab-del { color: rgba(255,255,255,.7); }
+.cs-tab-del:hover { color: var(--danger); background: rgba(217,45,32,.1); }
+.cs-tab.active .cs-tab-del:hover { color: #fff; background: rgba(255,255,255,.2); }
+.cs-tab-add {
+  color: var(--cyan);
+  border: 1px dashed var(--cyan);
+  font-style: italic;
+}
+.cs-tab-add:hover { background: rgba(41,184,212,.08); }

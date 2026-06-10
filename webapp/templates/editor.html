@@ -25,6 +25,11 @@
 
 <main id="editor-workbench">
   <aside id="editor-left-pane">
+    <!-- 套卡选择器 -->
+    <div id="card-set-selector" class="card-set-selector">
+      <!-- 由 editor.js 动态渲染 -->
+    </div>
+
     <!-- 1. 卡片设置（主流程入口，默认展开） -->
     <div class="accordion-section" data-od-id="editor-card-settings">
       <div class="accordion-header open" data-section="card-settings">
@@ -95,12 +100,14 @@
 <script src="/static/js/editor/text-finalize-panel.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  const company = new URLSearchParams(window.location.search).get('company') || '';
+  const params = new URLSearchParams(window.location.search);
+  const company = params.get('company') || '';
   if (!company) return;
 
-  // 进入排版按钮
+  // 进入排版按钮 — 带当前套卡参数
+  const setKey = params.get('set') || 'v1';
   const btnLayout = document.getElementById('btn-go-layout');
-  if (btnLayout) btnLayout.href = `/layout?company=${encodeURIComponent(company)}`;
+  if (btnLayout) btnLayout.href = `/layout?company=${encodeURIComponent(company)}&set=${setKey}`;
 });
 </script>
 </body>

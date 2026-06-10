@@ -109,12 +109,20 @@ const ParamInspector = {
     ];
     const chartSpecific = {
       chart_competitive: [
-        { group: 'chart', key: 'x_split', label: '象限分割点', type: 'range', min: 1, max: 9, step: 0.5 },
-        { group: 'chart', key: 'y_split', label: '象限分割点', type: 'range', min: 1, max: 9, step: 0.5 },
+        { group: 'chart', key: 'x_split', label: 'X 分割线', type: 'range', min: 0, max: 1, step: 0.01 },
+        { group: 'chart', key: 'y_split', label: 'Y 分割线', type: 'range', min: 0, max: 1, step: 0.01 },
         { group: 'chart', key: 'point_size', label: '基础气泡', type: 'range', min: 4, max: 28, step: 1 },
+        { group: 'chart', key: 'max_companies', label: '最多公司数', type: 'range', min: 4, max: 12, step: 1 },
+        { group: 'chart', key: 'label_max_chars', label: '标签截断', type: 'range', min: 4, max: 12, step: 1 },
+        { group: 'chart', key: 'show_all_labels_threshold', label: '全量标签阈值', type: 'range', min: 4, max: 12, step: 1 },
+        { group: 'chart', key: 'raw_score_max', label: '原始分上限', type: 'range', min: 10, max: 10, step: 1 },
       ],
       chart_ecosystem: [
         { group: 'chart', key: 'point_size', label: '基础气泡', type: 'range', min: 4, max: 28, step: 1 },
+        { group: 'chart', key: 'max_companies', label: '最多公司数', type: 'range', min: 4, max: 12, step: 1 },
+        { group: 'chart', key: 'label_max_chars', label: '标签截断', type: 'range', min: 4, max: 12, step: 1 },
+        { group: 'chart', key: 'show_all_labels_threshold', label: '全量标签阈值', type: 'range', min: 4, max: 12, step: 1 },
+        { group: 'chart', key: 'raw_score_max', label: '原始分上限', type: 'range', min: 10, max: 10, step: 1 },
       ],
       flywheel: [
         { group: 'chart', key: 'template_id', label: '模板', type: 'select', options: this._templateOptions(chartData) },

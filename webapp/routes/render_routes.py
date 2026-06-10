@@ -1,4 +1,4 @@
-"""渲染数据 API — /api/render-data/...
+"""渲染数据 API — /api/render-data/... （v2 支持 card_set_key）
 返回卡片渲染所需的完整数据：字段值 + 图片 URL + 模板 + 排版实例
 """
 from __future__ import annotations
@@ -12,12 +12,17 @@ from asset_store import ensure_assets_rows, get_asset
 from services.card_config_service import create_default_cards_for_company
 
 
+def _get_set_key() -> str:
+    return (request.args.get("set") or "v1").strip()
+
+
 def _enabled_cards_or_defaults(company: str) -> list[dict]:
-    cards = get_enabled_cards(config.DB_PATH_COMPOSITION, company)
+    set_key = _get_set_key()
+    cards = get_enabled_cards(config.DB_PATH_COMPOSITION, company, card_set_key=set_key)
     if cards:
         return cards
-    create_default_cards_for_company(config.DB_PATH_COMPOSITION, company)
-    return get_enabled_cards(config.DB_PATH_COMPOSITION, company)
+    create_default_cards_for_company(config.DB_PATH_COMPOSITION, company, card_set_key=set_key)
+    return get_enabled_cards(config.DB_PATH_COMPOSITION, company, card_set_key=set_key)
 
 
 def _media_url(company: str, media_key: str) -> str:
@@ -33,11 +38,13 @@ def register(bp: Blueprint):
     def get_render_data(company: str):
         """返回某公司全部启用卡片的渲染数据"""
         try:
+            set_key = _get_set_key()
             cards = _enabled_cards_or_defaults(company)
             result_cards = []
             for card in cards:
                 card_id = card["card_id"]
-                items = get_card_items(config.DB_PATH_COMPOSITION, company, card_id)
+                items = get_card_items(config.DB_PATH_COMPOSITION, company, card_id,
+                                      card_set_key=set_key)
 
                 # 解析每个 item 的值
                 resolved_items = []

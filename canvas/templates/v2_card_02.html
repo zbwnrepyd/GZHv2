@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  :root { --navy: #1B2A4A; --cyan: #29B8D4; --gray: #6B7A8D; --bg: #F7F8FA; --card-w: 900px; --card-h: 1200px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { width: var(--card-w); height: var(--card-h); background: #fff; overflow: hidden; font-family: "Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif; }
+  .card { width: 900px; height: 1200px; padding: 56px 64px; display: flex; flex-direction: column; }
+  .card-label { font-size: 12px; color: var(--cyan); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; font-weight: 600; }
+  .card-title { font-size: 32px; font-weight: 800; color: var(--navy); margin-bottom: 8px; }
+  .card-subtitle { font-size: 15px; color: var(--gray); margin-bottom: 36px; }
+
+  .hero { width: 100%; height: 420px; border-radius: 12px; overflow: hidden; margin-bottom: 36px; background: var(--bg); display: flex; align-items: center; justify-content: center; }
+  .hero img { width: 100%; height: 100%; object-fit: cover; }
+  .hero-placeholder { color: var(--gray); font-size: 14px; }
+
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 32px; margin-bottom: 28px; }
+  .info-item { display: flex; flex-direction: column; }
+  .info-label { font-size: 11px; color: var(--gray); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+  .info-value { font-size: 15px; color: var(--navy); font-weight: 500; line-height: 1.4; }
+
+  .achievement-block { flex: 1; }
+  .section-title { font-size: 13px; color: var(--gray); font-weight: 500; margin-bottom: 12px; letter-spacing: 0.03em; }
+  .achievement-text { font-size: 14px; color: var(--navy); line-height: 1.7; }
+
+  .card-footer { margin-top: auto; padding-top: 20px; border-top: 1px solid #E8ECF2; display: flex; justify-content: space-between; align-items: center; }
+  .brand-mark { font-size: 18px; color: var(--cyan); }
+  .page-num { font-size: 12px; color: var(--gray); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="card" id="page2">
+  <div class="card-label">Company Overview</div>
+  <h1 class="card-title" id="company-name"></h1>
+  <p class="card-subtitle" id="company-def"></p>
+
+  <div class="hero" id="hero-block">
+    <img id="hero-img" src="" alt="" onerror="this.parentElement.innerHTML='<div class=hero-placeholder>官网截图</div>'">
+  </div>
+
+  <div class="info-grid">
+    <div class="info-item"><span class="info-label">位置</span><span class="info-value" id="location-val">—</span></div>
+    <div class="info-item"><span class="info-label">类型</span><span class="info-value" id="type-val">—</span></div>
+    <div class="info-item"><span class="info-label">行业</span><span class="info-value" id="industry-val">—</span></div>
+    <div class="info-item"><span class="info-label">官网</span><span class="info-value" id="website-val">—</span></div>
+  </div>
+
+  <div class="achievement-block">
+    <div class="section-title">公司成就</div>
+    <p class="achievement-text" id="achievement-text">—</p>
+  </div>
+
+  <div class="card-footer"><span class="brand-mark">∞</span><span class="page-num">2 / 7</span></div>
+</div>
+
+<script>
+const D = window.__CARD_DATA__ || {};
+document.getElementById("company-name").textContent = D.company_name || "";
+document.getElementById("company-def").textContent = D.company_def || "";
+document.getElementById("location-val").textContent = D.location || "暂缺";
+document.getElementById("type-val").textContent = D.company_type || "暂缺";
+document.getElementById("industry-val").textContent = D.company_type || "暂缺";
+document.getElementById("website-val").textContent = D.website_url || "暂缺";
+document.getElementById("achievement-text").textContent = D.company_achievement || "暂缺";
+const img = document.getElementById("hero-img");
+if (img) img.src = (D.media && D.media.website_screenshot) || "";
+</script>
+</body>
+</html>

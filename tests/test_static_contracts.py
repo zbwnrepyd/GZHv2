@@ -423,7 +423,7 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("template-checks", template_maker_html)
         self.assertIn("_validateTemplate()", template_maker_html)
         self.assertIn("data-od-id", template_maker_html)
-        self.assertIn("new URLSearchParams(window.location.search).get('company')", editor_html)
+        self.assertIn("URLSearchParams(window.location.search)", editor_html)
         self.assertIn("/api/media/", card_settings_js)
 
     def test_layout_markdown_editor_has_inline_format_toolbar(self):
@@ -438,12 +438,13 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("wrapSel(`<mark style=\"background:${btn.dataset.value};border-radius:3px;padding:0 2px\">`, '</mark>')", layout_js)
         self.assertIn("scope.replace(/<\\/?(span|mark)[^>]*>/g, '')", layout_js)
 
-    def test_card_spec_freezes_current_eight_card_asset_contract(self):
+    def test_card_spec_freezes_current_seven_card_asset_contract(self):
         with open(os.path.join(ROOT, "docs", "card-spec.md"), encoding="utf-8") as f:
             spec = f.read()
 
-        self.assertIn("card_spec_version = v1", spec)
-        self.assertIn("`card_8`", spec)
+        self.assertIn("card_spec_version = v2", spec)
+        self.assertIn("`card_7`", spec)
+        self.assertNotIn("`card_8`", spec)
         self.assertIn("`competitors_logo_strip`", spec)
         self.assertIn("`chart_competitive`", spec)
         self.assertIn("GET /api/assets/resolved", spec)

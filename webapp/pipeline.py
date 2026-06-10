@@ -486,6 +486,10 @@ def _trim_text(value, limit: int) -> str:
 def _prepare_raw_data_for_llm(raw_data: dict) -> dict:
     """Reduce noisy crawler payloads before Layer 0 while preserving evidence fields."""
     prepared = copy.deepcopy(raw_data)
+    # 移除 pipeline 内部元数据（非 JSON 可序列化对象）
+    for key in list(prepared.keys()):
+        if key.startswith("_"):
+            del prepared[key]
     tavily_batches = prepared.get("tavily")
     if not isinstance(tavily_batches, list):
         return prepared

@@ -16,9 +16,12 @@ const CardSettingsPanel = {
   },
 
   /* ── 数据加载 ── */
+  _setKey() { return EditorApp.currentSetKey || 'v1'; },
+
   async _loadCards() {
     try {
-      const r = await fetch(`/api/card-config/${encodeURIComponent(this._company)}`);
+      const sk = this._setKey();
+      const r = await fetch(`/api/card-config/${encodeURIComponent(this._company)}?set=${sk}`);
       const d = await r.json();
       this._cards = d.cards || [];
     } catch { this._cards = []; }
@@ -183,7 +186,7 @@ const CardSettingsPanel = {
     try {
       const r = await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card_id: cardId, card_title: title, card_index: index, template_id: template }),
+        body: JSON.stringify({ card_id: cardId, card_title: title, card_index: index, template_id: template, card_set_key: this._setKey() }),
       });
       if (!r.ok) throw new Error((await r.json()).error);
 
@@ -202,7 +205,7 @@ const CardSettingsPanel = {
         items.push({ item_type: 'media', item_key: cb.value, sort_order: i + 100, display_role: role });
       });
 
-      await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}/items/batch`, {
+      await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}/items/batch?set=${this._setKey()}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items }),
       });
@@ -273,7 +276,7 @@ const CardSettingsPanel = {
       // Update card metadata
       const r = await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card_title: title, card_index: index, template_id: template, enabled }),
+        body: JSON.stringify({ card_title: title, card_index: index, template_id: template, enabled, card_set_key: this._setKey() }),
       });
       if (!r.ok) throw new Error((await r.json()).error);
 
@@ -292,7 +295,7 @@ const CardSettingsPanel = {
         items.push({ item_type: 'media', item_key: cb.value, sort_order: i + 100, display_role: role });
       });
 
-      await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}/items/batch`, {
+      await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}/items/batch?set=${this._setKey()}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items }),
       });
@@ -308,20 +311,24 @@ const CardSettingsPanel = {
   async _deleteCard(cardId) {
     if (!confirm(`确定删除卡片 ${cardId}？`)) return;
     try {
-      await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}`, { method: 'DELETE' });
+      await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(cardId)}?set=${this._setKey()}`, { method: 'DELETE' });
       await this._loadCards();
       this._render();
     } catch (e) { alert('删除失败: ' + e.message); }
   },
 
   async _restoreDefaults() {
-    if (!confirm('确定恢复为默认 8 张卡片？当前编排将被清除。')) return;
+    const setKey = EditorApp.currentSetKey || 'v1';
+    const count = setKey === 'v2' ? 7 : 8;
+    if (!confirm(`确定恢复套卡「${setKey}」的默认 ${count} 张卡片？当前编排将被清除。`)) return;
     try {
       // 删除所有现有卡片
       for (const card of this._cards) {
-        await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(card.card_id)}`, { method: 'DELETE' });
+        await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(card.card_id)}?set=${setKey}`, { method: 'DELETE' });
       }
-      // 重新加载（GET 会自动创建默认卡片）
+      // 调用 init-set 重新初始化
+      await API.initCompanySet(this._company, setKey);
+      // 重新加载
       await this._loadCards();
       this._render();
     } catch (e) { alert('恢复失败: ' + e.message); }

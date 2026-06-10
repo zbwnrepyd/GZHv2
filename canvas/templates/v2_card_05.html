@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  /* ── 基础变量 ── */
+  :root {
+    --navy: #1B2A4A;
+    --cyan:  #29B8D4;
+    --gray:  #6B7A8D;
+    --bg:    #F7F8FA;
+    --card-w: 900px;
+    --card-h: 1200px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { width: var(--card-w); height: var(--card-h);
+         background: white; overflow: hidden;
+         font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+  .card { width: 900px; height: 1200px; padding: 56px 60px;
+          display: flex; flex-direction: column; gap: 0; }
+
+  /* ── 卡片头部 ── */
+  .card-header { display: flex; justify-content: space-between;
+                 align-items: flex-end; margin-bottom: 36px; }
+  .card-title  { font-size: 28px; font-weight: 700; color: var(--navy); }
+  .card-label  { font-size: 13px; color: var(--cyan);
+                 border: 1px solid var(--cyan); border-radius: 4px;
+                 padding: 2px 8px; }
+
+  /* ── 指标行：revenue + growth ── */
+  .metrics-row { display: grid; grid-template-columns: 1fr 1fr;
+                 gap: 20px; margin-bottom: 28px; }
+  .metric-box  { background: var(--bg); border-radius: 12px;
+                 padding: 20px 24px; }
+  .metric-label { font-size: 12px; color: var(--gray); margin-bottom: 8px;
+                  text-transform: uppercase; letter-spacing: 0.05em; }
+  .metric-value { font-size: 22px; font-weight: 700; color: var(--navy);
+                  line-height: 1.3; }
+  .metric-source { font-size: 11px; color: var(--gray); margin-top: 6px; }
+
+  /* ── 融资时间线（fallback）── */
+  .funding-timeline { margin-bottom: 28px;
+                      border-left: 3px solid var(--cyan); padding-left: 20px; }
+  .funding-timeline h3 { font-size: 14px; color: var(--gray);
+                         margin-bottom: 14px; font-weight: 500; }
+  .timeline-item { position: relative; margin-bottom: 16px; }
+  .timeline-item::before { content: ""; position: absolute;
+    left: -25px; top: 6px; width: 8px; height: 8px;
+    background: var(--cyan); border-radius: 50%; }
+  .timeline-round { font-size: 12px; color: var(--cyan);
+                    font-weight: 600; margin-bottom: 2px; }
+  .timeline-amount { font-size: 18px; font-weight: 700; color: var(--navy); }
+
+  /* ── 地区市场 ── */
+  .region-section { margin-bottom: 28px; }
+  .section-title  { font-size: 13px; color: var(--gray);
+                    font-weight: 500; margin-bottom: 14px; }
+  .region-bars    { display: flex; flex-direction: column; gap: 10px; }
+  .region-row     { display: flex; align-items: center; gap: 12px; }
+  .region-name    { width: 60px; font-size: 13px; color: var(--navy);
+                    text-align: right; flex-shrink: 0; }
+  .region-bar-bg  { flex: 1; height: 8px; background: #E8ECF2;
+                    border-radius: 4px; }
+  .region-bar-fg  { height: 8px; background: var(--cyan);
+                    border-radius: 4px; transition: width 0s; }
+  .region-pct     { width: 36px; font-size: 12px; color: var(--gray);
+                    text-align: right; flex-shrink: 0; }
+
+  /* ── 客户群体 ── */
+  .customer-section { flex: 1; }
+  .customer-tags    { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .customer-tag     { background: #EEF6FF; color: var(--navy);
+                      border-radius: 20px; padding: 6px 14px;
+                      font-size: 13px; }
+
+  /* ── 融资摘要 ── */
+  .funding-pill { display: inline-flex; align-items: center; gap: 8px;
+                  background: var(--navy); color: white; border-radius: 8px;
+                  padding: 12px 20px; font-size: 14px; margin-bottom: 28px; }
+  .funding-pill .amount { font-size: 20px; font-weight: 700;
+                          color: var(--cyan); }
+
+  /* ── 隐藏工具类 ── */
+  .hidden { display: none !important; }
+
+  /* ── 品牌 footer ── */
+  .card-footer { margin-top: auto; padding-top: 24px;
+                 border-top: 1px solid #E8ECF2;
+                 display: flex; justify-content: space-between;
+                 align-items: center; }
+  .brand-mark  { font-size: 18px; color: var(--cyan); }
+  .page-num    { font-size: 12px; color: var(--gray); }
+</style>
+</head>
+<body>
+<div class="card" id="page5">
+
+  <!-- 头部 -->
+  <div class="card-header">
+    <div>
+      <div class="card-title" id="company-name"></div>
+    </div>
+    <span class="card-label">财务 · 市场</span>
+  </div>
+
+  <!-- ① 财务指标行（revenue + growth）/ 折叠时替换为融资时间线 -->
+  <div class="metrics-row" id="metrics-block">
+    <div class="metric-box">
+      <div class="metric-label">营收规模</div>
+      <div class="metric-value" id="revenue-val">—</div>
+      <div class="metric-source" id="revenue-src"></div>
+    </div>
+    <div class="metric-box">
+      <div class="metric-label">增长规模</div>
+      <div class="metric-value" id="growth-val">—</div>
+      <div class="metric-source" id="growth-src"></div>
+    </div>
+  </div>
+
+  <!-- ① fallback：融资时间线（默认隐藏） -->
+  <div class="funding-timeline hidden" id="funding-timeline-block">
+    <h3>融资历程</h3>
+    <div id="timeline-items"></div>
+  </div>
+
+  <!-- ② 分地区市场 / 折叠时替换为客户地区文字 -->
+  <div class="region-section" id="region-block">
+    <div class="section-title">分地区市场</div>
+    <div class="region-bars" id="region-bars"></div>
+  </div>
+
+  <!-- ② fallback：客户描述（默认隐藏） -->
+  <div class="region-section hidden" id="region-fallback">
+    <div class="section-title">主要客户群</div>
+    <div class="customer-tags" id="customer-tags"></div>
+  </div>
+
+  <!-- ③ 融资摘要胶囊（始终显示） -->
+  <div class="funding-pill" id="funding-pill">
+    <span>累计融资</span>
+    <span class="amount" id="funding-total">—</span>
+  </div>
+
+  <!-- ④ 典型客户 -->
+  <div class="customer-section">
+    <div class="section-title">典型客户 · 客户群</div>
+    <div class="customer-tags" id="main-customer-tags"></div>
+  </div>
+
+  <!-- 底部 -->
+  <div class="card-footer">
+    <span class="brand-mark">∞</span>
+    <span class="page-num">5 / 7</span>
+  </div>
+
+</div>
+
+<script>
+// ── 数据注入入口 ──────────────────────────────────────────
+const D = window.__CARD_DATA__ || {};
+
+const ABSENT = v => !v || v.trim() === "暂缺" || v.trim() === "";
+
+// ── 工具：解析 "ARR $12M（2024Q4，TechCrunch）" → {val, src}
+function parseMetric(raw) {
+  if (ABSENT(raw)) return { val: "暂缺", src: "" };
+  const m = raw.match(/^(.+?)（(.+?)）\s*$/);
+  if (m) return { val: m[1].trim(), src: m[2].trim() };
+  return { val: raw, src: "" };
+}
+
+// ── 工具：解析 funding_info 时间线
+// 格式：Seed $2M（2022）→ Series A $15M（2024）
+function parseFundingTimeline(raw) {
+  if (ABSENT(raw)) return [];
+  return raw.split(/→|→/).map(s => {
+    s = s.trim();
+    const m = s.match(/^(.+?)\s+(\$[\d.]+[MKB]+)\s*(?:（(\d+)）)?/);
+    if (m) return { round: m[1], amount: m[2], year: m[3] || "" };
+    return { round: s, amount: "", year: "" };
+  }).filter(x => x.round);
+}
+
+// ── 工具：解析 regional_markets
+// 格式：美国 60%、欧洲 25%、亚太 15%
+function parseRegions(raw) {
+  if (ABSENT(raw)) return [];
+  return raw.split(/[、,，]/).map(s => {
+    s = s.trim();
+    const m = s.match(/^(.+?)\s+([\d.]+)%/);
+    if (m) return { name: m[1].trim(), pct: parseFloat(m[2]) };
+    return null;
+  }).filter(Boolean).slice(0, 5);
+}
+
+// ── 工具：解析 customer_segment 为 tags
+function parseCustomerTags(raw) {
+  if (ABSENT(raw)) return [];
+  return raw.split(/[、,，；;]/).map(s => s.trim()).filter(Boolean).slice(0, 8);
+}
+
+// ─────────────────────────────────────────────────────────
+// 渲染逻辑
+// ─────────────────────────────────────────────────────────
+
+// 公司名
+document.getElementById("company-name").textContent = D.company_name || "";
+
+// ── ① 财务指标 vs 融资时间线 fallback ──
+const revAbsent = ABSENT(D.revenue_metrics);
+const growAbsent = ABSENT(D.growth_metrics);
+
+if (revAbsent && growAbsent) {
+  // 两个指标都暂缺 → 折叠指标块，展示融资时间线
+  document.getElementById("metrics-block").classList.add("hidden");
+  const tl = document.getElementById("funding-timeline-block");
+  tl.classList.remove("hidden");
+
+  const items = parseFundingTimeline(D.funding_info);
+  const container = document.getElementById("timeline-items");
+  if (items.length === 0) {
+    container.innerHTML = '<div style="color:#6B7A8D;font-size:13px">暂无公开融资信息</div>';
+  } else {
+    items.forEach(item => {
+      const div = document.createElement("div");
+      div.className = "timeline-item";
+      div.innerHTML = `
+        <div class="timeline-round">${item.round}${item.year ? " · " + item.year : ""}</div>
+        <div class="timeline-amount">${item.amount || "—"}</div>
+      `;
+      container.appendChild(div);
+    });
+  }
+} else {
+  // 至少一个有值 → 展示指标块
+  const rv = parseMetric(D.revenue_metrics);
+  const gv = parseMetric(D.growth_metrics);
+  document.getElementById("revenue-val").textContent  = rv.val;
+  document.getElementById("revenue-src").textContent  = rv.src;
+  document.getElementById("growth-val").textContent   = gv.val;
+  document.getElementById("growth-src").textContent   = gv.src;
+
+  // 单侧暂缺 → 置灰提示（不折叠，保持对称布局）
+  if (revAbsent)  document.getElementById("revenue-val").style.color = "#B0B8C4";
+  if (growAbsent) document.getElementById("growth-val").style.color  = "#B0B8C4";
+}
+
+// ── ② 分地区市场 vs 客户描述 fallback ──
+const regions = parseRegions(D.regional_markets);
+
+if (regions.length === 0) {
+  // 暂缺 → 折叠地区图，展示客户群 tags
+  document.getElementById("region-block").classList.add("hidden");
+  const fb = document.getElementById("region-fallback");
+  fb.classList.remove("hidden");
+  const tags = parseCustomerTags(D.customer_segment);
+  renderTags(document.getElementById("customer-tags"), tags);
+} else {
+  // 有数据 → 渲染横向 bar
+  const maxPct = Math.max(...regions.map(r => r.pct));
+  const barsContainer = document.getElementById("region-bars");
+  regions.forEach(r => {
+    const row = document.createElement("div");
+    row.className = "region-row";
+    row.innerHTML = `
+      <span class="region-name">${r.name}</span>
+      <div class="region-bar-bg">
+        <div class="region-bar-fg" style="width:${(r.pct/maxPct*100).toFixed(1)}%"></div>
+      </div>
+      <span class="region-pct">${r.pct}%</span>
+    `;
+    barsContainer.appendChild(row);
+  });
+}
+
+// ── ③ 融资摘要胶囊 ──
+// 从 funding_info 提取最后一轮的累计金额（简单策略：取最大 $ 数字）
+function extractTotalFunding(raw) {
+  if (ABSENT(raw)) return "未披露";
+  const nums = [...raw.matchAll(/\$([\d.]+)([MKB])/g)].map(m => {
+    const v = parseFloat(m[1]);
+    const u = m[2];
+    return u === "B" ? v * 1000 : u === "K" ? v / 1000 : v;
+  });
+  if (!nums.length) return raw.split("→").pop().trim();
+  const total = nums.reduce((a, b) => a + b, 0);
+  return total >= 1000 ? `$${(total/1000).toFixed(1)}B` : `$${total.toFixed(0)}M`;
+}
+document.getElementById("funding-total").textContent =
+  extractTotalFunding(D.funding_info);
+
+// ── ④ 典型客户主 tags ──
+function renderTags(container, tags) {
+  container.innerHTML = "";
+  tags.forEach(t => {
+    const span = document.createElement("span");
+    span.className = "customer-tag";
+    span.textContent = t;
+    container.appendChild(span);
+  });
+}
+renderTags(
+  document.getElementById("main-customer-tags"),
+  parseCustomerTags(D.customer_segment)
+);
+</script>
+</body>
+</html>

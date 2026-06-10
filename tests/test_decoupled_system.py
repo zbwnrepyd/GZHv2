@@ -78,6 +78,32 @@ class DecoupledSystemTests(unittest.TestCase):
         self.assertEqual(cards[6]["card_id"], "card_07")
         self.assertEqual(cards[6]["template_id"], "multi_chart")
 
+    def test_card_config_supports_set_key_for_v2(self):
+        """card-config API 支持 ?set=v2 返回 7 张卡片"""
+        # 初始化 v2 编排
+        from repositories.card_config_repo import init_company_set
+        init_company_set(self.composition_db, "V2Co", "v2", "v2")
+        # v2 默认 7 张
+        cards_v2 = get_cards(self.composition_db, "V2Co", card_set_key="v2")
+        self.assertEqual(len(cards_v2), 7)
+        # v1 下无数据
+        cards_v1 = get_cards(self.composition_db, "V2Co", card_set_key="v1")
+        self.assertEqual(len(cards_v1), 0)
+
+    def test_card_config_api_route_returns_v2_cards_when_set_v2(self):
+        """RED: GET /api/card-config/<company>?set=v2 应该返回 v2 套卡的卡片"""
+        from repositories.card_config_repo import init_company_set
+        init_company_set(self.composition_db, "V2Co", "v2", "v2")
+
+        response = self.client.get("/api/card-config/V2Co?set=v2")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        # v2 套卡应有 7 张卡片
+        self.assertEqual(len(payload["cards"]), 7,
+                         "v2 套卡应返回 7 张卡片")
+        # card_1 应该是 v2_card_01
+        self.assertEqual(payload["cards"][0]["card_id"], "v2_card_01")
+
     def test_render_data_auto_creates_defaults_and_resolves_items(self):
         upsert_final_field(self.final_db, "DemoCo", "company_name", "DemoCo", status="confirmed")
         asset_store.ensure_assets_rows(self.assets_db, "DemoCo")

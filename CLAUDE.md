@@ -25,8 +25,9 @@ pip install -r requirements.txt
 cd webapp && python3 app.py
 # Flask 已配置 TEMPLATES_AUTO_RELOAD=True，模板修改后无需重启
 # 访问研究台 http://127.0.0.1:5050/
-# 定稿台 http://127.0.0.1:5050/editor?company=<公司名>
+# 定稿台 http://127.0.0.1:5050/editor?company=<公司名>&set=v1|v2
 # 卡片制作台 http://127.0.0.1:5050/canvas/?company=<公司名>
+# 排版中心 http://127.0.0.1:5050/layout?company=<公司名>&set=v1|v2
 ```
 
 ### 研究一家公司
@@ -70,7 +71,7 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - 环境变量只读取系统环境变量和项目根目录 `.env`；不要读取或恢复用户目录 `~/.env`
 - Tavily 可用 `TAVILY_API_KEYS` 配置逗号分隔的多 Key，额度限制时自动尝试下一个；不要把真实 Key 写进代码、测试、文档或日志
 - 成本目标 < $0.20/次研究
-- 默认 8 张卡片配置，卡片数量和内容可在「卡片设置」中自由编排。卡片7为竞争格局（壁垒 + 生态位分析 + 竞品列表），卡片8为总结（机遇）。L3 prompt 已将壁垒 `moat` 和生态位 `ecosystem_niche` 拆为独立字段
+- 双套卡系统（`card_set_key`）：v1 内置 8 张（经典）、v2 内置 7 张（新版）。定稿台顶部切换套卡，卡片设置按套卡独立编排，排版中心同步 `?set=` 参数。v1 卡片7/8 为竞争格局+总结；v2 无独立总结卡。L3 prompt 已将壁垒 `moat` 和生态位 `ecosystem_niche` 拆为独立字段
 - 研究主流程不依赖 n8n；不要新增 n8n 工作流作为主路径
 - 定稿台主流程：卡片设置 → 文字定稿 → 图片定稿 → 进入排版。旧版内容定稿、钩子文案、数据库字段面板已删除，不再保留兼容入口
 - `hook_paragraph_1/2/3` 是 research 表中的字段（可作普通字段使用），不写入知识卡片
@@ -81,14 +82,14 @@ sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 - 创始人 `founder_edu/founder_achievement` 缺失修复属于 L3 主流程内重试，不要恢复后置补抓流程
 - 图片 API Key 可通过环境变量配置，也可在图片定稿台搜索面板 AI 生图时随请求发送；临时 Key 不写入 localStorage 或响应
 - 公司名/图片路径片段统一用 `webapp/path_safety.py:safe_path_segment` 消毒；不要在各模块新增不同的路径清理规则
-- 公司图片资产通过 `company_assets` 表管理（11 种 asset_key），不用路径约定或 localStorage。采集统一走 `collect_image_variants_pipeline`（含官网首页截图 candidate，不抢 OSM 默认）。信息图（飞轮/时间线/散点图）走 `infographic.py`：飞轮/时间线用 SVG 模板渲染，散点图用本地 `webapp/static/vendor/echarts.min.js` 内联渲染为 HTML，再由 Playwright 截图（2x scale 高清）；不要恢复 CDN 依赖作为主路径
+- 公司图片资产通过 `company_assets` 表管理（含 v2 新增的 `founder_photo` 等 12 种 asset_key），不用路径约定或 localStorage。采集统一走 `collect_image_variants_pipeline`（含官网首页截图 candidate，不抢 OSM 默认）。信息图（飞轮/时间线/散点图）走 `infographic.py`：飞轮/时间线用 SVG 模板渲染，散点图用本地 `webapp/static/vendor/echarts.min.js` 内联渲染为 HTML，再由 Playwright 截图（2x scale 高清）；不要恢复 CDN 依赖作为主路径
 - 自动图片采集必须走候选池：下载后用 `image_quality.py` 检测、`image_scorer.py` 评分，写入尺寸/分数/失败原因；Tavily 不允许取第一张直接当最终图
 - `office` 素材默认使用公司位置地图：OSM 瓦片本地拼接 + HTML pin/legend 生成 PNG，并默认选中；Google Street View/Tavily 办公室图只作为后续候选变体，不抢默认选中
 - 图片定稿台两类槽位两种界面：①采集图片类（logo/office/product/competitors）→ 三栏布局，中间栏上部预览/搜索切换 + 下部工具栏（搜索/采集/AI生图/上传）；②图表类（flywheel/timeline/positioning_charts）→ 中间栏 iframe 实时预览（Frappe Charts / SVG）+ 下部功能区 bar（调参+重置+渲染保存），无搜索框
 - 本地 Python SVG 模板上传只允许本机请求并要求 `X-Template-Upload-Intent: local-dev`；不要开放远程上传
 - 模板制作（/template-maker）：新建/编辑模板，右上角下拉框选择已有模板进行修改。编辑内置模板时自动创建副本（不修改原内置模板）。保存区分新建（POST）和更新（PATCH）
 - chart_competitive/chart_ecosystem 使用本地 ECharts（`webapp/static/vendor/echarts.min.js`）内联渲染为 HTML，通过 `/api/image-studio/.../preview` 实时预览 + Playwright 截图（2x scale，900×600→1800×1200）导出 PNG。图表设计规范：light 主题、markArea 象限背景、中文轴名/象限标签、目标公司高亮（青色 `#29B8D4` 白边框 2px 1.5×气泡）、竞品降权（`#1B2A4A` 半透明无 label）、Y 轴 category 泳道 + splitArea（ecosystem）。前端 workspace-chart.js 只做参数编辑和 iframe 预览，不维护独立的图表逻辑。CSS 不使用 vw/vh（srcdoc iframe 中会坍塌）
-- 排版中心（/layout）：选中卡片→选择模板→点击图层→右侧属性面板调节位置/尺寸/字体/颜色。画布预览由 iframe 渲染，父页面透明 hitbox 接管图层点击，避免浏览器原生文本选区；选中文字图层后双击高亮区域会在 iframe 内打开 Markdown textarea，可编辑原始 Markdown，提交后写入 layout overrides 并跨渲染保持。模板渲染器支持 Markdown（`#`→h1/`##`→h2/`**`→粗体），文字 region 的 `value` override 优先于原字段内容。
+- 排版中心（/layout?company=<公司名>&set=v1|v2）：选中卡片→选择模板→点击图层→右侧属性面板调节位置/尺寸/字体/颜色。画布预览由 iframe 渲染，父页面透明 hitbox 接管图层点击，避免浏览器原生文本选区；选中文字图层后双击高亮区域会在 iframe 内打开 Markdown textarea，可编辑原始 Markdown，提交后写入 layout overrides 并跨渲染保持。模板渲染器支持 Markdown（`#`→h1/`##`→h2/`**`→粗体），文字 region 的 `value` override 优先于原字段内容。
 - 国内环境访问 Tavily 和 YouTube API 需配 HTTPS_PROXY（在 `.env` 手动配置）。Tavily 使用显式 `proxies=` 传参并支持超时后换 Key；超时配置在 `pipeline.py`
 - Pexels（200 req/h，支持中文）和 Unsplash（50 req/h，英文关键词）API Key 通过环境变量配置，用于图片定稿台手动搜索
 - 图片自动采集不再使用 Lorem Flickr / Picsum 通用图；搜不到真实图片时标记 `failed`，进入图片定稿台手动补

@@ -252,8 +252,9 @@ const WorkspaceChart = {
       if (status) status.textContent = '正在生成 PNG 版本...';
       let result;
       const codeEditor = document.getElementById('chart-code-editor');
-      if (this._isEchartsSlot() && codeEditor) {
-        result = await StudioAPI.renderChartHtml(this._company, this._slot.asset_key, codeEditor.value, this._params);
+      if (this._isEchartsSlot()) {
+        const stableHtml = this._latestPreviewHtml || (codeEditor ? codeEditor.value : '');
+        result = await StudioAPI.renderChartHtml(this._company, this._slot.asset_key, stableHtml, this._params);
       } else {
         result = await StudioAPI.renderChart(this._company, this._slot.asset_key, templateId, this._params);
       }

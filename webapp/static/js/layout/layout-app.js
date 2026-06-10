@@ -14,6 +14,7 @@ const LayoutApp = {
   async init() {
     const p = new URLSearchParams(window.location.search);
     this._company = p.get('company') || '';
+    this._setKey = p.get('set') || 'v1';
     if (!this._company) {
       document.getElementById('canvas-area').innerHTML = '<div class="empty-state">缺少 ?company= 参数</div>';
       return;
@@ -21,7 +22,7 @@ const LayoutApp = {
 
     document.getElementById('company-label').textContent = `排版 · ${this._company}`;
     this._setStatus('加载中');
-    document.getElementById('btn-back-editor').href = `/editor?company=${encodeURIComponent(this._company)}`;
+    document.getElementById('btn-back-editor').href = `/editor?company=${encodeURIComponent(this._company)}&set=${this._setKey}`;
     document.getElementById('btn-template-maker').addEventListener('click', () => {
       window.open('/template-maker', '_blank');
     });
@@ -41,7 +42,7 @@ const LayoutApp = {
   /* ── 数据加载 ── */
   async _loadData() {
     try {
-      const r = await fetch(`/api/render-data/${encodeURIComponent(this._company)}`);
+      const r = await fetch(`/api/render-data/${encodeURIComponent(this._company)}?set=${this._setKey}`);
       if (!r.ok) throw new Error(`render-data ${r.status}`);
       this._data = await r.json();
       this._cards = this._data.cards || [];

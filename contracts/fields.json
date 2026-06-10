@@ -1,5 +1,5 @@
 {
-  "version": "v1",
+  "version": "v2",
   "description": "字段契约 — 定义系统中所有可用字段的类型、分组和约束。字段不天然属于任何卡片。",
   "groups": [
     {
@@ -10,7 +10,8 @@
         {"field_key": "company_type", "field_label": "公司类型", "type": "text", "required": false},
         {"field_key": "company_def", "field_label": "公司定义", "type": "long_text", "required": true},
         {"field_key": "location", "field_label": "地理位置", "type": "text", "required": false},
-        {"field_key": "website_url", "field_label": "官网", "type": "url", "required": false}
+        {"field_key": "website_url", "field_label": "官网", "type": "url", "required": false},
+        {"field_key": "company_achievement", "field_label": "公司成就", "type": "long_text", "required": false}
       ]
     },
     {
@@ -34,7 +35,8 @@
         {"field_key": "main_product_def", "field_label": "产品定义", "type": "long_text"},
         {"field_key": "main_product_highlight", "field_label": "亮点功能", "type": "long_text"},
         {"field_key": "main_product_achievement", "field_label": "产品成绩", "type": "long_text"},
-        {"field_key": "other_products", "field_label": "其他产品", "type": "long_text"}
+        {"field_key": "other_products", "field_label": "其他产品", "type": "long_text", "deprecated": true},
+        {"field_key": "tech_stack", "field_label": "技术栈", "type": "long_text", "required": false}
       ]
     },
     {
@@ -43,11 +45,16 @@
       "fields": [
         {"field_key": "revenue_model", "field_label": "盈利方式", "type": "long_text"},
         {"field_key": "gtm_strategy", "field_label": "GTM 与增长策略", "type": "long_text"},
-        {"field_key": "cold_start", "field_label": "冷启动策略", "type": "long_text"},
+        {"field_key": "cold_start", "field_label": "冷启动策略", "type": "long_text", "deprecated": true},
         {"field_key": "customer_segment", "field_label": "客户细分", "type": "text"},
         {"field_key": "growth_flywheel", "field_label": "增长飞轮", "type": "long_text"},
         {"field_key": "pricing_model", "field_label": "定价模型", "type": "text"},
-        {"field_key": "inference_cost_exposure", "field_label": "推理成本敞口", "type": "text"}
+        {"field_key": "inference_cost_exposure", "field_label": "推理成本敞口", "type": "text"},
+        {"field_key": "company_revenue", "field_label": "公司营收（v1）", "type": "text", "required": false, "deprecated": true},
+        {"field_key": "company_profit", "field_label": "公司利润（v1）", "type": "text", "required": false, "deprecated": true},
+        {"field_key": "revenue_metrics", "field_label": "营收指标", "type": "text", "required": false},
+        {"field_key": "growth_metrics", "field_label": "增长指标", "type": "text", "required": false},
+        {"field_key": "regional_markets", "field_label": "分地区市场", "type": "long_text", "required": false}
       ]
     },
     {
@@ -57,6 +64,7 @@
         {"field_key": "moat", "field_label": "竞争壁垒", "type": "long_text"},
         {"field_key": "ecosystem_niche", "field_label": "生态位分析", "type": "long_text"},
         {"field_key": "competitors", "field_label": "竞品", "type": "long_text"},
+        {"field_key": "competitors_summary", "field_label": "竞对Top3摘要", "type": "long_text", "required": false},
         {"field_key": "score_defensibility", "field_label": "壁垒评分", "type": "number", "min": 0, "max": 10},
         {"field_key": "score_incumbent_attention", "field_label": "巨头关注度评分", "type": "number", "min": 0, "max": 10},
         {"field_key": "score_value_capture", "field_label": "价值截留评分", "type": "number", "min": 0, "max": 10},

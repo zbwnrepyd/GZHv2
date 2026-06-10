@@ -30,7 +30,7 @@
 |---|---|---|
 | `funding_stage_score` | 融资阶段映射值（pre_seed=1 → series_c_plus=9） | 散点图气泡大小 |
 
-## 9 个枚举字段
+## 10 个枚举字段
 
 ### 枚举→数值映射表
 
@@ -192,7 +192,7 @@ score_value_capture = 0.35 × PRICING_MAP[pricing_model]
 
 ### Layer 3 — 验证层 `field_validator.py`
 
-Pydantic `BaseModel`，9 个 `@field_validator`，白名单枚举校验。值不在白名单 → `ValueError` → 任务失败，不写假数据。
+Pydantic `BaseModel`，10 个 `@field_validator`，白名单枚举校验。值不在白名单 → `ValueError` → 任务失败，不写假数据。
 
 ### 合并优先级
 

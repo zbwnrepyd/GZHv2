@@ -20,7 +20,8 @@ const TextFinalizePanel = {
 
   async _loadCards() {
     try {
-      const r = await fetch(`/api/card-config/${encodeURIComponent(this._company)}`);
+      const sk = EditorApp.currentSetKey || 'v1';
+      const r = await fetch(`/api/card-config/${encodeURIComponent(this._company)}?set=${sk}`);
       const d = await r.json();
       this._cards = (d.cards || []).filter(c => c.enabled !== false);
     } catch { this._cards = []; }

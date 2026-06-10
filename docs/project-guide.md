@@ -4,7 +4,7 @@
 
 ## 一句话
 
-输入公司名 + 官网 URL → 自动研究 → 人工定稿 → 输出 8 张 3:4 知识卡片 PNG。
+输入公司名 + 官网 URL → 自动研究 → 人工定稿 → 输出 v1 8 张或 v2 7 张 3:4 知识卡片 PNG。
 
 ## 快速理解（5 分钟）
 
@@ -15,15 +15,15 @@
 ```
 
 1. **研究台** `http://127.0.0.1:5050/` — 输入公司名和官网，点「开始研究」。后台跑 4 路数据采集 + 4 层 LLM 分析 + 自动图片收集
-2. **定稿台** `http://127.0.0.1:5050/editor?company=<公司名>` — 卡片设置→文字定稿→图片定稿，左栏底部固定「进入排版」
+2. **定稿台** `http://127.0.0.1:5050/editor?company=<公司名>&set=v1|v2` — 顶部切换套卡→卡片设置→文字定稿→图片定稿，左栏底部固定「进入排版」
 3. **卡片制作台** `http://127.0.0.1:5050/canvas/?company=<公司名>` — HTML/CSS 卡片编辑和预览
-4. **排版中心** `http://127.0.0.1:5050/layout?company=<公司名>` — 选模板、调图层、改文字位置和样式
+4. **排版中心** `http://127.0.0.1:5050/layout?company=<公司名>&set=v1|v2` — 选模板、调图层、改文字位置和样式
 
 ### 研究工作流
 
 ```
 Step 1: 4路并行采集
-  Tavily 搜索(2组关键词) + GitHub 仓库 + YouTube 创始人视频 + 官网抓取(trafilatura)
+  Tavily 多意图搜索(覆盖 overview/founders/funding/product 等 11+ 意图) + GitHub 仓库 + YouTube 创始人视频 + 官网抓取(trafilatura)
   → 4线程并行，每路独立上报状态
 
 Step 2: 4层 LLM 分析
@@ -43,7 +43,9 @@ Step 4: 自动图片采集
 (卡片数量/内容可自由编排)   (11种素材槽位)
 ```
 
-### 8 张默认卡片
+### 默认卡片（双套卡）
+
+**v1 经典 8 张：**
 
 | 卡片 | 主题 |
 |---|---|
@@ -55,6 +57,18 @@ Step 4: 自动图片采集
 | card_6 | 商业模式：盈利、GTM、冷启动、飞轮 |
 | card_7 | 竞争格局：壁垒、竞品、生态位 + 2张评分散点图 |
 | card_8 | 总结：赛道机会 |
+
+**v2 新版 7 张：**
+
+| 卡片 | 主题 |
+|---|---|
+| card_1 | 封面：公司名、Logo |
+| card_2 | 公司概览：官网截图、地址、行业、主营业务、成就 |
+| card_3 | 产品与定位：生态位图、主产品、技术栈 |
+| card_4 | 创始人与团队：创始人照片、背景、团队规模 |
+| card_5 | 财务与市场：客户、营收/增长指标、融资 |
+| card_6 | GTM 与增长：GTM 策略、增长飞轮 |
+| card_7 | 竞争格局：竞争格局图、Top3 竞品、壁垒 |
 
 ## 关键架构决策
 
@@ -89,7 +103,7 @@ Step 4: 自动图片采集
 
 ### 评分体系
 
-9 个枚举字段 → 加权公式 → 3 个 0–10 评分 → 2 张 ECharts 散点图。ECharts 使用 `webapp/static/vendor/echarts.min.js` 本地 runtime，预览和 Playwright 截图不依赖外部 CDN。详见 [docs/scoring-system.md](scoring-system.md)。
+10 个枚举字段 → 加权公式 → 3 个 0–10 评分 → 2 张 ECharts 散点图。ECharts 使用 `webapp/static/vendor/echarts.min.js` 本地 runtime，预览和 Playwright 截图不依赖外部 CDN。详见 [docs/scoring-system.md](scoring-system.md)。
 
 ## 深入文档
 

@@ -1,12 +1,19 @@
 {
-  "version": "v1",
+  "version": "v2",
   "description": "图片素材契约 — 定义系统中所有图片素材类型。图片不天然属于任何卡片。",
   "media_types": [
     {"media_key": "logo", "media_label": "公司 Logo", "kind": "collected", "required": true},
     {"media_key": "website_screenshot", "media_label": "官网截图", "kind": "collected", "required": false},
-    {"media_key": "office", "media_label": "公司办公室/地图", "kind": "collected", "required": false},
+    {
+      "media_key": "founder_photo",
+      "media_label": "创始人照片",
+      "kind": "collected",
+      "required": false,
+      "card_v2": 4
+    },
+    {"media_key": "office", "media_label": "公司办公室/地图", "kind": "collected", "required": false, "deprecated": true, "deprecated_since": "v2"},
     {"media_key": "product_main", "media_label": "主产品截图", "kind": "collected", "required": false},
-    {"media_key": "products_other", "media_label": "其他产品图", "kind": "collected", "required": false},
+    {"media_key": "products_other", "media_label": "其他产品图", "kind": "collected", "required": false, "deprecated": true, "deprecated_since": "v2"},
     {"media_key": "competitors", "media_label": "竞品截图", "kind": "collected", "required": false},
     {
       "media_key": "competitors_logo_strip",
@@ -27,7 +34,9 @@
       "media_label": "发展时间线图",
       "kind": "generated",
       "required": false,
-      "generator": "svg"
+      "generator": "svg",
+      "deprecated": true,
+      "deprecated_since": "v2"
     },
     {
       "media_key": "chart_competitive",

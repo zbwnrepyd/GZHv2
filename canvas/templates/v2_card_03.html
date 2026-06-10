@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  :root { --navy: #1B2A4A; --cyan: #29B8D4; --gray: #6B7A8D; --bg: #F7F8FA; --card-w: 900px; --card-h: 1200px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { width: var(--card-w); height: var(--card-h); background: #fff; overflow: hidden; font-family: "Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif; }
+  .card { width: 900px; height: 1200px; padding: 56px 64px; display: flex; flex-direction: column; }
+  .card-label { font-size: 12px; color: var(--cyan); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; font-weight: 600; }
+  .card-title { font-size: 32px; font-weight: 800; color: var(--navy); margin-bottom: 8px; }
+  .card-subtitle { font-size: 15px; color: var(--gray); margin-bottom: 36px; }
+
+  .hero { width: 100%; height: 400px; border-radius: 12px; overflow: hidden; margin-bottom: 32px; background: var(--bg); display: flex; align-items: center; justify-content: center; }
+  .hero img { width: 100%; height: 100%; object-fit: contain; }
+  .hero-placeholder { color: var(--gray); font-size: 14px; }
+
+  .content-section { flex: 1; display: flex; flex-direction: column; gap: 20px; }
+  .section-title { font-size: 13px; color: var(--gray); font-weight: 500; letter-spacing: 0.03em; margin-bottom: 8px; }
+  .body-text { font-size: 14px; color: var(--navy); line-height: 1.7; }
+  .tech-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tech-tag { background: #EEF6FF; color: var(--navy); border-radius: 20px; padding: 4px 12px; font-size: 12px; }
+
+  .card-footer { margin-top: auto; padding-top: 20px; border-top: 1px solid #E8ECF2; display: flex; justify-content: space-between; align-items: center; }
+  .brand-mark { font-size: 18px; color: var(--cyan); }
+  .page-num { font-size: 12px; color: var(--gray); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="card" id="page3">
+  <div class="card-label">Product &amp; Positioning</div>
+  <h1 class="card-title" id="product-name"></h1>
+  <p class="card-subtitle" id="product-def"></p>
+
+  <div class="hero" id="hero-block">
+    <img id="hero-img" src="" alt="" onerror="this.parentElement.innerHTML='<div class=hero-placeholder>生态位图 / 产品截图</div>'">
+  </div>
+
+  <div class="content-section">
+    <div>
+      <div class="section-title">产品亮点</div>
+      <p class="body-text" id="highlight-text">—</p>
+    </div>
+    <div>
+      <div class="section-title">产品成就</div>
+      <p class="body-text" id="achievement-text">—</p>
+    </div>
+    <div>
+      <div class="section-title">技术栈</div>
+      <div class="tech-tags" id="tech-tags"></div>
+    </div>
+    <div>
+      <div class="section-title">生态位分析</div>
+      <p class="body-text" id="ecosystem-text">—</p>
+    </div>
+  </div>
+
+  <div class="card-footer"><span class="brand-mark">∞</span><span class="page-num">3 / 7</span></div>
+</div>
+
+<script>
+const D = window.__CARD_DATA__ || {};
+document.getElementById("product-name").textContent = D.main_product_name || "";
+document.getElementById("product-def").textContent = D.main_product_def || "";
+document.getElementById("highlight-text").textContent = D.main_product_highlight || "暂缺";
+document.getElementById("achievement-text").textContent = D.main_product_achievement || "暂缺";
+document.getElementById("ecosystem-text").textContent = D.ecosystem_niche || "暂缺";
+
+const techRaw = D.tech_stack || "";
+const techs = techRaw === "暂缺" || !techRaw ? [] : techRaw.split(/[、,，;；]/).map(s=>s.trim()).filter(Boolean).slice(0,8);
+const tagsContainer = document.getElementById("tech-tags");
+if (techs.length) { techs.forEach(t => { const s = document.createElement("span"); s.className="tech-tag"; s.textContent=t; tagsContainer.appendChild(s); }); }
+else { tagsContainer.innerHTML = '<span class="tech-tag" style="color:var(--gray)">暂缺</span>'; }
+
+const img = document.getElementById("hero-img");
+if (img) img.src = (D.media && (D.media.chart_ecosystem || D.media.product_main)) || "";
+</script>
+</body>
+</html>

@@ -25,43 +25,72 @@ class SearchPlan:
 
 TAVILY_QUERY_TEMPLATES: dict[str, list[str]] = {
     "overview": [
-        "{term} AI startup overview product company",
-        "{term} official website about product",
+        "{term} company about product business model",
+        "{term} official website what does {term} do",
+        "{term} AI startup company profile",
     ],
     "founders": [
-        "{term} founder education background LinkedIn",
-        "{term} founder interview biography",
+        "{term} founder CEO background education previous company",
+        "{term} founder interview biography LinkedIn profile",
+        "{term} founding team background experience",
     ],
     "funding": [
-        "{term} funding seed series investors valuation",
-        "{term} raised funding TechCrunch Crunchbase PitchBook",
+        "{term} funding round seed series A B investors valuation amount",
+        "{term} raised funding million TechCrunch Crunchbase PitchBook",
+        "{term} funding history latest round",
     ],
     "product": [
-        "{term} product features screenshot demo docs",
-        "{term} use cases customers product tour",
+        "{term} product features capabilities demo screenshot",
+        "{term} use cases customers case study product tour",
+        "{term} product launch announcement new feature",
     ],
     "pricing": [
-        "{term} pricing plans subscription",
-        "site:{host} pricing plans",
+        "{term} pricing plans subscription cost price page",
+        "site:{host} pricing",
+        "{term} pricing model business model",
     ],
     "competitors": [
-        "{term} competitors alternatives vs",
-        "{term} market map competitors",
+        "{term} competitors alternatives comparison vs",
+        "{term} market landscape competitive analysis",
+        "{term} similar companies alternatives",
     ],
+    # v2 专项意图
+    "revenue": [
+        "{term} revenue ARR MRR annual recurring income",
+        "{term} revenue financial results earnings report",
+    ],
+    "growth_metrics": [
+        "{term} users MAU DAU customers growth statistics",
+        "{term} user base registered users paying customers enterprise clients",
+    ],
+    "regional": [
+        "{term} market region global expansion country presence",
+        "{term} customers by region market share geography",
+    ],
+    "achievement": [
+        "{term} milestone achievement award recognition notable",
+        "{term} announced partnership customer signed deal",
+    ],
+    "tech_stack": [
+        "{term} technology stack built using architecture infrastructure",
+        "{term} AI model LLM API technical architecture engineering blog",
+    ],
+    # deep 模式额外意图
     "gtm": [
-        "{term} go to market growth strategy customers",
-        "{term} Product Hunt launch users growth",
+        "{term} go to market growth strategy customer acquisition",
+        "{term} Product Hunt launch users growth viral",
+        "{term} sales strategy enterprise B2B GTM motion",
     ],
     "timeline": [
-        "{term} launch history timeline founded",
-        "{term} announcement rebrand acquisition",
+        "{term} founded launch history timeline milestones",
+        "{term} announcement rebrand acquisition pivot news",
     ],
     "community": [
-        "{term} Product Hunt Hacker News Reddit Twitter review",
+        "{term} Product Hunt Hacker News Reddit Twitter review discussion",
     ],
     "interview": [
-        "{term} founder interview podcast YouTube",
-        "{term} CEO interview video",
+        "{term} founder CEO interview podcast YouTube video",
+        "{term} founder keynote talk conference presentation",
     ],
 }
 
@@ -82,17 +111,21 @@ def build_search_plan(display_name: str, root_domain: str,
     budget = _query_budget()
 
     core_intents = ["overview", "founders", "funding",
-                    "product", "pricing", "competitors"]
+                    "product", "pricing", "competitors",
+                    "revenue", "growth_metrics", "regional",
+                    "achievement", "tech_stack"]
     if depth == "deep":
         core_intents.extend(["gtm", "timeline", "community", "interview"])
 
     tavily_queries: list[TavilyQuery] = []
-    terms = list(dict.fromkeys(aliases))[:6]
+    terms = list(dict.fromkeys(aliases))[:5]
 
     for intent in core_intents:
         templates = TAVILY_QUERY_TEMPLATES.get(intent, [])
-        for term in terms[:4]:
-            for tmpl in templates[:1]:
+        for term in terms[:3]:
+            # 每意图取第1个模板（保证广度覆盖所有意图），关键意图取2个
+            limit = 2 if intent in ("funding", "product", "founders") else 1
+            for tmpl in templates[:limit]:
                 if len(tavily_queries) >= budget:
                     break
                 q = tmpl.format(term=term, host=website_host,

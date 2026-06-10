@@ -1,4 +1,4 @@
-"""卡片编排 API — /api/card-config/... """
+"""卡片编排 API — /api/card-config/... （v2 支持 card_set_key）"""
 from __future__ import annotations
 from flask import Blueprint, request, jsonify
 from config import config
@@ -15,6 +15,22 @@ from repositories.card_config_repo import (
 )
 
 
+def _get_set_key() -> str:
+    """从请求中提取 card_set_key：query ?set= 优先，其次 body 中的 card_set_key。"""
+    sk = (request.args.get("set") or "").strip()
+    if sk:
+        return sk
+    if request.is_json:
+        try:
+            data = request.get_json(silent=True) or {}
+            sk = (data.get("card_set_key") or "").strip()
+            if sk:
+                return sk
+        except Exception:
+            pass
+    return "v1"
+
+
 def register(bp: Blueprint):
     """将路由注册到 Blueprint"""
 
@@ -22,11 +38,17 @@ def register(bp: Blueprint):
     @bp.route("/card-config/<company>")
     def get_company_cards(company: str):
         try:
-            composition = get_company_composition(config.DB_PATH_COMPOSITION, company)
-            # 如果没有卡片，自动创建默认配置
+            set_key = _get_set_key()
+            composition = get_company_composition(
+                config.DB_PATH_COMPOSITION, company, card_set_key=set_key
+            )
             if not composition["cards"]:
-                create_default_cards_for_company(config.DB_PATH_COMPOSITION, company)
-                composition = get_company_composition(config.DB_PATH_COMPOSITION, company)
+                create_default_cards_for_company(
+                    config.DB_PATH_COMPOSITION, company, card_set_key=set_key
+                )
+                composition = get_company_composition(
+                    config.DB_PATH_COMPOSITION, company, card_set_key=set_key
+                )
             return jsonify(composition)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -35,7 +57,10 @@ def register(bp: Blueprint):
     @bp.route("/card-config/<company>/cards/<card_id>")
     def get_single_card(company: str, card_id: str):
         try:
-            card = get_card_composition(config.DB_PATH_COMPOSITION, company, card_id)
+            set_key = _get_set_key()
+            card = get_card_composition(
+                config.DB_PATH_COMPOSITION, company, card_id, card_set_key=set_key
+            )
             if not card:
                 return jsonify({"error": "卡片不存在"}), 404
             return jsonify(card)
@@ -51,13 +76,17 @@ def register(bp: Blueprint):
             card_title = data.get("card_title", "")
             card_index = data.get("card_index", 99)
             template_id = data.get("template_id", "")
+            set_key = data.get("card_set_key") or _get_set_key()
             if not card_id or not card_title:
                 return jsonify({"error": "缺少 card_id 或 card_title"}), 400
 
             rid = create_card(config.DB_PATH_COMPOSITION, company,
                             card_id=card_id, card_index=int(card_index),
-                            card_title=card_title, template_id=template_id)
-            card = get_card_composition(config.DB_PATH_COMPOSITION, company, card_id)
+                            card_title=card_title, template_id=template_id,
+                            card_set_key=set_key)
+            card = get_card_composition(
+                config.DB_PATH_COMPOSITION, company, card_id, card_set_key=set_key
+            )
             return jsonify({"status": "ok", "id": rid, "card": card})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -67,10 +96,14 @@ def register(bp: Blueprint):
     def update_existing_card(company: str, card_id: str):
         try:
             data = request.get_json() or {}
-            ok = update_card(config.DB_PATH_COMPOSITION, company, card_id, **data)
+            set_key = data.get("card_set_key") or _get_set_key()
+            ok = update_card(config.DB_PATH_COMPOSITION, company, card_id,
+                           card_set_key=set_key, **data)
             if not ok:
                 return jsonify({"error": "更新失败或卡片不存在"}), 404
-            card = get_card_composition(config.DB_PATH_COMPOSITION, company, card_id)
+            card = get_card_composition(
+                config.DB_PATH_COMPOSITION, company, card_id, card_set_key=set_key
+            )
             return jsonify({"status": "ok", "card": card})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -79,7 +112,9 @@ def register(bp: Blueprint):
     @bp.route("/card-config/<company>/cards/<card_id>", methods=["DELETE"])
     def delete_existing_card(company: str, card_id: str):
         try:
-            ok = delete_card(config.DB_PATH_COMPOSITION, company, card_id)
+            set_key = _get_set_key()
+            ok = delete_card(config.DB_PATH_COMPOSITION, company, card_id,
+                           card_set_key=set_key)
             if not ok:
                 return jsonify({"error": "删除失败或卡片不存在"}), 404
             return jsonify({"status": "ok"})
@@ -92,9 +127,11 @@ def register(bp: Blueprint):
         try:
             data = request.get_json() or {}
             card_ids = data.get("card_ids", [])
+            set_key = data.get("card_set_key") or _get_set_key()
             if not card_ids:
                 return jsonify({"error": "缺少 card_ids"}), 400
-            reorder_cards(config.DB_PATH_COMPOSITION, company, card_ids)
+            reorder_cards(config.DB_PATH_COMPOSITION, company, card_ids,
+                         card_set_key=set_key)
             return jsonify({"status": "ok"})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -103,7 +140,9 @@ def register(bp: Blueprint):
     @bp.route("/card-config/<company>/cards/<card_id>/items")
     def get_card_items_route(company: str, card_id: str):
         try:
-            items = get_card_items(config.DB_PATH_COMPOSITION, company, card_id)
+            set_key = _get_set_key()
+            items = get_card_items(config.DB_PATH_COMPOSITION, company, card_id,
+                                  card_set_key=set_key)
             return jsonify({"card_id": card_id, "items": items})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -114,13 +153,15 @@ def register(bp: Blueprint):
             data = request.get_json() or {}
             item_type = data.get("item_type", "field")
             item_key = data.get("item_key", "")
+            set_key = data.get("card_set_key") or _get_set_key()
             if not item_key:
                 return jsonify({"error": "缺少 item_key"}), 400
             rid = add_card_item(config.DB_PATH_COMPOSITION, company, card_id,
                                item_type=item_type, item_key=item_key,
                                item_label=data.get("item_label", ""),
                                sort_order=data.get("sort_order", 0),
-                               display_role=data.get("display_role", "body"))
+                               display_role=data.get("display_role", "body"),
+                               card_set_key=set_key)
             return jsonify({"status": "ok", "id": rid})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -130,8 +171,9 @@ def register(bp: Blueprint):
     def update_card_item_route(company: str, card_id: str, item_id: int):
         try:
             data = request.get_json() or {}
+            set_key = data.get("card_set_key") or _get_set_key()
             ok = update_card_item(config.DB_PATH_COMPOSITION, company, card_id,
-                                 item_id, **data)
+                                 item_id, card_set_key=set_key, **data)
             if not ok:
                 return jsonify({"error": "更新失败"}), 404
             return jsonify({"status": "ok"})
@@ -142,7 +184,9 @@ def register(bp: Blueprint):
               methods=["DELETE"])
     def delete_card_item_route(company: str, card_id: str, item_id: int):
         try:
-            ok = remove_card_item(config.DB_PATH_COMPOSITION, company, card_id, item_id)
+            set_key = _get_set_key()
+            ok = remove_card_item(config.DB_PATH_COMPOSITION, company, card_id,
+                                 item_id, card_set_key=set_key)
             if not ok:
                 return jsonify({"error": "删除失败"}), 404
             return jsonify({"status": "ok"})
@@ -155,8 +199,9 @@ def register(bp: Blueprint):
         try:
             data = request.get_json() or {}
             items = data.get("items", [])
+            set_key = data.get("card_set_key") or _get_set_key()
             count = batch_set_card_items(config.DB_PATH_COMPOSITION, company,
-                                        card_id, items)
+                                        card_id, items, card_set_key=set_key)
             return jsonify({"status": "ok", "count": count})
         except Exception as e:
             return jsonify({"error": str(e)}), 500

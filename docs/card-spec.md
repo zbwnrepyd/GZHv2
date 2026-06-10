@@ -1,82 +1,76 @@
 # 卡片与图片资产规范
 
-当前规范版本：`card_spec_version = v1`
+当前规范版本：`card_spec_version = v2`
 
-本文档冻结当前系统的卡片数量、卡片主题和图片资产槽位。排版中心只消费后端返回的 resolved assets，不负责判断图片来源、候选优先级或兜底策略。
+## 套卡系统
 
-## 卡片规范 v1
+系统支持多套卡片规格并存，通过 `card_set_key` 区分：
+
+| 套卡 | set_key | 卡片数 | 说明 |
+| --- | --- | --- | --- |
+| 套卡1 · 经典8张 | `v1` | 8 | 内置，不可删除 |
+| 套卡2 · 新版7张 | `v2` | 7 | 内置，不可删除 |
+| 用户自定义 | `user_{timestamp}` | 7 或 8 | 基于 v1 或 v2 规格创建 |
+
+每家公司在每个套卡中独立维护确认状态（`final_content`）。
+
+## 卡片规范 v2（套卡2）
 
 | 卡片 | 主题 | 主要内容 |
 | --- | --- | --- |
-| `card_1` | 首页 | 公司名、公司类型、核心定位 |
-| `card_2` | 公司介绍 | 位置、定义、创始人、团队、融资 |
-| `card_3` | 发展沿袭 | 时间线和关键里程碑 |
-| `card_4` | 主产品 | 主产品名、定义、亮点、成就 |
-| `card_5` | 其他产品 | 其他产品线和产品矩阵 |
-| `card_6` | 商业模式 | 盈利方式、冷启动、GTM、客户群体、增长飞轮 |
-| `card_7` | 竞争格局 | 壁垒、竞品、竞争格局、生态位 |
-| `card_8` | 总结 | 赛道契机、机会判断和建议 |
+| `card_1` | 封面 | 公司名、Logo |
+| `card_2` | 公司概览 | 官网截图、地址、所属行业、主营业务、公司成就 |
+| `card_3` | 产品与定位 | 生态位图、主要产品、技术栈 |
+| `card_4` | 创始人与团队 | 创始人照片、姓名、工作/学历背景、团队规模、团队背景 |
+| `card_5` | 财务与市场 | 典型客户、营收指标、增长指标、分地区市场、融资情况 |
+| `card_6` | GTM 与增长 | GTM 策略、增长飞轮 |
+| `card_7` | 竞争格局 | 竞争格局图、行业 Top3 竞争对手、公司竞争优势 |
 
-## 图片资产槽位
+## 图片资产槽位（v2）
 
-资产槽位不等于卡片数量。一张卡可以使用多个资产，一个资产也可以被多张卡复用。
+| asset_key | 用途 | 默认归属 | 生成方式 |
+| --- | --- | --- | --- |
+| `logo` | 公司 Logo | `card_1` | collected |
+| `website_screenshot` | 官网首页截图 | `card_2` | collected |
+| `founder_photo` | 创始人照片 | `card_4` | collected |
+| `chart_ecosystem` | AI 产业链生态位图 | `card_3` | generated / echarts |
+| `product_main` | 主产品截图 | `card_3` | collected |
+| `flywheel` | 增长飞轮图 | `card_6` | generated / svg |
+| `chart_competitive` | 竞争格局散点图 | `card_7` | generated / echarts |
+| `competitors` | 竞品截图 | `card_7` | collected |
+| `competitors_logo_strip` | 竞品 Logo 横排拼图 | `card_7` | generated / composite |
 
-| asset_key | 用途 | 默认归属 |
+### 废弃资产槽位（DB 行保留，停止在 v2 渲染）
+
+| asset_key | 原归属 | 废弃版本 |
 | --- | --- | --- |
-| `logo` | 公司 Logo | `card_1` |
-| `website_screenshot` | 官网首页或官网关键截图 | `card_2` |
-| `office` | 公司位置、办公室或地图 | `card_2` |
-| `timeline` | 发展沿袭时间线图 | `card_3` |
-| `product_main` | 主产品截图 | `card_4` |
-| `products_other` | 其他产品截图或产品矩阵图 | `card_5` |
-| `flywheel` | 增长飞轮图 | `card_6` |
-| `competitors` | 竞品截图、广告图或竞品页面图 | `card_7` |
-| `competitors_logo_strip` | 三个竞品 Logo 的 16:9 横排拼图 | `card_7` |
-| `chart_competitive` | AI 创业公司竞争格局图 | `card_7` |
-| `chart_ecosystem` | AI 产业链生态位图 | `card_7` |
+| `office` | card_2 | v2 |
+| `timeline` | card_3 | v2 |
+| `products_other` | card_5 | v2 |
+
+## 自动图表触发规则
+
+| 套卡 | 触发时机 | 生成资产 |
+| --- | --- | --- |
+| v1 | card_3 确认 | timeline |
+| v1 | card_6 确认 | flywheel |
+| v1 | card_7 确认 | chart_competitive + chart_ecosystem |
+| v2 | card_3 确认 | chart_ecosystem |
+| v2 | card_6 确认 | flywheel |
+| v2 | card_7 确认 | chart_competitive |
 
 ## 资产交付接口
 
-排版中心优先读取：
+排版中心读取：`GET /api/assets/resolved?company=<company_name>&spec=v1|v2`
 
-```text
-GET /api/assets/resolved?company=<company_name>
+返回 `card_spec_version = "v2"`，`card_assets` 结构以 `card_N` 为 key。
+
+## 套卡 API
+
 ```
-
-返回结构以卡片为第一层，资产槽位为第二层：
-
-```json
-{
-  "company_name": "DemoCo",
-  "card_spec_version": "v1",
-  "card_assets": {
-    "card_4": {
-      "product_main": {
-        "url": "/images/DemoCo/variants/product.png",
-        "local_path": "/images/DemoCo/variants/product.png",
-        "kind": "image",
-        "variant_type": "ratio_16_9",
-        "format": "png",
-        "scale": 1,
-        "width": 1600,
-        "height": 900,
-        "status": "fallback"
-      }
-    }
-  }
-}
+GET    /api/card-sets                          — 列出所有套卡
+POST   /api/card-sets                          — 新建用户套卡
+DELETE /api/card-sets/<set_key>                — 删除用户套卡
+POST   /api/final/<company>/init-set/<set_key> — 初始化公司编排结构
+DELETE /api/final/<company>/set/<set_key>       — 删除公司套卡数据
 ```
-
-Resolver 选择优先级：
-
-```text
-selected_variant_id / is_selected
-↓
-final_score 最高且未被 reject 的候选
-↓
-company_assets.local_path
-↓
-placeholder
-```
-
-`canvas/` 目录当前仍作为代码路径保留；产品语义上称为“排版中心”。后续如需目录改名，应作为单独迁移处理。

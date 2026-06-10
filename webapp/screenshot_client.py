@@ -15,6 +15,33 @@ BAD_PAGE_KEYWORDS = [
     "enable javascript",
 ]
 
+# 强信号：只要出现在页面中就基本可以确定为拦截页
+STRONG_BAD_SIGNALS = [
+    "captcha",
+    "verify you are human",
+    "access denied",
+    "enable javascript",
+]
+
+# 弱信号：需要额外证据（如标题匹配或多信号共现）才能判定为拦截页
+# 单独的 "login" / "sign in" / "cloudflare" 可能是页脚导航链接，不应误杀
+WEAK_BAD_SIGNALS = [
+    "login",
+    "sign in",
+    "cloudflare",
+]
+
+# 弱信号需要与以下至少一个表单专用词共现才判定为拦截页
+# 注意：不用 "sign in to" / "log in to"（太泛，导航链接"Log in to X"不是表单）
+AUTH_FORM_INDICATORS = [
+    "password",
+    "username",
+    "forgot password",
+    "forgot your password",
+    "remember me",
+    "keep me signed in",
+]
+
 DEFAULT_HIDE_SELECTORS = [
     '[id*=cookie]', '[class*=cookie]', '[class*=consent]',
     '[id*=consent]', '[class*=gdpr]', '[id*=gdpr]',
@@ -31,9 +58,37 @@ class ScreenshotResult:
     fail_reason: str = ""
 
 
-def is_bad_page_text(text: str) -> bool:
+def is_bad_page_text(text: str, page_title: str = "") -> bool:
+    """检测页面是否为登录/验证码/拦截页。
+
+    强信号（captcha、verify you are human 等）：命中即判定为拦截页。
+    弱信号（login、sign in、cloudflare）：需要出现在页面标题中，或与表单词（password、username 等）共现，
+    否则只是页脚导航链接，不误杀。
+    """
     lower = (text or "").lower()
-    return any(keyword in lower for keyword in BAD_PAGE_KEYWORDS)
+    title_lower = (page_title or "").lower()
+
+    # 强信号：命中即拦截
+    if any(keyword in lower for keyword in STRONG_BAD_SIGNALS):
+        return True
+
+    # 弱信号：需要额外证据
+    for keyword in WEAK_BAD_SIGNALS:
+        if keyword not in lower:
+            continue
+        # 页面标题中包含 → 强证据
+        if keyword in title_lower:
+            return True
+        # 与表单指示词共现 → 强证据
+        if any(indicator in lower for indicator in AUTH_FORM_INDICATORS):
+            return True
+        # 弱信号在极短文本中占比高 → 可能是拦截页
+        # （真正的 Cloudflare 拦截页通常 < 300 字；正常页面即使简洁也 > 300 字）
+        text_len = len(lower)
+        if text_len < 300:
+            return True
+
+    return False
 
 
 def capture(url: str, dest: str, provider: str = "local",
@@ -91,12 +146,20 @@ def capture_with_playwright(url: str, dest: str,
                 args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
             page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
-            page.goto(url, wait_until="networkidle", timeout=30000)
+            try:
+                page.goto(url, wait_until="networkidle", timeout=30000)
+            except Exception:
+                # SPA / 重JS 站点 networkidle 可能永不触发 → 退而求其次
+                try:
+                    page.goto(url, wait_until="load", timeout=15000)
+                except Exception:
+                    page.goto(url, wait_until="domcontentloaded", timeout=10000)
             page.wait_for_timeout(2000)
             _hide_cookie_banners(page, hide_selectors)
             page.wait_for_timeout(500)
             text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
-            if is_bad_page_text(text):
+            page_title = page.title() or ""
+            if is_bad_page_text(text, page_title):
                 return ScreenshotResult(False, fail_reason="页面疑似登录/验证码/Cloudflare")
             if page.evaluate("document.body ? document.body.scrollHeight : 0") < 300:
                 return ScreenshotResult(False, fail_reason="页面主体内容过少")

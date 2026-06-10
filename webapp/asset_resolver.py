@@ -6,27 +6,40 @@ import os
 from asset_store import get_assets, list_variants
 
 
-CARD_SPEC_VERSION = "v1"
+CARD_SPEC_VERSION = "v2"
 
 CARD_ASSET_SLOTS = {
-    1: ["logo"],
-    2: ["website_screenshot", "office"],
-    3: ["timeline"],
-    4: ["product_main"],
-    5: ["products_other"],
-    6: ["flywheel"],
-    7: ["competitors", "competitors_logo_strip", "chart_competitive", "chart_ecosystem"],
-    8: [],
+    "v1": {
+        1: ["logo"],
+        2: ["office", "website_screenshot"],
+        3: ["timeline"],
+        4: ["product_main"],
+        5: ["products_other"],
+        6: ["flywheel"],
+        7: ["competitors", "competitors_logo_strip", "chart_competitive",
+            "chart_ecosystem"],
+    },
+    "v2": {
+        1: ["logo"],
+        2: ["website_screenshot"],
+        3: ["chart_ecosystem", "product_main"],
+        4: ["founder_photo"],
+        5: [],
+        6: ["flywheel"],
+        7: ["competitors", "competitors_logo_strip", "chart_competitive"],
+    },
 }
 
-CHART_ASSET_KEYS = {"flywheel", "timeline", "chart_competitive", "chart_ecosystem"}
+CHART_ASSET_KEYS = {"flywheel", "chart_competitive", "chart_ecosystem"}
 
 
-def resolve_company_assets(db_path: str, company_name: str) -> dict:
+def resolve_company_assets(db_path: str, company_name: str,
+                           spec_version: str = "v1") -> dict:
     """Return card-keyed, layout-ready assets for one company."""
     assets = get_assets(db_path, company_name)
+    slots = CARD_ASSET_SLOTS.get(spec_version, CARD_ASSET_SLOTS["v1"])
     card_assets = {}
-    for card_index, asset_keys in CARD_ASSET_SLOTS.items():
+    for card_index, asset_keys in slots.items():
         card_key = f"card_{card_index}"
         card_assets[card_key] = {}
         for asset_key in asset_keys:

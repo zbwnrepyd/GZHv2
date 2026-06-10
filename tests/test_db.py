@@ -190,6 +190,7 @@ class FinalCardSaveTests(unittest.TestCase):
                 """CREATE TABLE final_content (
                      id INTEGER PRIMARY KEY AUTOINCREMENT,
                      company_name TEXT NOT NULL,
+                     card_set_key TEXT NOT NULL DEFAULT 'v1',
                      card_index INTEGER NOT NULL,
                      field_name TEXT NOT NULL,
                      field_value TEXT,
@@ -198,27 +199,32 @@ class FinalCardSaveTests(unittest.TestCase):
                    );"""
             )
             conn.execute(
-                "INSERT INTO final_content (company_name, card_index, field_name, field_value) "
-                "VALUES ('DemoCo', 7, 'moat', '旧内容')"
+                "INSERT INTO final_content (company_name, card_set_key, card_index, field_name, field_value) "
+                "VALUES ('DemoCo', 'v1', 7, 'moat', '旧内容')"
             )
             conn.execute(
-                "INSERT INTO final_content (company_name, card_index, field_name, field_value) "
-                "VALUES ('DemoCo', 7, 'moat', '新内容')"
+                "INSERT INTO final_content (company_name, card_set_key, card_index, field_name, field_value) "
+                "VALUES ('DemoCo', 'v2', 7, 'moat', '新内容')"
             )
             conn.commit()
 
-        cards = db.get_final_cards(old_db_path, "DemoCo")
+        cards_v1 = db.get_final_cards(old_db_path, "DemoCo", card_set_key="v1")
+        cards_v2 = db.get_final_cards(old_db_path, "DemoCo", card_set_key="v2")
 
-        self.assertEqual(len(cards), 1)
-        self.assertEqual(cards[0]["field_value"], "新内容")
+        self.assertEqual(len(cards_v1), 1)
+        self.assertEqual(cards_v1[0]["field_value"], "旧内容")
+        self.assertEqual(len(cards_v2), 1)
+        self.assertEqual(cards_v2[0]["field_value"], "新内容")
 
-    def test_final_status_counts_eight_cards(self):
-        db.save_final_markdown(self.db_path, "DemoCo", 8, "## 卡片8：总结\n\n**机遇**：新机会")
+    def test_final_status_counts_seven_cards(self):
+        db.save_final_markdown(self.db_path, "DemoCo", 7,
+                               "## 卡片7：竞争格局\n\n**壁垒**：强",
+                               card_set_key="v2")
 
-        status = db.get_final_status(self.db_path, "DemoCo")
+        status = db.get_final_status(self.db_path, "DemoCo", card_set_key="v2")
 
-        self.assertEqual(status["confirmed"], [8])
-        self.assertEqual(status["total"], 8)
+        self.assertEqual(status["confirmed"], [7])
+        self.assertEqual(status["total"], 7)
 
 
 class AssetVariantTests(unittest.TestCase):
@@ -250,8 +256,8 @@ class AssetVariantTests(unittest.TestCase):
 
         self.assertFalse(selected)
 
-    def test_chart_slots_attached_to_card_7(self):
-        """chart_competitive 和 chart_ecosystem 同属卡片7"""
+    def test_chart_slots_attached_to_correct_cards(self):
+        """chart_competitive 和 chart_ecosystem 在 v1 中均属卡片7。v2 中 ecosystem 移至 card_3。"""
         assets = asset_store.get_assets(self.db_path, "DemoCo")
 
         self.assertIn("chart_competitive", assets)
@@ -267,12 +273,15 @@ class AssetVariantTests(unittest.TestCase):
         self.assertIn("website_screenshot", assets)
         self.assertEqual(assets["website_screenshot"]["card_index"], 2)
 
-    def test_demand_asset_count_is_eleven(self):
+    def test_demand_asset_count_is_twelve(self):
         assets = asset_store.get_assets(self.db_path, "DemoCo")
         expected = {
-            "logo", "website_screenshot", "office", "product_main",
-            "products_other", "competitors", "competitors_logo_strip", "chart_competitive",
-            "chart_ecosystem", "flywheel", "timeline",
+            "logo", "website_screenshot", "founder_photo",
+            "product_main",
+            "competitors", "competitors_logo_strip", "chart_competitive",
+            "chart_ecosystem", "flywheel",
+            # 废弃槽位，DB 行保留
+            "office", "products_other", "timeline",
         }
 
         self.assertEqual(set(assets), expected)

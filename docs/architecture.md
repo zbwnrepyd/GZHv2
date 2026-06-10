@@ -78,7 +78,7 @@ Saving the same card again updates existing fields instead of inserting duplicat
 `assets_db.sqlite` contains the `company_assets` table tracking demand-based media asset types per company:
 
 ```text
-asset_key: logo | website_screenshot | office | product_main | products_other |
+asset_key: logo | website_screenshot | founder_photo | office | product_main | products_other |
            competitors | competitors_logo_strip | flywheel | timeline |
            chart_competitive | chart_ecosystem
 card_index: compatibility hint only; card placement is controlled by card_items
@@ -177,19 +177,27 @@ Layout persistence:
 - `PATCH /api/layout/<company>/<card_id>` — merge `overrides` into the card layout instance. Region overrides may contain geometry/style keys and text `value`.
 - `POST /api/layout/<company>/<card_id>/reset` — delete the saved layout instance and fall back to template defaults.
 
+Card set management (dual card spec system, `card_set_key` = v1|v2):
+
+- `GET /api/card-sets` — list all registered card sets.
+- `POST /api/card-sets` — create a user-defined card set.
+- `DELETE /api/card-sets/<set_key>` — delete a user-defined card set.
+- `POST /api/final/<company>/init-set/<set_key>` — initialize composition structure for a company in a card set.
+- `DELETE /api/final/<company>/set/<set_key>` — delete a company's data in a card set.
+
 ## Layout Center And Card Workbench
 
-The layout center at `/layout?company=<company>` is the main visual layout editor. It loads `/api/render-data/<company>`, lets the user choose a card and template, then exposes template regions as layers. Selecting a layer updates the right-side property panel and adds a cyan highlight inside the iframe preview. Geometry and style controls write region patches to layout overrides.
+The layout center at `/layout?company=<company>&set=v1|v2` is the main visual layout editor. It loads `/api/render-data/<company>`, lets the user choose a card and template, then exposes template regions as layers. Selecting a layer updates the right-side property panel and adds a cyan highlight inside the iframe preview. Geometry and style controls write region patches to layout overrides.
 
 Text editing deliberately does not rely on browser `contentEditable` in the iframe. The iframe itself is rendered with pointer events disabled, and the parent page places transparent hitboxes over each region. This prevents double-clicking text from creating a browser-native blue selection across the whole card. When a text hitbox is double-clicked, the parent page opens a focused Markdown `<textarea>` inside the matching iframe region, temporarily lets pointer events reach the iframe for editing, and commits the raw Markdown to the region's `value` override on blur or Cmd/Ctrl+Enter. Escape cancels and re-renders the preview. `TemplateRenderer` then renders that `value` through its Markdown parser, so headings and `**bold**` survive layout re-renders and exports.
 
 ## Card Workbench
 
-The card workbench uses browser-native HTML/CSS layout instead of fabric.js. The center pane shows a scaled 3:4 iframe preview based on a `900 x 1200` card. The left pane is project-scoped: it displays the current company as read-only state from `?company=`, then uses mutually exclusive accordions for card navigation, template selection, and the image folder. The template system is global (shared across all companies) and stores full HTML+CSS source sets (8 cards) in browser `localStorage`; templates can be imported/exported as JSON. On first visit, default templates are auto-loaded from `/canvas/default-templates.json`. The right pane shows the current card's complete HTML+CSS source with local syntax highlighting; edits debounce-render into the iframe.
+The card workbench uses browser-native HTML/CSS layout instead of fabric.js. The center pane shows a scaled 3:4 iframe preview based on a `900 x 1200` card. The left pane is project-scoped: it displays the current company as read-only state from `?company=`, then uses mutually exclusive accordions for card navigation, template selection, and the image folder. The template system is global (shared across all companies) and stores full HTML+CSS source sets (v1 8 cards or v2 7 cards) in browser `localStorage`; templates can be imported/exported as JSON. On first visit, default templates are auto-loaded from `/canvas/default-templates.json`. The right pane shows the current card's complete HTML+CSS source with local syntax highlighting; edits debounce-render into the iframe.
 
 The workbench toolbar includes `返回定稿台` and `参数编辑器`. With a company loaded, `返回定稿台` links to `/editor?company=<company>`; without a company it falls back to `/editor`. The `参数编辑器` button toggles a collapsible parameter-tuning bar below the iframe preview, containing single-accordion sliders/color-pickers for typography, colors, spacing, and layout. Changes are injected directly into the iframe via `renderSourceIntoDocument()`.
 
-SVG infographics for cards 3 (timeline) and 6 (flywheel) are auto-generated on card confirmation in the editor using default templates; they can also be rendered manually with custom parameters in the image studio SVG editor. Card 6 confirmation also auto-generates two scatter-plot positioning charts (competitive landscape matrix and AI stack positioning map), displayed as thumbnails in the editor's right preview pane.
+SVG infographics are auto-generated on card confirmation using default templates: v1 triggers timeline on card 3 + flywheel on card 6 + scatter charts on card 7; v2 triggers chart_ecosystem on card 3 + flywheel on card 6 + chart_competitive on card 7. They can also be rendered manually with custom parameters in the image studio editor.
 
 `canvas/js/markdown-parser.js` supports current `markdown_full` exports and legacy field rows. It preserves remote and local Markdown images as `_image`, maps card 1 `# 公司名` plus bold-only subtitle into homepage fields, and maps unlabeled body text on cards 2 and 4 into the expected intro/product fields so the canvas does not drop finalized prose.
 
@@ -201,4 +209,4 @@ The CLI export path opens `/canvas/card/<company>/<card_index>` for each card an
 - `canvas/` main path uses HTML/CSS and iframe rendering; legacy fabric.js files may remain in the tree but are not referenced by `canvas/card-renderer.html`.
 - SQLite through Python `sqlite3`; no ORM.
 - Website scraping uses local `trafilatura` via `webapp/firecrawl_local.py`; no Firecrawl API.
-- Cards 1-8 are generated. Card 7 is `竞争格局` and contains moat (now expanded to include ecosystem/niche analysis: value chain, niche overlap scoring, differentiation strategy, evolution trends) plus competitors; card 8 is `总结` and contains the market opportunity. `hook_paragraph_1/2/3` are displayed through the left-side `传播钩子文案` entry as supporting opening-copy options and are not written into cards.
+- Cards are generated per the active card set (v1 = 8 cards, v2 = 7 cards). v1 card 7 is `竞争格局` with moat/ecosystem analysis + competitors, card 8 is `总结`. v2 card 7 covers competition without a separate summary card. `hook_paragraph_1/2/3` are research fields and are not written into cards.

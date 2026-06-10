@@ -1,6 +1,10 @@
 const ConfirmManager = {
   confirmed: new Set(),
 
+  _totalCards() {
+    return (window.EditorApp ? EditorApp.currentSetKey : 'v1') === 'v2' ? 7 : 8;
+  },
+
   setConfirmed(cards) {
     this.confirmed = new Set((cards || []).map(Number));
     this.updateButtons();
@@ -16,7 +20,8 @@ const ConfirmManager = {
   },
 
   allConfirmed() {
-    for (let i = 1; i <= 8; i++) {
+    const total = this._totalCards();
+    for (let i = 1; i <= total; i++) {
       if (!this.confirmed.has(i)) return false;
     }
     return true;

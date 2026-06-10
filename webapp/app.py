@@ -313,6 +313,18 @@ def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
                             stage="失败", detail=str(e)[:200])
 
 
+def _safe_json_parse(val):
+    """安全解析 JSON 字符串或直接返回 dict。"""
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str) and val.strip():
+        try:
+            return json.loads(val)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return {}
+
+
 def _collect_assets_silently(company_name: str):
     """研究完成后仅自动采集 Logo（其余图片已由流水线图片采集阶段处理）。"""
     try:
@@ -401,11 +413,11 @@ def _fallback_svg_data(asset_key: str, markdown: str) -> dict | None:
 
 
 def _generate_card7_charts(company_name: str):
-    """卡片7确认后自动生成竞争格局图 + 产业链生态位图（后台线程）"""
+    """卡片7确认后自动生成竞争格局图 + 产业链生态位图（后台线程）。"""
     try:
         init_assets_db(config.DB_PATH_ASSETS)
         ensure_assets_rows(config.DB_PATH_ASSETS, company_name)
-        companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+        companies = _load_chart_company_domain(config.DB_PATH_RESEARCH, company_name, max_companies=12)
         dest_dir = _company_image_dir(config.IMAGES_DIR, company_name)
         os.makedirs(dest_dir, exist_ok=True)
 
@@ -430,8 +442,26 @@ def _generate_card7_charts(company_name: str):
         pass  # 静默失败，用户可在图片定稿台手动生成
 
 
+def _generate_ecosystem_chart(company_name: str):
+    """卡片3确认后自动生成产业链生态位图（后台线程）"""
+    try:
+        init_assets_db(config.DB_PATH_ASSETS)
+        ensure_assets_rows(config.DB_PATH_ASSETS, company_name)
+        companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+        dest_dir = _company_image_dir(config.IMAGES_DIR, company_name)
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, "chart_ecosystem.png")
+        ok = render_stack_positioning(companies, company_name, dest)
+        if ok:
+            upsert_asset(config.DB_PATH_ASSETS, company_name, "chart_ecosystem",
+                        local_path=_image_url_path(company_name, "chart_ecosystem.png"),
+                        source_type="svg_render", status="ready")
+    except Exception:
+        pass  # 静默失败，用户可在图片定稿台手动生成
+
+
 def _load_all_scored_companies(research_db_path: str) -> list[dict]:
-    """加载所有有评分的公司数据（用于散点图）"""
+    """[deprecated] 全库扫描 — 请改用 _load_chart_company_domain。保留用于回退。"""
     import sqlite3
     conn = sqlite3.connect(research_db_path)
     conn.row_factory = sqlite3.Row
@@ -448,6 +478,149 @@ def _load_all_scored_companies(research_db_path: str) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def _canonical_company_key(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _parse_competitor_names(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+
+    raw_s = raw.strip()
+    names: list[str] = []
+
+    try:
+        data = json.loads(raw_s)
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    name = (item.get("name") or item.get("company_name") or item.get("公司名") or "").strip()
+                else:
+                    name = str(item).strip()
+                if name:
+                    names.append(name)
+    except Exception:
+        # 兼容纯文本：A、B、C / A,B,C / A；B；C / 按行分割
+        import re
+        names = [x.strip() for x in re.split(r"[、,，;；\n]+", raw_s) if x.strip()]
+
+    seen = set()
+    uniq = []
+    for name in names:
+        k = _canonical_company_key(name)
+        if k and k not in seen:
+            seen.add(k)
+            uniq.append(name)
+    return uniq
+
+
+def _load_chart_company_domain(
+    research_db_path: str,
+    target_company: str,
+    *,
+    version: str = "standard",
+    max_companies: int = 12,
+    fallback_to_all: bool = True,
+) -> list[dict]:
+    """仅加载目标公司及其 competitors JSON 声明的竞争域。返回 latest standard rows。
+
+    当域内有效公司数 ≤1 时，若 fallback_to_all=True 则回退到全库扫描。
+    这是因为竞品公司可能尚未入库研究。
+    """
+    import sqlite3
+
+    # 查找目标公司：先按 display_name/company_name，再按 company_key
+    target_row = database.get_research(research_db_path, target_company, version)
+    if not target_row:
+        target_row = database.get_research_by_key(research_db_path, target_company, version)
+    if not target_row:
+        # 最后尝试直接用 SQL LOWER 匹配 company_name
+        conn = sqlite3.connect(research_db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM research WHERE LOWER(company_name)=LOWER(?) AND version=? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (target_company, version),
+        ).fetchone()
+        conn.close()
+        if row:
+            target_row = dict(row)
+    if not target_row:
+        return []
+
+    target_name = (target_row.get("company_name") or target_company).strip()
+    competitor_names = _parse_competitor_names(target_row.get("competitors"))
+
+    # 使用 LOWER(company_name) 做匹配（competitor JSON 里的 name 对的是 company_name）
+    ordered_lower_names: list[str] = [target_name.lower()]
+    seen = {target_name.lower()}
+    for name in competitor_names:
+        k = name.strip().lower()
+        if k and k not in seen:
+            ordered_lower_names.append(k)
+            seen.add(k)
+
+    if len(ordered_lower_names) > max_companies:
+        ordered_lower_names = ordered_lower_names[:max_companies]
+
+    conn = sqlite3.connect(research_db_path)
+    conn.row_factory = sqlite3.Row
+    placeholders = ",".join("?" for _ in ordered_lower_names)
+    rows = conn.execute(
+        f"""
+        SELECT
+          company_name,
+          display_name,
+          COALESCE(NULLIF(company_key, ''), LOWER(company_name)) AS company_key,
+          competitors,
+          score_defensibility,
+          score_incumbent_attention,
+          score_value_capture,
+          funding_stage_score,
+          stack_layer
+        FROM research
+        WHERE version = ?
+          AND id IN (
+            SELECT MAX(id)
+            FROM research
+            WHERE version = ?
+              AND LOWER(company_name) IN ({placeholders})
+            GROUP BY LOWER(company_name)
+          )
+        """,
+        [version, version, *ordered_lower_names],
+    ).fetchall()
+    conn.close()
+
+    items = [dict(r) for r in rows]
+
+    # --- 诊断日志 ---
+    import logging
+    _log = logging.getLogger(__name__)
+    _log.info(
+        "[chart domain] target=%s | competitors_raw=%s | parsed=%s | matched=%d",
+        target_company,
+        target_row.get("competitors", "")[:120] if target_row.get("competitors") else None,
+        competitor_names,
+        len(items),
+    )
+    if len(items) <= 1:
+        _log.warning(
+            "[chart domain] 域内仅 %d 家公司（目标=%s，竞品解析=%d）。"
+            "竞品可能未入库，将回退到全库扫描。",
+            len(items), target_name, len(competitor_names),
+        )
+
+    # 兜底：域内公司太少 → 回退到全库扫描
+    if fallback_to_all and len(items) <= 1:
+        items = _load_all_scored_companies(research_db_path)
+        _log.info("[chart domain] 回退到全库扫描，共 %d 家公司", len(items))
+
+    rank = {k: i for i, k in enumerate(ordered_lower_names)}
+    items.sort(key=lambda r: rank.get((r.get("company_name") or "").strip().lower(), 10**6))
+    return items
 
 
 def _default_chart_params(asset_key: str) -> dict:
@@ -472,6 +645,8 @@ def _default_chart_params(asset_key: str) -> dict:
     elif asset_key == "chart_ecosystem":
         base.update({
             "title": "AI 栈生态位图",
+            "width": 1440,
+            "height": 900,
         })
     elif asset_key == "flywheel":
         base.update({
@@ -656,34 +831,45 @@ def save_final_card():
 
         company_name = data.get("company_name")
         card_index = data.get("card_index")
+        card_set_key = data.get("card_set_key", "v1")      # 新增
         markdown_content = data.get("markdown_content")
         fields = data.get("fields", {})
         img_paths = data.get("img_paths", {})
 
         if not company_name or not card_index:
             return jsonify({"error": "缺少 company_name 或 card_index"}), 400
-        if card_index < 1 or card_index > 8:
-            return jsonify({"error": "card_index 必须在 1-8 之间"}), 400
+        # 动态校验 card_index 范围
+        max_card = 7 if card_set_key == "v2" else 8
+        if card_index < 1 or card_index > max_card:
+            return jsonify({"error": f"card_index 超出套卡 {card_set_key} 范围（1-{max_card}）"}), 400
 
         if markdown_content is not None:
             database.save_final_markdown(
-                config.DB_PATH_FINAL, company_name, card_index, markdown_content
+                config.DB_PATH_FINAL, company_name, card_index,
+                markdown_content, card_set_key=card_set_key
             )
         else:
             database.save_final_card(
-                config.DB_PATH_FINAL, company_name, card_index, fields, img_paths
+                config.DB_PATH_FINAL, company_name, card_index,
+                fields, img_paths, card_set_key=card_set_key
             )
 
-        # 预提取 SVG 数据（卡片3=timeline, 卡片6=flywheel）
-        if card_index in (3, 6):
+        # 图表触发根据套卡版本判断
+        spec = "v2" if card_set_key == "v2" else "v1"
+        if spec == "v2" and card_index == 3:
+            threading.Thread(
+                target=_generate_ecosystem_chart,
+                args=(company_name,), daemon=True
+            ).start()
+        if spec == "v1" and card_index in (3, 6):
             _pre_extract_svg_data(company_name, card_index)
-
-        # 卡片7确认时自动生成竞争格局图 + 产业链生态位图
+        if card_index == 6 and spec == "v2":
+            _pre_extract_svg_data(company_name, card_index)
         if card_index == 7:
             threading.Thread(target=_generate_card7_charts,
                            args=(company_name,), daemon=True).start()
 
-        return jsonify({"status": "ok", "card_index": card_index})
+        return jsonify({"status": "ok", "card_index": card_index, "card_set_key": card_set_key})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -691,7 +877,10 @@ def save_final_card():
 @app.route("/api/final/status/<company>")
 def get_final_status(company: str):
     try:
-        return jsonify(database.get_final_status(config.DB_PATH_FINAL, company))
+        set_key = request.args.get("set", "v1")
+        return jsonify(database.get_final_status(
+            config.DB_PATH_FINAL, company, card_set_key=set_key
+        ))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -699,10 +888,13 @@ def get_final_status(company: str):
 @app.route("/api/final/card/<company>/<int:card_index>")
 def get_final_card(company: str, card_index: int):
     try:
-        markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+        set_key = request.args.get("set", "v1")
+        markdown = database.get_final_card_markdown(
+            config.DB_PATH_FINAL, company, card_index, card_set_key=set_key
+        )
         if markdown is None:
-            return jsonify({"company_name": company, "card_index": card_index, "markdown_content": ""})
-        return jsonify({"company_name": company, "card_index": card_index, "markdown_content": markdown})
+            return jsonify({"company_name": company, "card_index": card_index, "card_set_key": set_key, "markdown_content": ""})
+        return jsonify({"company_name": company, "card_index": card_index, "card_set_key": set_key, "markdown_content": markdown})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -712,17 +904,133 @@ def get_final_card(company: str, card_index: int):
 @app.route("/api/final/export/<company>")
 def export_company(company: str):
     try:
+        set_key = request.args.get("set", "v1")
         fmt = request.args.get("format", "markdown")
         if fmt == "json":
-            data = database.export_json(config.DB_PATH_FINAL, company)
+            data = database.export_json(config.DB_PATH_FINAL, company, card_set_key=set_key)
             if not data:
                 return jsonify({"error": "该公司没有已确认的卡片"}), 404
             return jsonify(data)
 
-        markdown = database.export_markdown(config.DB_PATH_FINAL, company)
+        markdown = database.export_markdown(config.DB_PATH_FINAL, company, card_set_key=set_key)
         if not markdown:
             return jsonify({"error": "该公司没有已确认的卡片"}), 404
-        return jsonify({"company_name": company, "markdown": markdown})
+        return jsonify({"company_name": company, "card_set_key": set_key, "markdown": markdown})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API：套卡系统 CRUD ─────────────────────────────────────────
+
+@app.route("/api/card-sets", methods=["GET"])
+def list_card_sets():
+    """返回 card_set_registry 全部记录"""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(config.DB_PATH_COMPOSITION)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM card_set_registry ORDER BY is_system DESC, id"
+        ).fetchall()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/card-sets", methods=["POST"])
+def create_card_set():
+    """新建用户自定义套卡"""
+    try:
+        import sqlite3, time as _time
+        data = request.get_json() or {}
+        display_name = data.get("display_name", "").strip()
+        base_spec = data.get("base_spec", "v2")
+        if not display_name:
+            return jsonify({"error": "缺少 display_name"}), 400
+        if base_spec not in ("v1", "v2"):
+            return jsonify({"error": "base_spec 必须为 v1 或 v2"}), 400
+        card_count = 7 if base_spec == "v2" else 8
+        set_key = f"user_{int(_time.time())}"
+
+        conn = sqlite3.connect(config.DB_PATH_COMPOSITION)
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """INSERT INTO card_set_registry (set_key, display_name, spec_version, card_count, is_system)
+               VALUES (?, ?, ?, ?, 0)""",
+            (set_key, display_name, base_spec, card_count)
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({"set_key": set_key, "display_name": display_name,
+                        "spec_version": base_spec, "card_count": card_count})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/card-sets/<set_key>", methods=["DELETE"])
+def delete_card_set(set_key: str):
+    """删除用户自定义套卡（内置套卡返回 403）"""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(config.DB_PATH_COMPOSITION)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM card_set_registry WHERE set_key=?", (set_key,)
+        ).fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"error": "套卡不存在"}), 404
+        if row["is_system"]:
+            conn.close()
+            return jsonify({"error": "内置套卡不可删除"}), 403
+        conn.execute("DELETE FROM card_set_registry WHERE set_key=?", (set_key,))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/final/<company>/init-set/<set_key>", methods=["POST"])
+def init_company_set(company: str, set_key: str):
+    """初始化公司在指定套卡的编排结构（幂等）"""
+    try:
+        import sqlite3
+        from repositories.card_config_repo import init_company_set as _init_set
+        conn = sqlite3.connect(config.DB_PATH_COMPOSITION)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM card_set_registry WHERE set_key=?", (set_key,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({"error": "套卡不存在"}), 404
+        spec_version = row["spec_version"]
+        created = _init_set(config.DB_PATH_COMPOSITION, company, set_key, spec_version)
+        return jsonify({"status": "ok", "cards_created": created})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/final/<company>/set/<set_key>", methods=["DELETE"])
+def delete_company_set(company: str, set_key: str):
+    """删除该公司在指定套卡的所有已确认数据"""
+    try:
+        import sqlite3
+        from repositories.card_config_repo import delete_company_set as _del_set
+        # 删除 final_content
+        conn = sqlite3.connect(config.DB_PATH_FINAL)
+        cur = conn.execute(
+            "DELETE FROM final_content WHERE company_name=? AND card_set_key=?",
+            (company, set_key)
+        )
+        deleted_final = cur.rowcount
+        conn.commit()
+        conn.close()
+        # 删除 card_compositions + card_items
+        deleted_cards = _del_set(config.DB_PATH_COMPOSITION, company, set_key)
+        return jsonify({"status": "ok", "deleted_cards": deleted_cards})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -791,12 +1099,13 @@ def image_assets(filename):
 def get_resolved_assets():
     """Return layout-ready card assets through the stable resolver contract."""
     company = (request.args.get("company") or request.args.get("company_name") or "").strip()
+    spec = request.args.get("spec", "v1")
     if not company:
         return jsonify({"error": "缺少 company 参数"}), 400
     try:
         init_assets_db(config.DB_PATH_ASSETS)
         ensure_assets_rows(config.DB_PATH_ASSETS, company)
-        return jsonify(resolve_company_assets(config.DB_PATH_ASSETS, company))
+        return jsonify(resolve_company_assets(config.DB_PATH_ASSETS, company, spec_version=spec))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -826,11 +1135,23 @@ def collect_assets(company: str):
             "company_url": research.get("website_url", ""),
             "website_url": research.get("website_url", ""),
             "location": research.get("location", ""),
+            "founder_name": research.get("founder_name", ""),
+            "office_photo_hints": _safe_json_parse(research.get("office_photo_hints", "")),
             "other_products": research.get("other_products", ""),
             "competitors": research.get("competitors", ""),
         }
 
         images_root = config.IMAGES_DIR
+
+        # founder_photo 按需触发，不走主 pipeline
+        if asset_key == "founder_photo":
+            from asset_pipeline import _collect_founder_photo_variants
+            ensure_assets_rows(config.DB_PATH_ASSETS, company)
+            n = _collect_founder_photo_variants(
+                config.DB_PATH_ASSETS, images_root, company, company_data,
+            )
+            return jsonify({"status": "ok", "company_name": company, "results": {"founder_photo": n}})
+
         from asset_pipeline import collect_image_variants_pipeline
         results = collect_image_variants_pipeline(
             config.DB_PATH_ASSETS, images_root, company, company_data,
@@ -857,7 +1178,7 @@ def generate_asset(company: str, asset_key: str):
 
         # ── chart_competitive / chart_ecosystem：直接查库画散点图，无需 LLM ──
         if asset_key in ("chart_competitive", "chart_ecosystem"):
-            companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+            companies = _load_chart_company_domain(config.DB_PATH_RESEARCH, company, max_companies=12)
             if asset_key == "chart_competitive":
                 ok = render_competitive_landscape(companies, company, dest)
             else:
@@ -1061,7 +1382,7 @@ def preview_chart_html(company: str, asset_key: str):
         body = request.get_json() or {}
         params = _default_chart_params(asset_key)
         params.update(body.get("params", {}) or {})
-        companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+        companies = _load_chart_company_domain(config.DB_PATH_RESEARCH, company, max_companies=12)
         if asset_key == "chart_competitive":
             html = build_competitive_landscape_svg(companies, company, params)
         else:
@@ -1090,7 +1411,7 @@ def get_generated_chart_data(company: str, asset_key: str):
         }
 
         if asset_key in ("chart_competitive", "chart_ecosystem"):
-            companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+            companies = _load_chart_company_domain(config.DB_PATH_RESEARCH, company, max_companies=12)
             payload["companies"] = companies
             payload["data"] = {
                 "highlight": company,
@@ -1207,10 +1528,10 @@ def get_image_studio_overview(company: str):
         assets = get_assets(config.DB_PATH_ASSETS, company)
 
         slots = []
-        for asset_key in ["logo", "website_screenshot", "office", "product_main",
-                          "products_other", "competitors", "competitors_logo_strip",
-                          "chart_competitive", "chart_ecosystem",
-                          "flywheel", "timeline"]:
+        for asset_key in ["logo", "website_screenshot", "founder_photo",
+                          "product_main",
+                          "competitors", "competitors_logo_strip",
+                          "chart_competitive", "chart_ecosystem", "flywheel"]:
             asset = assets.get(asset_key, {})
             variants = list_variants(config.DB_PATH_ASSETS, company, asset_key)
             selected = next((v for v in variants if v.get("is_selected")), None)
@@ -1422,9 +1743,8 @@ def generate_search_queries(company: str, asset_key: str):
 
         card_topics = {
             "website_screenshot": "官网截图/首页截图",
-            "office": "公司办公室/办公场景",
+            "founder_photo": "创始人照片/人物照",
             "product_main": "主产品界面/使用场景",
-            "products_other": "其他产品/功能截图",
             "chart_competitive": "竞争格局矩阵图",
             "chart_ecosystem": "产业链生态位图",
             "competitors": "竞品分析/行业格局",
@@ -1471,10 +1791,10 @@ Markdown 摘要：{summary}
                 {"en": "startup website product homepage", "zh": "创业公司 官网 产品 首页"},
                 {"en": "software company landing page interface", "zh": "软件 公司 官网 界面"},
             ],
-            "office": [
-                {"en": "modern office workspace technology", "zh": "科技公司 办公室 团队"},
-                {"en": "startup office interior", "zh": "创业公司 办公环境"},
-                {"en": "tech company headquarters building", "zh": "科技 总部 大楼"},
+            "founder_photo": [
+                {"en": f"{company} founder CEO portrait photo", "zh": f"{company} 创始人 CEO 照片"},
+                {"en": "startup founder headshot professional", "zh": "创始人 头像 职业照"},
+                {"en": "entrepreneur portrait tech company", "zh": "创业者 照片 科技公司"},
             ],
             "product_main": [
                 {"en": "software application interface", "zh": "软件 产品 界面"},
@@ -1486,6 +1806,7 @@ Markdown 摘要：{summary}
                 {"en": "technology tool dashboard", "zh": "科技 工具 界面"},
                 {"en": "digital product showcase", "zh": "数字 产品 展示"},
             ],
+
             "chart_competitive": [
                 {"en": "competitive landscape matrix chart", "zh": "竞争格局 矩阵 图"},
                 {"en": "market positioning bubble chart", "zh": "市场定位 气泡图"},
@@ -1695,7 +2016,7 @@ def render_svg_variant(company: str, asset_key: str):
 
         # ── chart_competitive / chart_ecosystem：无需 LLM，直接查库画散点图 ──
         if asset_key in ("chart_competitive", "chart_ecosystem"):
-            companies = _load_all_scored_companies(config.DB_PATH_RESEARCH)
+            companies = _load_chart_company_domain(config.DB_PATH_RESEARCH, company, max_companies=12)
             chart_type = "competitive_landscape" if asset_key == "chart_competitive" else "stack_positioning"
             if chart_type == "competitive_landscape":
                 ok = render_competitive_landscape(companies, company, dest, params)
@@ -1854,11 +2175,15 @@ def index():
 def generate_abstract(company: str):
     """生成三版本全量 Markdown 摘要"""
     try:
+        set_key = request.args.get("set", "v1")
+        max_card = 7 if set_key == "v2" else 8
         abstracts = {}
         for version in ("standard", "business", "spread"):
             parts = []
-            for card_index in range(1, 9):
-                markdown = database.get_final_card_markdown(config.DB_PATH_FINAL, company, card_index)
+            for card_index in range(1, max_card + 1):
+                markdown = database.get_final_card_markdown(
+                    config.DB_PATH_FINAL, company, card_index, card_set_key=set_key
+                )
                 if markdown and markdown.strip():
                     parts.append(markdown.strip())
             full_text = "\n\n".join(parts)
@@ -1870,7 +2195,7 @@ def generate_abstract(company: str):
                 abstracts[version] = full_text[:200]
                 continue
 
-            prompt = f"""你是专业编辑。以下是一家AI创业公司的8张知识卡片全部内容（{version}版）。
+            prompt = f"""你是专业编辑。以下是一家AI创业公司的{max_card}张知识卡片全部内容（{version}版）。
 请用2-3句话概括核心内容（中文，150字以内），聚焦：公司做什么、核心产品、商业模式、竞争地位。
 只输出摘要文本，不要标题、不要markdown格式。
 

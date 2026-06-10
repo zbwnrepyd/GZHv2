@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  :root { --navy: #1B2A4A; --cyan: #29B8D4; --gray: #6B7A8D; --bg: #F7F8FA; --card-w: 900px; --card-h: 1200px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { width: var(--card-w); height: var(--card-h); background: #fff; overflow: hidden; font-family: "Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif; }
+  .card { width: 900px; height: 1200px; padding: 56px 64px; display: flex; flex-direction: column; }
+  .card-label { font-size: 12px; color: var(--cyan); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; font-weight: 600; }
+  .card-title { font-size: 32px; font-weight: 800; color: var(--navy); margin-bottom: 8px; }
+  .card-subtitle { font-size: 15px; color: var(--gray); margin-bottom: 36px; }
+
+  .founder-row { display: flex; gap: 28px; margin-bottom: 32px; }
+  .founder-photo { width: 180px; height: 180px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--bg); }
+  .founder-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .founder-photo .placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--gray); font-size: 32px; }
+  .founder-info { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+  .founder-name { font-size: 28px; font-weight: 800; color: var(--navy); }
+  .founder-role { font-size: 14px; color: var(--cyan); font-weight: 600; }
+  .founder-edu { font-size: 13px; color: var(--gray); }
+
+  .info-section { flex: 1; display: flex; flex-direction: column; gap: 18px; }
+  .section-title { font-size: 13px; color: var(--gray); font-weight: 500; letter-spacing: 0.03em; margin-bottom: 6px; }
+  .body-text { font-size: 14px; color: var(--navy); line-height: 1.7; }
+  .team-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .meta-item { background: var(--bg); border-radius: 8px; padding: 14px 18px; }
+  .meta-label { font-size: 11px; color: var(--gray); margin-bottom: 4px; }
+  .meta-value { font-size: 16px; color: var(--navy); font-weight: 700; }
+
+  .card-footer { margin-top: auto; padding-top: 20px; border-top: 1px solid #E8ECF2; display: flex; justify-content: space-between; align-items: center; }
+  .brand-mark { font-size: 18px; color: var(--cyan); }
+  .page-num { font-size: 12px; color: var(--gray); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="card" id="page4">
+  <div class="card-label">Founder &amp; Team</div>
+  <h1 class="card-title" id="founder-name"></h1>
+  <p class="card-subtitle" id="founder-bg"></p>
+
+  <div class="founder-row">
+    <div class="founder-photo" id="photo-block">
+      <img id="photo-img" src="" alt="" onerror="this.style.display='none';this.parentElement.innerHTML='<div class=placeholder>&#128100;</div>'">
+    </div>
+    <div class="founder-info">
+      <div class="founder-name" id="fn">—</div>
+      <div class="founder-role">创始人 / CEO</div>
+      <div class="founder-edu" id="edu-text">—</div>
+    </div>
+  </div>
+
+  <div class="info-section">
+    <div class="team-meta">
+      <div class="meta-item"><div class="meta-label">团队规模</div><div class="meta-value" id="team-size">—</div></div>
+      <div class="meta-item"><div class="meta-label">关键成就</div><div class="meta-value" id="achievement-summary">—</div></div>
+    </div>
+    <div>
+      <div class="section-title">职业背景</div>
+      <p class="body-text" id="bg-detail">—</p>
+    </div>
+    <div>
+      <div class="section-title">团队亮点</div>
+      <p class="body-text" id="team-highlight">—</p>
+    </div>
+  </div>
+
+  <div class="card-footer"><span class="brand-mark">∞</span><span class="page-num">4 / 7</span></div>
+</div>
+
+<script>
+const D = window.__CARD_DATA__ || {};
+document.getElementById("founder-name").textContent = D.founder_name || "";
+document.getElementById("fn").textContent = D.founder_name || "创始人";
+document.getElementById("founder-bg").textContent = D.founder_bg || "";
+document.getElementById("edu-text").textContent = D.founder_edu || "学历暂缺";
+document.getElementById("team-size").textContent = D.team_size || "暂缺";
+document.getElementById("achievement-summary").textContent = (D.founder_achievement || "暂缺").slice(0,40);
+document.getElementById("bg-detail").textContent = D.founder_bg || "暂缺";
+document.getElementById("team-highlight").textContent = D.team_highlight || "暂缺";
+const img = document.getElementById("photo-img");
+if (img && D.media && D.media.founder_photo) img.src = D.media.founder_photo;
+</script>
+</body>
+</html>

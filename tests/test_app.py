@@ -182,13 +182,13 @@ class ResearchCardMarkdownTests(unittest.TestCase):
         self.assertIn("## 卡片3：发展沿袭", payload["markdown"])
         self.assertIn("2024-01", payload["markdown"])
 
-    def test_research_card_endpoint_returns_card_8_summary_markdown(self):
-        response = self.client.get("/api/research/DemoCo/card/8?version=standard")
+    def test_research_card_endpoint_returns_card_7_summary_markdown(self):
+        response = self.client.get("/api/research/DemoCo/card/7?version=standard")
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
-        self.assertIn("## 卡片8：总结", payload["markdown"])
-        self.assertIn("**机遇**：AI 工作流进入重构期。", payload["markdown"])
+        self.assertIn("## 卡片7：竞争格局", payload["markdown"])
+        self.assertIn("**壁垒**：", payload["markdown"])
 
 
 class CompanyListTests(unittest.TestCase):
@@ -311,9 +311,10 @@ class ImageRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         keys = [slot["asset_key"] for slot in response.get_json()["slots"]]
         self.assertEqual(keys, [
-            "logo", "website_screenshot", "office", "product_main",
-            "products_other", "competitors", "competitors_logo_strip", "chart_competitive",
-            "chart_ecosystem", "flywheel", "timeline",
+            "logo", "website_screenshot", "founder_photo",
+            "product_main",
+            "competitors", "competitors_logo_strip",
+            "chart_competitive", "chart_ecosystem", "flywheel",
         ])
 
     def test_resolved_assets_flattens_card_assets_and_prefers_selected_variant(self):
@@ -348,21 +349,21 @@ class ImageRouteTests(unittest.TestCase):
             final_score=0.8,
         )
 
-        response = self.client.get("/api/assets/resolved?company=DemoCo")
+        response = self.client.get("/api/assets/resolved?company=DemoCo&spec=v2")
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertEqual(payload["company_name"], "DemoCo")
-        self.assertEqual(payload["card_spec_version"], "v1")
+        self.assertEqual(payload["card_spec_version"], "v2")
         self.assertEqual(payload["card_assets"]["card_1"]["logo"]["url"], "/images/DemoCo/variants/logo__selected.png")
         self.assertEqual(payload["card_assets"]["card_1"]["logo"]["status"], "selected")
         self.assertEqual(payload["card_assets"]["card_1"]["logo"]["variant_id"], selected_logo_id)
-        self.assertEqual(payload["card_assets"]["card_4"]["product_main"]["url"], "/images/DemoCo/variants/product__best.png")
-        self.assertEqual(payload["card_assets"]["card_4"]["product_main"]["status"], "fallback")
-        self.assertEqual(payload["card_assets"]["card_4"]["product_main"]["variant_type"], "ratio_16_9")
-        self.assertEqual(payload["card_assets"]["card_3"]["timeline"]["status"], "placeholder")
-        self.assertEqual(payload["card_assets"]["card_3"]["timeline"]["kind"], "chart")
-        self.assertEqual(payload["card_assets"]["card_8"], {})
+        self.assertEqual(payload["card_assets"]["card_3"]["product_main"]["url"], "/images/DemoCo/variants/product__best.png")
+        self.assertEqual(payload["card_assets"]["card_3"]["product_main"]["status"], "fallback")
+        self.assertEqual(payload["card_assets"]["card_3"]["product_main"]["variant_type"], "ratio_16_9")
+        self.assertEqual(payload["card_assets"]["card_3"]["chart_ecosystem"]["status"], "placeholder")
+        self.assertEqual(payload["card_assets"]["card_3"]["chart_ecosystem"]["kind"], "chart")
+        self.assertNotIn("card_8", payload["card_assets"])
 
     def test_chart_data_endpoint_returns_editable_competitive_payload(self):
         response = self.client.post("/api/image-studio/DemoCo/chart_competitive/chart-data")
@@ -785,21 +786,22 @@ class FinalMarkdownFlowTests(unittest.TestCase):
             "/api/final/save",
             json={
                 "company_name": "DemoCo",
-                "card_index": 8,
+                "card_index": 7,
+                "card_set_key": "v2",
                 "markdown_content": "# DemoCo\n\n**AI 工具**",
             },
         )
         self.assertEqual(response.status_code, 200)
 
-        status = self.client.get("/api/final/status/DemoCo")
+        status = self.client.get("/api/final/status/DemoCo?set=v2")
         self.assertEqual(status.status_code, 200)
-        self.assertEqual(status.get_json()["confirmed"], [8])
-        self.assertEqual(status.get_json()["total"], 8)
+        self.assertEqual(status.get_json()["confirmed"], [7])
+        self.assertEqual(status.get_json()["total"], 7)
 
-        exported = self.client.get("/api/final/export/DemoCo?format=json")
+        exported = self.client.get("/api/final/export/DemoCo?format=json&set=v2")
         self.assertEqual(exported.status_code, 200)
         payload = exported.get_json()
-        self.assertEqual(payload["cards"]["8"]["markdown_content"], "# DemoCo\n\n**AI 工具**")
+        self.assertEqual(payload["cards"]["7"]["markdown_content"], "# DemoCo\n\n**AI 工具**")
         self.assertEqual(payload["confirmed_count"], 1)
 
 
@@ -815,13 +817,13 @@ class SvgRenderRouteTests(unittest.TestCase):
         app_module.config.DB_PATH_ASSETS = self.assets_db_path
         self.images_dir = tempfile.mkdtemp()
         app_module.config.IMAGES_DIR = self.images_dir
-        db.save_final_markdown(self.final_db_path, "DemoCo", 3, "## 卡片3：发展沿袭\n\n- **2024** 上线")
+        db.save_final_markdown(self.final_db_path, "DemoCo", 6, "## 卡片6：GTM与增长\n\n**用**： 获客\n**留**： 留存\n**赚**： 变现")
         asset_store.ensure_assets_rows(self.assets_db_path, "DemoCo")
         asset_store.upsert_asset(
             self.assets_db_path,
             "DemoCo",
-            "timeline",
-            meta={"svg_data": {"events": [{"year": "2024", "title": "上线", "desc": "发布产品"}]}},
+            "flywheel",
+            meta={"svg_data": {"center": "增长飞轮", "stages": [{"label": "用", "desc": "获客"}]}},
         )
 
     def tearDown(self):
@@ -834,15 +836,15 @@ class SvgRenderRouteTests(unittest.TestCase):
         shutil.rmtree(self.images_dir)
 
     def test_render_svg_uses_cached_structured_data(self):
-        with patch.object(app_module, "extract_timeline_json", side_effect=AssertionError("should not extract")), \
+        with patch.object(app_module, "extract_flywheel_json", side_effect=AssertionError("should not extract")), \
              patch.object(app_module, "render_with_template", return_value=True) as render:
             response = self.client.post(
-                "/api/image-studio/DemoCo/timeline/render-svg",
-                json={"template_id": "timeline_horizontal", "params": {}},
+                "/api/image-studio/DemoCo/flywheel/render-svg",
+                json={"template_id": "flywheel_default", "params": {}},
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(render.call_args.args[0]["events"][0]["title"], "上线")
+        self.assertEqual(render.call_args.args[0]["stages"][0]["label"], "用")
 
 
 if __name__ == "__main__":

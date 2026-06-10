@@ -1,6 +1,7 @@
 const SLOT_LABELS = {
   logo: 'Logo',
   website_screenshot: '官网截图',
+  founder_photo: '创始人照片',
   office: '办公室或地图',
   product_main: '主产品截图',
   products_other: '其他产品截图',
@@ -12,17 +13,21 @@ const SLOT_LABELS = {
   timeline: '时间线图',
 };
 
-const SLOT_ORDER = ['logo', 'website_screenshot', 'office', 'product_main', 'products_other', 'competitors', 'competitors_logo_strip', 'chart_competitive', 'chart_ecosystem', 'flywheel', 'timeline'];
+const SLOT_ORDER = ['logo', 'website_screenshot', 'founder_photo', 'product_main', 'competitors', 'competitors_logo_strip', 'chart_competitive', 'chart_ecosystem', 'flywheel'];
 
 const EditorApp = {
   companyName: '',
+  currentSetKey: 'v1',
+  _cardSets: [],
   currentSection: 'card-settings',
   _imageIframeLoaded: false,
   _slots: null,
   _activeSlot: null,
 
   async init() {
-    this.companyName = new URLSearchParams(window.location.search).get('company') || '';
+    const params = new URLSearchParams(window.location.search);
+    this.companyName = params.get('company') || '';
+    this.currentSetKey = params.get('set') || 'v1';
     this.bindEvents();
     if (!this.companyName) {
       document.getElementById('editor-company-label').textContent = '请从研究台选择公司进入定稿台';
@@ -37,8 +42,105 @@ const EditorApp = {
       delBtn.addEventListener('click', () => this.deleteCompany());
     }
 
+    await this.loadCardSets();
     await this.loadStatus();
     this.switchSection('card-settings');
+  },
+
+  /* ── 套卡选择器 ── */
+
+  async loadCardSets() {
+    try {
+      this._cardSets = await API.getCardSets();
+    } catch {
+      this._cardSets = [
+        { set_key: 'v1', display_name: '套卡1 · 经典8张', spec_version: 'v1', card_count: 8, is_system: 1 },
+      ];
+    }
+    this.renderCardSetSelector();
+  },
+
+  renderCardSetSelector() {
+    const container = document.getElementById('card-set-selector');
+    if (!container) return;
+
+    container.innerHTML = this._cardSets.map(s => {
+      const active = s.set_key === this.currentSetKey ? ' active' : '';
+      const delBtn = s.is_system ? '' : `<span class="cs-tab-del" data-set="${s.set_key}">&times;</span>`;
+      return `<span class="cs-tab${active}" data-set="${s.set_key}">${this._esc(s.display_name)}${delBtn}</span>`;
+    }).join('') + `<span class="cs-tab cs-tab-add" id="cs-tab-add">+ 新建套卡</span>`;
+
+    container.querySelectorAll('.cs-tab[data-set]').forEach(tab => {
+      tab.addEventListener('click', async () => {
+        const setKey = tab.dataset.set;
+        if (setKey === this.currentSetKey) return;
+        await this.switchCardSet(setKey);
+      });
+    });
+    container.querySelectorAll('.cs-tab-del').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.deleteCardSet(btn.dataset.set);
+      });
+    });
+    const addBtn = document.getElementById('cs-tab-add');
+    if (addBtn) addBtn.addEventListener('click', () => this.showNewCardSetModal());
+  },
+
+  async switchCardSet(setKey) {
+    // 自动初始化编排结构
+    try {
+      await API.initCompanySet(this.companyName, setKey);
+    } catch { /* 已存在则跳过 */ }
+    this.currentSetKey = setKey;
+    this.renderCardSetSelector();
+    await this.loadStatus();
+    // 更新排版中心链接
+    const btnLayout = document.getElementById('btn-go-layout');
+    if (btnLayout) btnLayout.href = `/layout?company=${encodeURIComponent(this.companyName)}&set=${setKey}`;
+    // 刷新当前面板
+    if (this.currentSection === 'card-settings') {
+      CardSettingsPanel._loaded = false;  // force reload
+      CardSettingsPanel.init(this.companyName);
+    }
+    if (this.currentSection === 'text-finalize') {
+      TextFinalizePanel._loaded = false;
+      TextFinalizePanel.init(this.companyName);
+    }
+  },
+
+  async showNewCardSetModal() {
+    const name = prompt('新建套卡名称：', '我的套卡');
+    if (!name || !name.trim()) return;
+    const spec = confirm('基于 v2 规格（7张）？\n点"确定"=v2（7张），点"取消"=v1（8张）') ? 'v2' : 'v1';
+    try {
+      const set = await API.createCardSet(name.trim(), spec);
+      await API.initCompanySet(this.companyName, set.set_key);
+      await this.loadCardSets();
+      await this.switchCardSet(set.set_key);
+    } catch (e) {
+      alert('创建套卡失败: ' + e.message);
+    }
+  },
+
+  async deleteCardSet(setKey) {
+    const set = this._cardSets.find(s => s.set_key === setKey);
+    if (!set) return;
+    if (set.is_system) return alert('内置套卡不可删除。');
+    if (!confirm(`删除套卡「${set.display_name}」？\n\n将同时删除该公司在此套卡中所有已确认内容。此操作不可撤销。`)) return;
+    try {
+      await API.deleteCompanySetData(this.companyName, setKey);
+      await API.deleteCardSet(setKey);
+      await this.loadCardSets();
+      if (this.currentSetKey === setKey) {
+        this.currentSetKey = 'v1';
+        await this.switchCardSet('v1');
+      } else {
+        this.renderCardSetSelector();
+      }
+    } catch (e) {
+      alert('删除失败: ' + e.message);
+    }
   },
 
   bindEvents() {
@@ -96,7 +198,7 @@ const EditorApp = {
     if (!this._imageIframeLoaded && this.companyName) {
       const iframe = document.getElementById('image-studio-iframe');
       const slot = this._activeSlot || '';
-      iframe.src = `/image-studio/?company=${encodeURIComponent(this.companyName)}&embed=1&slot=${encodeURIComponent(slot)}`;
+      iframe.src = `/image-studio/?company=${encodeURIComponent(this.companyName)}&embed=1&slot=${encodeURIComponent(slot)}&set=${this.currentSetKey}`;
       this._imageIframeLoaded = true;
     }
 
@@ -169,7 +271,7 @@ const EditorApp = {
         this.renderImageSlots();
         // 通知 iframe 切换槽位
         const iframe = document.getElementById('image-studio-iframe');
-        iframe.src = `/image-studio/?company=${encodeURIComponent(this.companyName)}&embed=1&slot=${encodeURIComponent(slot)}`;
+        iframe.src = `/image-studio/?company=${encodeURIComponent(this.companyName)}&embed=1&slot=${encodeURIComponent(slot)}&set=${this.currentSetKey}`;
       });
     });
   },
@@ -197,7 +299,7 @@ const EditorApp = {
 
   async loadStatus() {
     try {
-      const status = await API.getFinalStatus(this.companyName);
+      const status = await API.getFinalStatus(this.companyName, this.currentSetKey);
       ConfirmManager.setConfirmed(status.confirmed || []);
     } catch {
       ConfirmManager.setConfirmed([]);

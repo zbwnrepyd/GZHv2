@@ -141,16 +141,16 @@ Read result:
 curl http://127.0.0.1:5050/api/research/Anthropic
 ```
 
-Open finalization desk:
+Open finalization desk (with card set parameter):
 
 ```text
-http://127.0.0.1:5050/editor?company=Anthropic
+http://127.0.0.1:5050/editor?company=Anthropic&set=v2
 ```
 
 Open layout center:
 
 ```text
-http://127.0.0.1:5050/layout?company=Anthropic
+http://127.0.0.1:5050/layout?company=Anthropic&set=v2
 ```
 
 Open image studio directly (standalone):
@@ -169,7 +169,7 @@ Export for canvas:
 
 ```bash
 # Structured JSON for the card renderer
-curl "http://127.0.0.1:5050/api/final/export/Anthropic?format=json" | python3 -m json.tool
+curl "http://127.0.0.1:5050/api/final/export/Anthropic?format=json&set=v2" | python3 -m json.tool
 
 # Open canvas directly with company data
 open "http://127.0.0.1:5050/canvas/?company=Anthropic"

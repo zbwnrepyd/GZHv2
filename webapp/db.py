@@ -40,6 +40,7 @@ def get_companies(db_path: str, final_db_path: str = "",
                   composition_db_path: str = "") -> list[dict]:
     """列出所有已研究公司，附带定稿进度。total 从卡片设置的启用卡片数读取。"""
     with get_db(db_path) as conn:
+        _ensure_research_schema(conn)
         # 兼容旧 schema（无 company_key 列）
         has_ckey = any(
             row["name"] == "company_key"
@@ -84,7 +85,10 @@ def get_companies(db_path: str, final_db_path: str = "",
             latest_cname = latest["company_name"] if latest else ckey
             filled = 0
             if latest:
+                latest_keys = set(latest.keys())
                 for field in REQUIRED_RESEARCH_FIELDS:
+                    if field not in latest_keys:
+                        continue
                     value = latest[field]
                     if value is not None and str(value).strip() not in ("", "暂缺"):
                         filled += 1
@@ -95,7 +99,7 @@ def get_companies(db_path: str, final_db_path: str = "",
             if final_db_path:
                 confirmed, _ = _count_final_fields_progress(final_db_path, latest_cname, ckey)
             confirmed = min(confirmed or 0, total)
-            website_url = latest["website_url"] if latest else ""
+            website_url = (latest["website_url"] if latest and "website_url" in latest_keys else "")
             if not website_url or str(website_url).strip() in ("", "暂缺"):
                 website_url = _latest_job_company_url(conn, latest_cname)
             scoring = _company_scoring_payload(latest)
@@ -332,14 +336,17 @@ def get_all_versions(db_path: str, company_name: str) -> dict[str, dict]:
 # ── research_db 写入 ──────────────────────────────────────────
 
 REQUIRED_RESEARCH_FIELDS = [
-    "company_type", "location", "company_def", "founder_name", "founder_edu",
-    "founder_bg", "founder_achievement", "team_size", "team_highlight",
+    "company_type", "location", "company_def", "company_achievement",
+    "founder_name", "founder_edu", "founder_bg", "founder_achievement",
+    "team_size", "team_highlight",
     "funding_info", "website_url", "timeline_events", "main_product_name",
     "main_product_def", "main_product_highlight", "main_product_achievement",
     "main_product_img_src", "other_products", "revenue_model", "gtm_strategy",
-    "cold_start", "customer_segment", "growth_flywheel", "moat", "competitors",
+    "cold_start", "customer_segment", "growth_flywheel",
+    "revenue_metrics", "growth_metrics", "regional_markets",
+    "moat", "competitors", "competitors_summary",
     "market_opportunity", "hook_paragraph_1", "hook_paragraph_2", "hook_paragraph_3",
-    "data_confidence",
+    "data_confidence", "tech_stack",
 ]
 
 COMPETITIVE_RESEARCH_FIELDS = [
@@ -380,6 +387,13 @@ def _ensure_research_schema(conn: sqlite3.Connection):
         "score_defensibility": "REAL",
         "score_incumbent_attention": "REAL",
         "score_value_capture": "REAL",
+        # v2 新增字段
+        "company_achievement": "TEXT",
+        "tech_stack": "TEXT",
+        "revenue_metrics": "TEXT",
+        "growth_metrics": "TEXT",
+        "regional_markets": "TEXT",
+        "competitors_summary": "TEXT",
         # identity fields (P1)
         "company_key": "TEXT",
         "display_name": "TEXT",
@@ -491,23 +505,15 @@ def get_latest_running_job(db_path: str) -> dict | None:
 
 
 def _ensure_final_unique_index(conn: sqlite3.Connection):
-    """清理历史重复字段，并确保定稿字段可按公司+卡片+字段更新。"""
-    duplicates = conn.execute(
-        """SELECT company_name, card_index, field_name, MAX(id) AS keep_id, COUNT(*) AS count
-           FROM final_content
-           GROUP BY company_name, card_index, field_name
-           HAVING count > 1"""
-    ).fetchall()
-    for row in duplicates:
-        conn.execute(
-            """DELETE FROM final_content
-               WHERE company_name=? AND card_index=? AND field_name=? AND id<>?""",
-            (row["company_name"], row["card_index"], row["field_name"], row["keep_id"]),
-        )
-
+    """清理历史重复字段，并重建定稿字段唯一索引（含 card_set_key）。"""
+    # 尝试删除旧版索引（如果存在），再创建新版索引
+    try:
+        conn.execute("DROP INDEX IF EXISTS idx_final_unique_field")
+    except Exception:
+        pass
     conn.execute(
         """CREATE UNIQUE INDEX IF NOT EXISTS idx_final_unique_field
-           ON final_content(company_name, card_index, field_name)"""
+           ON final_content(company_name, card_set_key, card_index, field_name)"""
     )
 
 
@@ -517,42 +523,54 @@ def save_final_card(
     card_index: int,
     fields: dict[str, str],
     img_paths: dict[str, str] = None,
+    card_set_key: str = "v1",
 ):
-    """保存单张卡片字段到 final_db（UPSERT）"""
+    """保存单张卡片字段到 final_db（UPSERT）。card_set_key 指定套卡。"""
     img_paths = img_paths or {}
     with get_db(db_path) as conn:
         _ensure_final_unique_index(conn)
         for field_name, field_value in fields.items():
             img_local_path = img_paths.get(field_name)
             conn.execute(
-                """INSERT INTO final_content (company_name, card_index, field_name, field_value, img_local_path)
-                   VALUES (?, ?, ?, ?, ?)
-                   ON CONFLICT(company_name, card_index, field_name) DO UPDATE SET
+                """INSERT INTO final_content
+                   (company_name, card_set_key, card_index, field_name,
+                    field_value, img_local_path)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(company_name, card_set_key, card_index, field_name)
+                   DO UPDATE SET
                      field_value=excluded.field_value,
-                     img_local_path=COALESCE(excluded.img_local_path, final_content.img_local_path),
+                     img_local_path=COALESCE(excluded.img_local_path,
+                                             final_content.img_local_path),
                      confirmed_at=CURRENT_TIMESTAMP""",
-                (company_name, card_index, field_name, field_value, img_local_path),
+                (company_name, card_set_key, card_index,
+                 field_name, field_value, img_local_path),
             )
         conn.commit()
 
 
-def save_final_markdown(db_path: str, company_name: str, card_index: int, markdown_content: str):
+def save_final_markdown(db_path: str, company_name: str, card_index: int,
+                        markdown_content: str, card_set_key: str = "v1"):
     """保存单张卡片的整块 Markdown。"""
-    save_final_card(db_path, company_name, card_index, {"markdown_full": markdown_content})
+    save_final_card(db_path, company_name, card_index,
+                    {"markdown_full": markdown_content},
+                    card_set_key=card_set_key)
 
 
-def get_final_card_markdown(db_path: str, company_name: str, card_index: int) -> str | None:
-    """读取单张卡片已定稿的 markdown_full（旧 final_content 兼容路径）"""
+def get_final_card_markdown(db_path: str, company_name: str, card_index: int,
+                            card_set_key: str = "v1") -> str | None:
+    """读取单张卡片已定稿的 markdown_full。"""
     with get_db(db_path) as conn:
         row = conn.execute(
-            "SELECT field_value FROM final_content WHERE company_name=? AND card_index=? AND field_name='markdown_full'",
-            (company_name, card_index),
+            "SELECT field_value FROM final_content"
+            " WHERE company_name=? AND card_set_key=? AND card_index=? AND field_name='markdown_full'",
+            (company_name, card_set_key, card_index),
         ).fetchone()
         return row["field_value"] if row else None
 
 
 def get_finalized_field(final_db_path: str, research_db_path: str,
-                        company_name: str, field_key: str) -> str | None:
+                        company_name: str, field_key: str,
+                        card_set_key: str = "v1") -> str | None:
     """读取定稿字段值：final_fields → research DB → final_content（兼容旧数据）。"""
     # 1. 优先从 final_fields 读（表可能尚未创建，如旧 DB 未迁移）
     try:
@@ -593,37 +611,49 @@ def get_finalized_field(final_db_path: str, research_db_path: str,
             return val
 
     # 3. 回退到旧 final_content 表（兼容迁移前的数据）
-    field_to_card = {"timeline_events": 3, "growth_flywheel": 6}
+    field_to_card = {
+        "timeline_events": 3,      # v1 套卡仍需
+        "growth_flywheel": 6,      # 两套卡共用
+    }
     card_index = field_to_card.get(field_key)
     if card_index:
-        markdown = get_final_card_markdown(final_db_path, company_name, card_index)
+        markdown = get_final_card_markdown(final_db_path, company_name, card_index,
+                                           card_set_key=card_set_key)
         if markdown:
             return markdown
     return None
 
 
-def get_final_status(db_path: str, company_name: str) -> dict:
-    cards = get_final_cards(db_path, company_name)
+def get_final_status(db_path: str, company_name: str,
+                     card_set_key: str = "v1") -> dict:
+    cards = get_final_cards(db_path, company_name, card_set_key=card_set_key)
     confirmed = sorted({c["card_index"] for c in cards if c["field_name"] == "markdown_full"} or
                        {c["card_index"] for c in cards})
-    return {"company_name": company_name, "confirmed": confirmed, "total": 8}
+    total = 7 if card_set_key == "v2" else 8
+    return {
+        "company_name": company_name,
+        "card_set_key": card_set_key,
+        "confirmed": confirmed,
+        "total": total,
+    }
 
 
-def get_final_cards(db_path: str, company_name: str) -> list[dict]:
-    """读取某公司所有已确认卡片，按 card_index 排序"""
+def get_final_cards(db_path: str, company_name: str,
+                    card_set_key: str = "v1") -> list[dict]:
+    """读取某公司某套卡所有已确认卡片，按 card_index 排序"""
     with get_db(db_path) as conn:
         _ensure_final_unique_index(conn)
         conn.commit()
         rows = conn.execute(
-            "SELECT * FROM final_content WHERE company_name=? ORDER BY card_index, id",
-            (company_name,),
+            "SELECT * FROM final_content WHERE company_name=? AND card_set_key=? ORDER BY card_index, id",
+            (company_name, card_set_key),
         ).fetchall()
         return [dict(row) for row in rows]
 
 
-def export_json(db_path: str, company_name: str) -> dict | None:
+def export_json(db_path: str, company_name: str, card_set_key: str = "v1") -> dict | None:
     """导出结构化 JSON，供 canvas 直接消费"""
-    cards = get_final_cards(db_path, company_name)
+    cards = get_final_cards(db_path, company_name, card_set_key=card_set_key)
     if not cards:
         return None
 
@@ -692,9 +722,9 @@ def delete_company(research_db_path: str, final_db_path: str, assets_db_path: st
     return counts
 
 
-def export_markdown(db_path: str, company_name: str) -> str:
+def export_markdown(db_path: str, company_name: str, card_set_key: str = "v1") -> str:
     """从 final_db 导出完整 Markdown"""
-    cards = get_final_cards(db_path, company_name)
+    cards = get_final_cards(db_path, company_name, card_set_key=card_set_key)
     if not cards:
         return ""
 

@@ -8,11 +8,15 @@ from pathlib import Path
 
 
 ASSET_KEYS = [
-    "logo", "website_screenshot", "office", "product_main", "products_other",
-    "competitors", "competitors_logo_strip", "flywheel", "timeline",
+    "logo", "website_screenshot", "founder_photo",
+    "product_main",
+    "competitors", "competitors_logo_strip", "flywheel",
     "chart_competitive", "chart_ecosystem",
+    # 以下为废弃槽位，保留 DB 行但不再渲染
+    "office", "products_other", "timeline",
 ]
 
+# v1 卡片→主资产映射（套卡1 · 经典8张）
 CARD_ASSET_MAP = {
     1: "logo",
     2: "office",
@@ -23,13 +27,29 @@ CARD_ASSET_MAP = {
     7: "competitors",
 }
 
-# 每个 asset_key 对应的卡片索引。
-# chart_competitive / chart_ecosystem 同属卡片7，不替换卡片7现有的 competitors 主资产。
-ASSET_TO_CARD = {v: k for k, v in CARD_ASSET_MAP.items()}
+# v2 卡片→主资产映射（套卡2 · 新版7张）
+CARD_ASSET_MAP_V2 = {
+    1: "logo",
+    2: "website_screenshot",
+    3: "product_main",       # chart_ecosystem 由 card_3 确认事件单独触发
+    4: "founder_photo",
+    5: None,                 # page5 无单一主资产
+    6: "flywheel",
+    7: "competitors",
+}
+
+# 每个 asset_key 对应的卡片索引（v1）。
+ASSET_TO_CARD = {v: k for k, v in CARD_ASSET_MAP.items() if v}
 ASSET_TO_CARD["website_screenshot"] = 2
 ASSET_TO_CARD["competitors_logo_strip"] = 7
 ASSET_TO_CARD["chart_competitive"] = 7
 ASSET_TO_CARD["chart_ecosystem"] = 7
+
+# v2 映射
+ASSET_TO_CARD_V2 = {v: k for k, v in CARD_ASSET_MAP_V2.items() if v}
+ASSET_TO_CARD_V2["competitors_logo_strip"] = 7
+ASSET_TO_CARD_V2["chart_competitive"] = 7
+ASSET_TO_CARD_V2["chart_ecosystem"] = 3   # v2 改为 card_3
 
 
 def _company_where(company_name: str, company_key: str = "") -> tuple[str, list]:

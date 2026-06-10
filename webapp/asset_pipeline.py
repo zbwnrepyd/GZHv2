@@ -18,7 +18,7 @@ from path_safety import safe_path_segment
 from asset_store import (
     ASSET_KEYS, ASSET_TO_CARD, CARD_ASSET_MAP,
     ensure_assets_rows, upsert_asset, get_asset,
-    list_variants, select_variant,
+    insert_variant, list_variants, select_variant,
 )
 from image_query import build_image_queries
 from image_candidate import ImageCandidate
@@ -1753,6 +1753,198 @@ def _collect_competitor_logo_strip_variants(db_path: str, images_root: str, comp
     return 1 if variant_id else 0
 
 
+def _collect_website_screenshot_variants(
+    db_path: str, images_root: str, company_name: str,
+    company_url: str = "", company_key: str = "",
+) -> int:
+    """官网首页截图：Playwright 全 viewport 截图（含 cookie banner 隐藏）。"""
+    if not company_url:
+        upsert_asset(db_path, company_name, "website_screenshot",
+                    status="failed", fail_reason="公司网站地址为空", company_key=company_key)
+        return 0
+
+    dest = _variant_path(images_root, company_name, "website_screenshot", "homepage")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+
+    try:
+        from screenshot_client import capture, DEFAULT_HIDE_SELECTORS
+        result = capture(
+            company_url, dest, provider=getattr(config, "SCREENSHOT_PROVIDER", "local"),
+            viewport=(1440, 1000), full_page=False,
+            hide_selectors=DEFAULT_HIDE_SELECTORS, full_viewport=True,
+        )
+        if not result.ok:
+            upsert_asset(db_path, company_name, "website_screenshot",
+                        status="failed", fail_reason=result.fail_reason,
+                        company_key=company_key)
+            return 0
+    except Exception as e:
+        upsert_asset(db_path, company_name, "website_screenshot",
+                    status="failed", fail_reason=str(e), company_key=company_key)
+        return 0
+
+    if not os.path.exists(dest) or os.path.getsize(dest) <= 512:
+        upsert_asset(db_path, company_name, "website_screenshot",
+                    status="failed", fail_reason="截图文件为空或过小",
+                    company_key=company_key)
+        return 0
+
+    variant_id = insert_variant(
+        db_path, company_name, "website_screenshot",
+        local_path=_variant_browser_path(company_name, dest),
+        source_type="playwright",
+        source_url=company_url,
+        source_page=company_url,
+        prompt="官网首页截图",
+        company_key=company_key,
+    )
+    if variant_id:
+        select_variant(db_path, company_name, "website_screenshot", variant_id,
+                      auto_selected=True, company_key=company_key)
+    return 1
+
+
+def _scrape_page_images(url: str, min_width: int = 200) -> list[dict]:
+    """用 Playwright 抓取页面中所有满足最小宽度的 img 元素。"""
+    imgs = []
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            imgs = page.evaluate("""(minW) => {
+                return Array.from(document.querySelectorAll('img'))
+                    .filter(img => img.naturalWidth >= minW || img.width >= minW)
+                    .map(img => ({
+                        src: img.src || img.getAttribute('data-src') || '',
+                        width: img.naturalWidth || img.width || 0,
+                        height: img.naturalHeight || img.height || 0,
+                        alt: img.alt || ''
+                    }))
+                    .filter(x => x.src && x.src.startsWith('http'));
+            }""", min_width)
+            browser.close()
+    except Exception:
+        pass
+    return imgs
+
+
+def _collect_founder_photo_variants(
+    db_path: str, images_root: str, company_name: str,
+    company_data: dict, company_key: str = "",
+) -> int:
+    """创始人照片采集 — 三级策略：Tavily 搜 → About 页 → 失败标记。
+    不在研究阶段自动触发，由 image studio 按需调用。"""
+    founder_name = (company_data.get("founder_name") or "").strip()
+    office_hints = company_data.get("office_photo_hints") or {}
+    about_url = (office_hints.get("about_url") or "").strip()
+    linkedin_url = (office_hints.get("linkedin_url") or "").strip()
+
+    # ── 过滤工具 ──
+    def _is_portrait_candidate(local_path: str) -> bool:
+        """检查图片是否满足人像照基本条件：aspect 0.6-1.8, width ≥ 200, 非 logo/产品截图。"""
+        try:
+            from PIL import Image
+            img = Image.open(local_path)
+            w, h = img.size
+            if w < 200:
+                return False
+            ratio = w / h if h > 0 else 0
+            if ratio < 0.6 or ratio > 1.8:
+                return False
+            # 用 image_scorer 排除 logo/产品截图
+            try:
+                from image_scorer import score_candidate
+                meta = score_candidate(local_path, product_names=[])
+                content_type = (meta.get("content_type") or "").lower()
+                if content_type in ("logo", "screenshot", "diagram"):
+                    return False
+            except Exception:
+                pass  # 评分不可用时不拦截
+            return True
+        except Exception:
+            return False
+
+    accepted = 0
+    used_urls = set()
+
+    # ── Tier 1: Tavily 搜索创始人照片 ──
+    if founder_name:
+        query = f"{founder_name} {company_name} headshot photo"
+        try:
+            for i, img_url in enumerate(_tavily_image_urls(query, limit=8)):
+                if img_url in used_urls:
+                    continue
+                used_urls.add(img_url)
+                dest = _variant_path(images_root, company_name, "founder_photo", f"tv_{int(time.time())}_{i}")
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                if not _download(img_url, dest, timeout=30):
+                    continue
+                if not _is_portrait_candidate(dest):
+                    try:
+                        os.remove(dest)
+                    except Exception:
+                        pass
+                    continue
+                if _persist_local_candidate(
+                    db_path, company_name, "founder_photo", dest,
+                    "web_tavily", source_url=img_url, source_page=img_url,
+                    prompt=query, meta={"query": query, "tier": 1},
+                ):
+                    accepted += 1
+        except Exception:
+            pass  # Tavily 失败不阻断后续
+
+    # ── Tier 2: Playwright 抓取 About 页人像 ──
+    if about_url and accepted == 0:
+        try:
+            imgs = _scrape_page_images(about_url, min_width=200)
+            for j, img_info in enumerate(imgs[:6]):
+                src = img_info.get("src", "")
+                if not src or src in used_urls:
+                    continue
+                used_urls.add(src)
+                dest = _variant_path(images_root, company_name, "founder_photo", f"about_{int(time.time())}_{j}")
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                if not _download(src, dest, timeout=30, referer=about_url):
+                    continue
+                if not _is_portrait_candidate(dest):
+                    try:
+                        os.remove(dest)
+                    except Exception:
+                        pass
+                    continue
+                if _persist_local_candidate(
+                    db_path, company_name, "founder_photo", dest,
+                    "playwright", source_url=src, source_page=about_url,
+                    prompt=f"About page: {about_url}", meta={"tier": 2, "source_page": about_url},
+                ):
+                    accepted += 1
+        except Exception:
+            pass
+
+    # ── Tier 3: LinkedIn（占位，暂不实施 — 反爬风险高）──
+    # linkedin_url 保留为未来扩展点
+
+    # ── 结果写入 ──
+    if accepted > 0:
+        variants = list_variants(db_path, company_name, "founder_photo", company_key=company_key)
+        if variants and not any(v.get("is_selected") for v in variants):
+            ready = [v for v in variants if not v.get("reject_reason")]
+            if ready:
+                select_variant(db_path, company_name, "founder_photo", ready[0]["id"],
+                              auto_selected=True, company_key=company_key)
+        upsert_asset(db_path, company_name, "founder_photo",
+                    status="ready", company_key=company_key)
+    else:
+        upsert_asset(db_path, company_name, "founder_photo",
+                    status="failed",
+                    fail_reason="未找到符合条件的人像照片（aspect 0.6-1.8, width≥200, 非logo/截图）",
+                    company_key=company_key)
+    return accepted
+
+
 # 管道入口
 def collect_image_variants_pipeline(
     db_path: str, images_root: str, company_name: str,
@@ -1770,6 +1962,8 @@ def collect_image_variants_pipeline(
     ensure_assets_rows(db_path, company_name, company_key=company_key)
 
     stages = [
+        ("website_screenshot", "官网首页截图", lambda ck=company_key: _collect_website_screenshot_variants(
+            db_path, images_root, company_name, company_url, company_key=ck)),
         ("office", "公司位置地图", lambda ck=company_key: _collect_office_variants(
             db_path, images_root, company_name, location, query_config.get("office", {}), company_url,
             company_key=ck)),

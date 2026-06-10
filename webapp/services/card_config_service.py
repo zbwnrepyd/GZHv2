@@ -11,9 +11,10 @@ from repositories.card_config_repo import (
 )
 
 
-def create_default_cards_for_company(db_path: str, company_name: str) -> list[str]:
-    """为新公司创建默认 8 张卡片配置，返回 card_id 列表"""
-    defaults = get_default_card_configs(db_path)
+def create_default_cards_for_company(db_path: str, company_name: str,
+                                     card_set_key: str = "v1") -> list[str]:
+    """为新公司创建默认卡片配置，返回 card_id 列表。card_set_key 指定套卡版本。"""
+    defaults = get_default_card_configs(db_path, set_key=card_set_key)
     if not defaults:
         return []
 
@@ -26,19 +27,22 @@ def create_default_cards_for_company(db_path: str, company_name: str) -> list[st
             card_index=cfg["card_index"],
             card_title=cfg["card_title"],
             template_id=cfg.get("config", {}).get("template_id", ""),
+            card_set_key=card_set_key,
         )
         config = cfg.get("config", {})
         # 添加字段
         for idx, field_key in enumerate(config.get("fields", [])):
             add_card_item(db_path, company_name, card_id,
                          item_type="field", item_key=field_key,
-                         sort_order=idx, display_role=_default_role_for_field(field_key))
+                         sort_order=idx, display_role=_default_role_for_field(field_key),
+                         card_set_key=card_set_key)
         # 添加图片
         for idx, media_key in enumerate(config.get("media", [])):
             add_card_item(db_path, company_name, card_id,
                          item_type="media", item_key=media_key,
                          sort_order=idx + 100,
-                         display_role=_default_role_for_media(media_key))
+                         display_role=_default_role_for_media(media_key),
+                         card_set_key=card_set_key)
         card_ids.append(card_id)
 
     return card_ids
@@ -63,23 +67,26 @@ def _default_role_for_media(media_key: str) -> str:
 
 
 def get_card_composition(db_path: str, company_name: str,
-                         card_id: str) -> dict | None:
+                         card_id: str, card_set_key: str = "v1") -> dict | None:
     """返回单张卡片的完整编排（卡片 + items）"""
-    card = get_card(db_path, company_name, card_id)
+    card = get_card(db_path, company_name, card_id, card_set_key=card_set_key)
     if not card:
         return None
-    items = get_card_items(db_path, company_name, card_id)
+    items = get_card_items(db_path, company_name, card_id, card_set_key=card_set_key)
     card["items"] = items
     return card
 
 
-def get_company_composition(db_path: str, company_name: str) -> dict:
-    """返回公司的完整卡片编排"""
-    cards = get_cards(db_path, company_name)
+def get_company_composition(db_path: str, company_name: str,
+                            card_set_key: str = "v1") -> dict:
+    """返回公司的完整卡片编排（按套卡版本）"""
+    cards = get_cards(db_path, company_name, card_set_key=card_set_key)
     for card in cards:
-        card["items"] = get_card_items(db_path, company_name, card["card_id"])
+        card["items"] = get_card_items(db_path, company_name, card["card_id"],
+                                       card_set_key=card_set_key)
     return {
         "company_name": company_name,
+        "card_set_key": card_set_key,
         "cards": cards,
     }
 

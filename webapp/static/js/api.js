@@ -1,5 +1,41 @@
-// API 调用封装
+// API 调用封装（v2 支持 card_set_key）
 const API = {
+  // ── 套卡 ──
+  async getCardSets() {
+    const res = await fetch('/api/card-sets');
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
+  async createCardSet(displayName, baseSpec) {
+    const res = await fetch('/api/card-sets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: displayName, base_spec: baseSpec }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
+  async deleteCardSet(setKey) {
+    const res = await fetch(`/api/card-sets/${encodeURIComponent(setKey)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
+  async initCompanySet(company, setKey) {
+    const res = await fetch(`/api/final/${encodeURIComponent(company)}/init-set/${encodeURIComponent(setKey)}`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
+  async deleteCompanySetData(company, setKey) {
+    const res = await fetch(`/api/final/${encodeURIComponent(company)}/set/${encodeURIComponent(setKey)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+
+  // ── 公司列表 ──
   async getCompanies() {
     const res = await fetch('/api/companies');
     if (!res.ok) throw new Error(await res.text());
@@ -44,13 +80,14 @@ const API = {
     return res.json();
   },
 
-  async saveFinal(companyName, cardIndex, fields, imgPaths) {
+  async saveFinal(companyName, cardIndex, fields, imgPaths, cardSetKey) {
     const res = await fetch('/api/final/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         company_name: companyName,
         card_index: cardIndex,
+        card_set_key: cardSetKey || 'v1',
         fields: fields,
         img_paths: imgPaths || {}
       })
@@ -59,13 +96,14 @@ const API = {
     return res.json();
   },
 
-  async saveFinalMarkdown(companyName, cardIndex, markdownContent) {
+  async saveFinalMarkdown(companyName, cardIndex, markdownContent, cardSetKey) {
     const res = await fetch('/api/final/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         company_name: companyName,
         card_index: cardIndex,
+        card_set_key: cardSetKey || 'v1',
         markdown_content: markdownContent
       })
     });
@@ -73,20 +111,28 @@ const API = {
     return res.json();
   },
 
-  async getFinalCard(company, cardIndex) {
-    const res = await fetch(`/api/final/card/${encodeURIComponent(company)}/${cardIndex}`);
+  async getFinalCard(company, cardIndex, cardSetKey) {
+    const params = new URLSearchParams();
+    if (cardSetKey) params.set('set', cardSetKey);
+    const qs = params.toString();
+    const res = await fetch(`/api/final/card/${encodeURIComponent(company)}/${cardIndex}${qs ? '?' + qs : ''}`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   },
 
-  async getFinalStatus(company) {
-    const res = await fetch(`/api/final/status/${encodeURIComponent(company)}`);
+  async getFinalStatus(company, cardSetKey) {
+    const params = new URLSearchParams();
+    if (cardSetKey) params.set('set', cardSetKey);
+    const qs = params.toString();
+    const res = await fetch(`/api/final/status/${encodeURIComponent(company)}${qs ? '?' + qs : ''}`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   },
 
-  async exportCompany(company) {
-    const res = await fetch(`/api/final/export/${encodeURIComponent(company)}`);
+  async exportCompany(company, cardSetKey) {
+    const params = new URLSearchParams({ format: 'json' });
+    if (cardSetKey) params.set('set', cardSetKey);
+    const res = await fetch(`/api/final/export/${encodeURIComponent(company)}?${params}`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   },
