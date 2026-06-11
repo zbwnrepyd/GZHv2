@@ -1068,6 +1068,13 @@ def run_pipeline(company_name: str, company_url: str,
     t3 = time.time()
 
     # Step 4: 图片采集
+    def _clean(v, default=""):
+        """过滤 L3 占位符，避免「暂缺」进入图片搜索查询"""
+        if v is None:
+            return default
+        s = str(v).strip()
+        return default if s in ("暂缺", "") else v
+
     standard_record = records[0] if records else {}
     company_data = {
         "company_name": company_name,
@@ -1075,12 +1082,12 @@ def run_pipeline(company_name: str, company_url: str,
         "display_name": raw.get("display_name", company_name),
         "company_url": company_url,
         "website_url": company_url,
-        "location": standard_record.get("location", ""),
-        "other_products": standard_record.get("other_products", ""),
-        "competitors": standard_record.get("competitors", ""),
-        "main_product_name": standard_record.get("main_product_name", ""),
-        "main_product_img_src": standard_record.get("main_product_img_src", ""),
-        "office_photo_hints": standard_record.get("office_photo_hints", ""),
+        "location": _clean(standard_record.get("location")),
+        "other_products": _clean(standard_record.get("other_products"), default=[]),
+        "competitors": _clean(standard_record.get("competitors"), default=[]),
+        "main_product_name": _clean(standard_record.get("main_product_name")),
+        "main_product_img_src": _clean(standard_record.get("main_product_img_src")),
+        "office_photo_hints": _clean(standard_record.get("office_photo_hints"), default={}),
     }
     try:
         from asset_pipeline import collect_image_variants_pipeline
@@ -1089,6 +1096,9 @@ def run_pipeline(company_name: str, company_url: str,
             progress_callback=progress_callback, job_id=job_id,
         )
     except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[图片采集异常] {company_name}: {tb}", flush=True)
         _report(progress_callback, "图片采集",
                 {"message": f"图片采集异常：{e}", "card": 0, "total": 4},
                 job_id=job_id)

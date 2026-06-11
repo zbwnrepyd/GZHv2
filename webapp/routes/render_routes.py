@@ -5,11 +5,21 @@ from __future__ import annotations
 from flask import Blueprint, request, jsonify
 from config import config
 from repositories.card_config_repo import get_enabled_cards, get_card_items
-from repositories.field_repo import get_final_field_value, get_research_field_value
+from repositories.field_repo import get_final_field_value, get_research_field_value, _EMPTY_FINAL
 from repositories.template_repo import get_template
 from repositories.layout_repo import get_layout
 from asset_store import ensure_assets_rows, get_asset
 from services.card_config_service import create_default_cards_for_company
+
+
+def _resolve_field_value(company: str, field_key: str) -> str:
+    """解析字段值：已定稿 → 用定稿值（含空字符串）；从未定稿 → 回退研究值。"""
+    raw = get_final_field_value(config.DB_PATH_FINAL, company, field_key)
+    if raw is _EMPTY_FINAL:
+        return ""  # 用户显式清空
+    if raw is not None:
+        return raw
+    return get_research_field_value(config.DB_PATH_RESEARCH, company, field_key) or ""
 
 
 def _get_set_key() -> str:
@@ -28,7 +38,14 @@ def _enabled_cards_or_defaults(company: str) -> list[dict]:
 def _media_url(company: str, media_key: str) -> str:
     ensure_assets_rows(config.DB_PATH_ASSETS, company)
     asset = get_asset(config.DB_PATH_ASSETS, company, media_key) or {}
-    return asset.get("local_path") or ""
+    lp = asset.get("local_path") or ""
+    if lp:
+        return lp
+    # fallback: company_assets.local_path 为空时，从 image_variants 找已选中变体
+    from asset_store import list_variants
+    variants = list_variants(config.DB_PATH_ASSETS, company, media_key) or []
+    selected = next((v for v in variants if v.get("is_selected")), None)
+    return selected.get("local_path") if selected else ""
 
 
 def register(bp: Blueprint):
@@ -51,15 +68,7 @@ def register(bp: Blueprint):
                 for item in items:
                     resolved = dict(item)
                     if item["item_type"] == "field":
-                        # 优先 final_fields，fallback research_fields
-                        value = (
-                            get_final_field_value(config.DB_PATH_FINAL, company,
-                                                  item["item_key"])
-                            or get_research_field_value(config.DB_PATH_RESEARCH,
-                                                        company, item["item_key"])
-                            or ""
-                        )
-                        resolved["value"] = value
+                        resolved["value"] = _resolve_field_value(company, item["item_key"])
                     elif item["item_type"] == "media":
                         resolved["url"] = _media_url(company, item["item_key"])
                         resolved["media_label"] = item.get("item_label", "")
@@ -104,14 +113,7 @@ def register(bp: Blueprint):
             for item in items:
                 resolved = dict(item)
                 if item["item_type"] == "field":
-                    value = (
-                        get_final_field_value(config.DB_PATH_FINAL, company,
-                                              item["item_key"])
-                        or get_research_field_value(config.DB_PATH_RESEARCH,
-                                                    company, item["item_key"])
-                        or ""
-                    )
-                    resolved["value"] = value
+                    resolved["value"] = _resolve_field_value(company, item["item_key"])
                 elif item["item_type"] == "media":
                     resolved["url"] = _media_url(company, item["item_key"])
                 resolved_items.append(resolved)

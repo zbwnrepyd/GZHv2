@@ -720,10 +720,11 @@ const LayoutApp = {
 
     // 更新 card_compositions 的 template_id
     try {
-      await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(this._activeCardId)}`, {
+      const r = await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(this._activeCardId)}?set=${this._setKey}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template_id: tid }),
       });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       await this._loadData();
       this._selectCard(this._activeCardId);
     } catch (e) { alert('应用失败: ' + e.message); }

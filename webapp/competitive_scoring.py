@@ -79,7 +79,94 @@ STACK_LAYER_MAP = {
     "distribution": 5,
 }
 
+# ═══════════════════════════════════════════════════════════════
+# v2 新字段映射表（评分体系改造）
+# ═══════════════════════════════════════════════════════════════
+
+# 护城河子项
+INCUMBENT_OVERLAP_MAP = {
+    "none": 1,
+    "adjacent": 4,
+    "partial_overlap": 7,
+    "direct_overlap": 10,
+}
+
+WORKFLOW_LOCK_IN_MAP = {
+    "system_of_record": 10,
+    "workflow_embedded": 7,
+    "plugin_addon": 4,
+    "standalone_tool": 1,
+}
+
+DATA_LOCK_IN_MAP = {
+    "strong": 10,
+    "moderate": 5,
+    "weak": 0,
+}
+
+TECHNICAL_UNIQUENESS_MAP = {
+    "strong": 10,
+    "moderate": 5,
+    "weak": 0,
+}
+
+DISTRIBUTION_LOCK_MAP = {
+    "strong": 10,
+    "moderate": 5,
+    "weak": 0,
+}
+
+BRAND_COMMUNITY_MAP = {
+    "strong": 10,
+    "moderate": 5,
+    "weak": 0,
+}
+
+# 巨头关注子项
+MARKET_SIZE_MAP = {
+    "large": 10,
+    "medium": 6,
+    "small": 3,
+}
+
+STRATEGIC_DEPENDENCY_MAP = {
+    "high": 10,
+    "medium": 6,
+    "low": 3,
+}
+
+USER_VISIBILITY_MAP = {
+    "high": 10,
+    "medium": 6,
+    "low": 3,
+}
+
+# 价值捕获子项
+PRICING_POWER_MAP = {
+    "outcome_based": 10,
+    "enterprise_contract": 8,
+    "subscription": 6,
+    "usage_based": 4,
+    "freemium": 2,
+    "free": 0,
+}
+
+GROSS_MARGIN_MAP = {
+    "high": 10,
+    "medium": 6,
+    "low": 3,
+}
+
+CUSTOMER_BUDGET_MAP = {
+    "b2b_enterprise": 9,
+    "developer_api": 7,
+    "b2b2c": 6,
+    "b2b_smb": 5,
+    "b2c": 3,
+}
+
 FIELD_DEFAULTS = {
+    # 旧字段默认值
     "ai_model_dependency": "no_ai_core",
     "workflow_integration_level": "standalone_tool",
     "data_flywheel": "no",
@@ -90,6 +177,19 @@ FIELD_DEFAULTS = {
     "pricing_model": "free",
     "inference_cost_exposure": "high",
     "stack_layer": "vertical_app",
+    # v2 新字段默认值
+    "incumbent_overlap": "none",
+    "workflow_lock_in": "standalone_tool",
+    "data_lock_in": "weak",
+    "technical_uniqueness": "weak",
+    "distribution_lock": "weak",
+    "brand_or_community": "weak",
+    "market_size": "small",
+    "strategic_dependency": "low",
+    "user_visibility": "low",
+    "pricing_power": "free",
+    "gross_margin": "low",
+    "customer_budget_level": "b2c",
 }
 
 
@@ -167,7 +267,205 @@ def normalize_fields(row: dict) -> dict:
     return normalized
 
 
+# ═══════════════════════════════════════════════════════════════
+# 旧→新字段映射（向后兼容）
+# ═══════════════════════════════════════════════════════════════
+
+def _has_new_fields(row: dict) -> bool:
+    """检查 row 中是否包含 v2 新评分字段。"""
+    return (
+        row.get("incumbent_overlap") is not None
+        or row.get("workflow_lock_in") is not None
+        or row.get("pricing_power") is not None
+    )
+
+
+def _resolve_data_lock_in(row: dict) -> int:
+    """解析 data_lock_in 分数，优先新字段，回退到旧字段映射。"""
+    val = row.get("data_lock_in")
+    if val and str(val).strip() in DATA_LOCK_IN_MAP:
+        return DATA_LOCK_IN_MAP[str(val).strip()]
+    # fallback: 从旧字段推算
+    d1 = DATA_ASSET_MAP.get(str(row.get("proprietary_data_asset") or "").strip(), 0)
+    d2 = FLYWHEEL_MAP.get(str(row.get("data_flywheel") or "").strip(), 0)
+    return int(round(0.6 * d1 + 0.4 * d2))
+
+
+def _resolve_workflow_lock_in(row: dict) -> int:
+    val = row.get("workflow_lock_in")
+    if val and str(val).strip() in WORKFLOW_LOCK_IN_MAP:
+        return WORKFLOW_LOCK_IN_MAP[str(val).strip()]
+    return WORKFLOW_MAP.get(
+        str(row.get("workflow_integration_level") or "").strip(), 1
+    )
+
+
+def _resolve_technical_uniqueness(row: dict) -> int:
+    val = row.get("technical_uniqueness")
+    if val and str(val).strip() in TECHNICAL_UNIQUENESS_MAP:
+        return TECHNICAL_UNIQUENESS_MAP[str(val).strip()]
+    return AI_MODEL_MAP.get(
+        str(row.get("ai_model_dependency") or "").strip(), 0
+    )
+
+
+def _resolve_distribution_lock(row: dict) -> int:
+    val = row.get("distribution_lock")
+    if val and str(val).strip() in DISTRIBUTION_LOCK_MAP:
+        return DISTRIBUTION_LOCK_MAP[str(val).strip()]
+    return 5  # 默认中等
+
+
+def _resolve_brand_community(row: dict) -> int:
+    val = row.get("brand_or_community")
+    if val and str(val).strip() in BRAND_COMMUNITY_MAP:
+        return BRAND_COMMUNITY_MAP[str(val).strip()]
+    return 5  # 默认中等
+
+
+def _resolve_incumbent_overlap(row: dict) -> int:
+    val = row.get("incumbent_overlap")
+    if val and str(val).strip() in INCUMBENT_OVERLAP_MAP:
+        return INCUMBENT_OVERLAP_MAP[str(val).strip()]
+    return INCUMBENT_MAP.get(
+        str(row.get("incumbent_direct_competitor") or "").strip(), 1
+    )
+
+
+def _resolve_market_size(row: dict) -> int:
+    val = row.get("market_size")
+    if val and str(val).strip() in MARKET_SIZE_MAP:
+        return MARKET_SIZE_MAP[str(val).strip()]
+    # fallback: 从 customer_segment_type 粗略推断
+    cs = str(row.get("customer_segment_type") or "").strip()
+    if cs == "b2b_enterprise":
+        return 10
+    elif cs in ("b2b_smb", "b2b2c"):
+        return 6
+    return 3
+
+
+def _resolve_strategic_dependency(row: dict) -> int:
+    val = row.get("strategic_dependency")
+    if val and str(val).strip() in STRATEGIC_DEPENDENCY_MAP:
+        return STRATEGIC_DEPENDENCY_MAP[str(val).strip()]
+    # fallback: 从 ai_model_dependency 推测
+    ai = str(row.get("ai_model_dependency") or "").strip()
+    if ai in ("openai_only",):
+        return 10
+    elif ai in ("multi_model",):
+        return 6
+    return 3
+
+
+def _resolve_user_visibility(row: dict) -> int:
+    val = row.get("user_visibility")
+    if val and str(val).strip() in USER_VISIBILITY_MAP:
+        return USER_VISIBILITY_MAP[str(val).strip()]
+    # fallback: 从 customer_segment_type 推断
+    cs = str(row.get("customer_segment_type") or "").strip()
+    if cs in ("b2c", "b2b2c"):
+        return 10
+    elif cs == "b2b_smb":
+        return 6
+    return 3
+
+
+def _resolve_pricing_power(row: dict) -> int:
+    val = row.get("pricing_power")
+    if val and str(val).strip() in PRICING_POWER_MAP:
+        return PRICING_POWER_MAP[str(val).strip()]
+    return PRICING_MAP.get(
+        str(row.get("pricing_model") or "").strip(), 0
+    )
+
+
+def _resolve_gross_margin(row: dict) -> int:
+    val = row.get("gross_margin")
+    if val and str(val).strip() in GROSS_MARGIN_MAP:
+        return GROSS_MARGIN_MAP[str(val).strip()]
+    # fallback: 从 inference_cost_exposure 逆映射（推理成本低 → 毛利高）
+    infer = str(row.get("inference_cost_exposure") or "").strip()
+    if infer == "none":
+        return 10
+    elif infer == "low":
+        return 6
+    elif infer == "medium":
+        return 4
+    return 1
+
+
+def _resolve_customer_budget_level(row: dict) -> int:
+    val = row.get("customer_budget_level")
+    if val and str(val).strip() in CUSTOMER_BUDGET_MAP:
+        return CUSTOMER_BUDGET_MAP[str(val).strip()]
+    return CUSTOMER_MAP.get(
+        str(row.get("customer_segment_type") or "").strip(), 3
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# 核心评分公式（v2 改造版）
+# ═══════════════════════════════════════════════════════════════
+
 def defensibility(row: dict) -> float:
+    """护城河强度 (0–10)
+
+    v2 公式:
+      0.30 × data_lock_in + 0.25 × workflow_lock_in + 0.20 × technical_uniqueness
+      + 0.15 × distribution_lock + 0.10 × brand_or_community
+    """
+    data = normalize_fields(row)
+    return round(
+        0.30 * _resolve_data_lock_in(data)
+        + 0.25 * _resolve_workflow_lock_in(data)
+        + 0.20 * _resolve_technical_uniqueness(data)
+        + 0.15 * _resolve_distribution_lock(data)
+        + 0.10 * _resolve_brand_community(data),
+        2,
+    )
+
+
+def incumbent_attention(row: dict) -> float:
+    """巨头关注度 (0–10)
+
+    v2 公式:
+      0.40 × incumbent_overlap + 0.25 × market_size
+      + 0.20 × strategic_dependency + 0.15 × user_visibility
+    """
+    data = normalize_fields(row)
+    return round(
+        0.40 * _resolve_incumbent_overlap(data)
+        + 0.25 * _resolve_market_size(data)
+        + 0.20 * _resolve_strategic_dependency(data)
+        + 0.15 * _resolve_user_visibility(data),
+        2,
+    )
+
+
+def value_capture(row: dict) -> float:
+    """价值捕获能力 (0–10)
+
+    v2 公式:
+      0.35 × pricing_power + 0.25 × gross_margin
+      + 0.25 × workflow_lock_in + 0.15 × customer_budget_level
+    """
+    data = normalize_fields(row)
+    return round(
+        0.35 * _resolve_pricing_power(data)
+        + 0.25 * _resolve_gross_margin(data)
+        + 0.25 * _resolve_workflow_lock_in(data)
+        + 0.15 * _resolve_customer_budget_level(data),
+        2,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# 旧版评分函数（保留，供回退参考）
+# ═══════════════════════════════════════════════════════════════
+
+def defensibility_legacy(row: dict) -> float:
+    """旧版护城河公式"""
     data = normalize_fields(row)
     d1 = AI_MODEL_MAP[data["ai_model_dependency"]]
     d2 = WORKFLOW_MAP[data["workflow_integration_level"]]
@@ -176,7 +474,8 @@ def defensibility(row: dict) -> float:
     return round(0.35 * d1 + 0.30 * d2 + 0.20 * d3 + 0.15 * d4, 2)
 
 
-def incumbent_attention(row: dict) -> float:
+def incumbent_attention_legacy(row: dict) -> float:
+    """旧版巨头关注度公式"""
     data = normalize_fields(row)
     i1 = INCUMBENT_MAP[data["incumbent_direct_competitor"]]
     i2 = CUSTOMER_MAP[data["customer_segment_type"]]
@@ -184,7 +483,8 @@ def incumbent_attention(row: dict) -> float:
     return round(0.50 * i1 + 0.30 * i2 + 0.20 * i3, 2)
 
 
-def value_capture(row: dict) -> float:
+def value_capture_legacy(row: dict) -> float:
+    """旧版价值捕获公式"""
     data = normalize_fields(row)
     v1 = PRICING_MAP[data["pricing_model"]]
     v2 = INFERENCE_MAP[data["inference_cost_exposure"]]
@@ -194,6 +494,7 @@ def value_capture(row: dict) -> float:
 
 
 def compute_scores(row: dict) -> dict:
+    """计算全部评分，返回 dict。向后兼容：字段名不变，公式升级。"""
     data = normalize_fields(row)
     return {
         "funding_stage_score": FUNDING_MAP[data["funding_stage"]],

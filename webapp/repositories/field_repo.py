@@ -113,14 +113,22 @@ def get_final_fields(db_path: str, company_name: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+# Sentinel: 区分「从未定稿」(None) 和「用户显式清空」("")
+_EMPTY_FINAL = object()
+
+
 def get_final_field_value(db_path: str, company_name: str,
                           field_key: str) -> Optional[str]:
+    """返回 final_value，若从未定稿返回 None，若用户显式清空返回 _EMPTY_FINAL sentinel。"""
     with _get_db(db_path) as conn:
         row = conn.execute(
             """SELECT final_value FROM final_fields
                WHERE company_name=? AND field_key=? AND status != 'hidden'""",
             (company_name, field_key)).fetchone()
-        return row["final_value"] if row else None
+        if row is None:
+            return None
+        val = row["final_value"]
+        return val if val else _EMPTY_FINAL
 
 
 def set_field_status(db_path: str, company_name: str, field_key: str,

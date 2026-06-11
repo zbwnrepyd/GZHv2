@@ -1,4 +1,4 @@
-"""v2.1 归一化与图表 option 测试 — 验证 normalize_group_scores + 图表 HTML 输出"""
+"""v2 图表改造测试 — 验证 0-10 绝对坐标 + 5 泳道 + 全员标签 + 无 markPoint"""
 from __future__ import annotations
 import json
 import os
@@ -16,7 +16,7 @@ from infographic import (
 
 
 class NormalizationTests(unittest.TestCase):
-    """Revised Fix A: 非破坏式归一化测试"""
+    """normalize_group_scores 仍保留（供其他调用方使用），但图表不再默认使用归一化"""
 
     def test_normalize_raw_fields_unchanged(self):
         companies = [
@@ -92,32 +92,36 @@ class NormalizationTests(unittest.TestCase):
         self.assertEqual(result[0]["company_name"], "C0")
 
 
-class CompetitiveChartV21Tests(unittest.TestCase):
-    """v2.1 chart_competitive 渲染验证"""
+class CompetitiveChartV2Tests(unittest.TestCase):
+    """v2 chart_competitive 渲染验证 — 0-10 绝对坐标"""
 
-    def test_chart_uses_zero_to_one_axes(self):
+    def test_chart_uses_zero_to_ten_axes(self):
         html = build_competitive_landscape_svg([
             {"company_name": "TestCo", "score_incumbent_attention": 7, "score_defensibility": 8, "funding_stage_score": 6},
             {"company_name": "OtherCo", "score_incumbent_attention": 4, "score_defensibility": 3, "funding_stage_score": 4},
         ], "TestCo", {"theme": "light"})
-        self.assertTrue("min:0" in html and "max:1" in html)
-        self.assertNotIn("min:0, max:10", html)
+        # 以 animation:false 为锚，只检查我们的 option 代码
+        opt_start = html.find("animation:false")
+        opt_section = html[opt_start:] if opt_start > 0 else html
+        self.assertIn("min:0,max:10", opt_section)
+        # 不应有 min:0,max:1 后跟非数字字符（排除 max:10 的子串匹配）
+        self.assertNotIn("min:0,max:1,", opt_section)
 
-    def test_chart_tooltip_contains_raw_and_norm(self):
+    def test_chart_tooltip_absolute_scores(self):
         html = build_competitive_landscape_svg([
             {"company_name": "TestCo", "score_incumbent_attention": 7, "score_defensibility": 8, "funding_stage_score": 6},
         ], "TestCo", {"theme": "light"})
-        self.assertIn("护城河（相对）", html)
-        self.assertIn("护城河（原始）", html)
-        self.assertIn("巨头竞争压力（相对）", html)
-        self.assertIn("巨头竞争压力（原始）", html)
+        self.assertIn("巨头关注度", html)
+        self.assertIn("护城河强度", html)
+        self.assertIn(" / 10", html)
 
-    def test_chart_has_markline_at_zero_point_five(self):
+    def test_chart_has_markline_at_five(self):
         html = build_competitive_landscape_svg([
             {"company_name": "TestCo", "score_incumbent_attention": 7, "score_defensibility": 8, "funding_stage_score": 6},
         ], "TestCo", {"theme": "light"})
-        self.assertIn("xAxis:0.5", html)
-        self.assertIn("yAxis:0.5", html)
+        self.assertIn("xAxis:5", html)
+        self.assertIn("yAxis:5", html)
+        self.assertNotIn("xAxis:0.5", html)
 
     def test_chart_animation_disabled(self):
         html = build_competitive_landscape_svg([
@@ -134,7 +138,6 @@ class CompetitiveChartV21Tests(unittest.TestCase):
         html = build_competitive_landscape_svg([
             {"company_name": "TestCo", "score_incumbent_attention": None, "score_defensibility": 8, "funding_stage_score": 6},
         ], "TestCo", {"theme": "light"})
-        # 缺失必需字段的点不应出现在图中
         self.assertIn("暂无可用图表数据", html)
 
     def test_chart_respects_max_companies(self):
@@ -143,14 +146,40 @@ class CompetitiveChartV21Tests(unittest.TestCase):
             for i in range(20)
         ]
         html = build_competitive_landscape_svg(companies, "C0", {"theme": "light", "max_companies": 8})
-        # point_priority 限制最多 8 个点
-        # 简单检查：生成成功且有点数据
         self.assertIn("echarts.init", html)
         self.assertNotIn("暂无可用图表数据", html)
 
+    def test_chart_dynamic_title(self):
+        html = build_competitive_landscape_svg([
+            {"company_name": "TestCo", "score_incumbent_attention": 3, "score_defensibility": 8, "funding_stage_score": 6},
+        ], "TestCo", {"theme": "light"})
+        self.assertIn("战略机会区", html)
+        self.assertIn("TestCo", html)
 
-class EcosystemChartTests(unittest.TestCase):
-    """chart_ecosystem 测试 — 动态标题 + 0-1 轴 + 固定点大小 + markPoint"""
+    def test_chart_all_labels_shown(self):
+        html = build_competitive_landscape_svg([
+            {"company_name": "TestCo", "score_incumbent_attention": 7, "score_defensibility": 8, "funding_stage_score": 6},
+            {"company_name": "OtherCo", "score_incumbent_attention": 4, "score_defensibility": 3, "funding_stage_score": 4},
+        ], "TestCo", {"theme": "light"})
+        # 所有公司名都应出现在 HTML 中（标签全部显示）
+        self.assertIn("OtherCo", html)
+
+    def test_chart_default_size_800x600(self):
+        html = build_competitive_landscape_svg([
+            {"company_name": "TestCo", "score_incumbent_attention": 7, "score_defensibility": 8, "funding_stage_score": 6},
+        ], "TestCo", {"theme": "light"})
+        self.assertIn("800px", html)
+        self.assertIn("600px", html)
+
+    def test_chart_x_axis_name(self):
+        html = build_competitive_landscape_svg([
+            {"company_name": "TestCo", "score_incumbent_attention": 7, "score_defensibility": 8, "funding_stage_score": 6},
+        ], "TestCo", {"theme": "light"})
+        self.assertIn("巨头关注度", html)
+
+
+class EcosystemChartV2Tests(unittest.TestCase):
+    """chart_ecosystem v2 测试 — 5 泳道 + 0-10 绝对坐标 + 无 markPoint + 全员标签"""
 
     def test_dynamic_title(self):
         html = build_stack_positioning_svg([
@@ -159,7 +188,6 @@ class EcosystemChartTests(unittest.TestCase):
         ], "TestCo", {"theme": "light"})
         self.assertIn("TestCo", html)
         self.assertIn("价值捕获", html)
-        self.assertIn("：", html)
 
     def test_title_fallback(self):
         html = build_stack_positioning_svg([
@@ -167,19 +195,20 @@ class EcosystemChartTests(unittest.TestCase):
         ], "GhostCo", {"theme": "light"})
         self.assertIn("AI 栈生态位图", html)
 
-    def test_zero_to_one_axis(self):
+    def test_zero_to_ten_axis(self):
         html = build_stack_positioning_svg([
             {"company_name": "TestCo", "score_value_capture": 7, "stack_layer": "vertical_app", "funding_stage_score": 6},
         ], "TestCo", {"theme": "light"})
-        opt_start = html.find("var opt={")
-        self.assertTrue("min:0,max:1" in html[opt_start:] if opt_start > 0 else "min:0,max:1" in html)
+        opt_start = html.find("animation:false")
+        opt_section = html[opt_start:] if opt_start > 0 else html
+        self.assertTrue("min:0,max:10" in opt_section)
 
-    def test_tooltip_raw_norm(self):
+    def test_tooltip_absolute_scores(self):
         html = build_stack_positioning_svg([
             {"company_name": "TestCo", "score_value_capture": 7, "stack_layer": "vertical_app", "funding_stage_score": 6},
         ], "TestCo", {"theme": "light"})
-        self.assertIn("价值捕获率（相对）", html)
-        self.assertIn("价值捕获率（原始）", html)
+        self.assertIn("价值捕获能力", html)
+        self.assertIn(" / 10", html)
 
     def test_null_stack_layer_handled(self):
         html = build_stack_positioning_svg([
@@ -193,30 +222,52 @@ class EcosystemChartTests(unittest.TestCase):
         ], "TestCo", {"theme": "light"})
         self.assertIn("inverse:true", html)
 
-    def test_subtitle(self):
+    def test_five_lanes(self):
         html = build_stack_positioning_svg([
             {"company_name": "TestCo", "score_value_capture": 7, "stack_layer": "vertical_app", "funding_stage_score": 6},
         ], "TestCo", {"theme": "light"})
-        self.assertIn("越往右，越能在产业链里赚到钱", html)
+        self.assertIn("分发渠道", html)
+        self.assertIn("垂直应用", html)
+        self.assertIn("中间件层", html)
+        self.assertIn("模型层", html)
+        self.assertIn("基础设施层", html)
 
-    def test_landscape_dimensions(self):
+    def test_distribution_separate_from_vertical_app(self):
+        """分发渠道不应被映射到垂直应用"""
         html = build_stack_positioning_svg([
-            {"company_name": "TestCo", "score_value_capture": 7, "stack_layer": "vertical_app", "funding_stage_score": 6},
+            {"company_name": "TestCo", "score_value_capture": 5, "stack_layer": "distribution", "funding_stage_score": 5},
         ], "TestCo", {"theme": "light"})
-        self.assertIn("1440px", html)
-        self.assertIn("900px", html)
+        # distribution 应显示为 分发渠道 而非 垂直应用
+        self.assertIn("分发渠道", html)
 
-    def test_markpoint(self):
+    def test_default_size_800x600(self):
         html = build_stack_positioning_svg([
             {"company_name": "TestCo", "score_value_capture": 7, "stack_layer": "vertical_app", "funding_stage_score": 6},
         ], "TestCo", {"theme": "light"})
-        self.assertIn("markPoint", html)
+        self.assertIn("800px", html)
+        self.assertIn("600px", html)
+
+    def test_no_markpoint(self):
+        html = build_stack_positioning_svg([
+            {"company_name": "TestCo", "score_value_capture": 7, "stack_layer": "vertical_app", "funding_stage_score": 6},
+        ], "TestCo", {"theme": "light"})
+        # 只检查我们的 option 代码（以 animation:false 为锚），排除 vendor ECharts 库
+        opt_start = html.find("animation:false")
+        opt_section = html[opt_start:] if opt_start > 0 else html
+        self.assertNotIn("markPoint", opt_section)
+
+    def test_all_labels_shown(self):
+        html = build_stack_positioning_svg([
+            {"company_name": "TestCo", "score_value_capture": 7, "stack_layer": "vertical_app", "funding_stage_score": 6},
+            {"company_name": "OtherCo", "score_value_capture": 4, "stack_layer": "middleware", "funding_stage_score": 4},
+        ], "TestCo", {"theme": "light"})
+        self.assertIn("OtherCo", html)
 
     def test_bottom_guide(self):
         html = build_stack_positioning_svg([
             {"company_name": "TestCo", "score_value_capture": 7, "stack_layer": "vertical_app", "funding_stage_score": 6},
         ], "TestCo", {"theme": "light"})
-        self.assertIn("价值捕获：低 → 中 → 高", html)
+        self.assertIn("价值捕获：低", html)
 
     def test_fixed_symbol_size(self):
         html = build_stack_positioning_svg([

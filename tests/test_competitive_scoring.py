@@ -24,9 +24,13 @@ class CompetitiveScoringTests(unittest.TestCase):
 
         scores = competitive_scoring.compute_scores(row)
 
-        self.assertAlmostEqual(scores["score_defensibility"], 6.3)
-        self.assertAlmostEqual(scores["score_incumbent_attention"], 8.0)
-        self.assertAlmostEqual(scores["score_value_capture"], 5.05)
+        # v2 新公式预期值
+        # defensibility: 0.30×5 + 0.25×7 + 0.20×7 + 0.15×5 + 0.10×5 = 5.9
+        self.assertAlmostEqual(scores["score_defensibility"], 5.9)
+        # incumbent_attention: 0.40×9 + 0.25×3 + 0.20×3 + 0.15×3 = 5.4
+        self.assertAlmostEqual(scores["score_incumbent_attention"], 5.4)
+        # value_capture: 0.35×4 + 0.25×4 + 0.25×7 + 0.15×7 = 5.2
+        self.assertAlmostEqual(scores["score_value_capture"], 5.2)
         self.assertEqual(scores["funding_stage_score"], 7)
 
     def test_funding_stage_inference_overrides_understated_default(self):

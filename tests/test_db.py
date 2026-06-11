@@ -55,9 +55,9 @@ class ResearchScoringSaveTests(unittest.TestCase):
 
         self.assertEqual(row["funding_stage"], "series_a")
         self.assertEqual(row["funding_stage_score"], 5)
-        self.assertAlmostEqual(row["score_defensibility"], 5.6)
-        self.assertAlmostEqual(row["score_incumbent_attention"], 6.2)
-        self.assertAlmostEqual(row["score_value_capture"], 7.45)
+        self.assertAlmostEqual(row["score_defensibility"], 5.5)
+        self.assertAlmostEqual(row["score_incumbent_attention"], 6.15)
+        self.assertAlmostEqual(row["score_value_capture"], 7.4)
         self.assertEqual(row["stack_layer"], "vertical_app")
 
     def test_company_list_exposes_scores_for_charting(self):

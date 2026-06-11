@@ -14,7 +14,7 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _render_to_png(html: str, width: int = 900, height: int = 600) -> bytes:
+def _render_to_png(html: str, width: int = 800, height: int = 600) -> bytes:
     """用 Playwright 将 HTML 渲染为 PNG 字节"""
     with tempfile.NamedTemporaryFile(suffix=".html", mode="w", delete=False) as f:
         f.write(html)
@@ -90,7 +90,7 @@ class ChartExportParityTests(unittest.TestCase):
         self.assertGreater(len(png), 1024)
 
     def test_chart_export_dimensions_correct(self):
-        """导出的 PNG 尺寸应与 viewport 一致（900×600）"""
+        """导出的 PNG 尺寸应与 viewport 一致（800×600）"""
         html = build_competitive_landscape_svg([
             {"company_name": "TestCo", "score_incumbent_attention": 7, "score_defensibility": 8, "funding_stage_score": 6},
         ], "TestCo", {"theme": "light"})
@@ -98,7 +98,7 @@ class ChartExportParityTests(unittest.TestCase):
         import io
         png = _render_to_png(html)
         img = Image.open(io.BytesIO(png))
-        self.assertEqual(img.size, (900, 600), f"Expected 900×600, got {img.size}")
+        self.assertEqual(img.size, (800, 600), f"Expected 800×600, got {img.size}")
 
 
 if __name__ == "__main__":

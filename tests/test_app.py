@@ -690,6 +690,48 @@ class AssetPathSafetyTests(unittest.TestCase):
         self.assertEqual(variants[0]["height"], 720)
         self.assertIn("Alpha", variants[0]["prompt"])
 
+    def test_website_screenshot_marks_failed_on_empty_url(self):
+        """空 company_url 时标记 failed 并返回 0，不抛异常"""
+        assets_db_path = init_sqlite("init_assets_db.sql")
+        self.addCleanup(lambda: os.path.exists(assets_db_path) and os.remove(assets_db_path))
+        asset_store.ensure_assets_rows(assets_db_path, "DemoCo")
+
+        with tempfile.TemporaryDirectory() as images_root:
+            count = asset_pipeline._collect_website_screenshot_variants(
+                assets_db_path, images_root, "DemoCo", company_url="",
+            )
+
+        self.assertEqual(count, 0)
+        asset = asset_store.get_asset(assets_db_path, "DemoCo", "website_screenshot")
+        self.assertEqual(asset["status"], "failed")
+        self.assertIn("地址为空", asset.get("fail_reason", ""))
+
+    def test_website_screenshot_calls_playwright_with_valid_url(self):
+        """有效 URL 时调用 Playwright 截图并返回变体"""
+        assets_db_path = init_sqlite("init_assets_db.sql")
+        self.addCleanup(lambda: os.path.exists(assets_db_path) and os.remove(assets_db_path))
+        asset_store.ensure_assets_rows(assets_db_path, "DemoCo")
+
+        def fake_capture(url, dest, **kw):
+            # 创建一个有效 PNG 文件
+            from PIL import Image
+            Image.new("RGB", (1440, 1000), (200, 200, 250)).save(dest)
+            from screenshot_client import ScreenshotResult
+            return ScreenshotResult(ok=True, path=dest, fail_reason="")
+
+        with tempfile.TemporaryDirectory() as images_root:
+            with patch("screenshot_client.capture", side_effect=fake_capture):
+                count = asset_pipeline._collect_website_screenshot_variants(
+                    assets_db_path, images_root, "DemoCo",
+                    company_url="https://example.com",
+                )
+
+        self.assertEqual(count, 1)
+        variants = asset_store.list_variants(assets_db_path, "DemoCo", "website_screenshot")
+        self.assertEqual(len(variants), 1)
+        self.assertEqual(variants[0]["source_type"], "playwright")
+        self.assertEqual(variants[0]["is_selected"], 1)
+
     def test_tavily_collector_scores_all_candidates_and_records_rejections(self):
         assets_db_path = init_sqlite("init_assets_db.sql")
         self.addCleanup(lambda: os.path.exists(assets_db_path) and os.remove(assets_db_path))

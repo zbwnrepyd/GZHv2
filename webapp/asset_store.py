@@ -53,11 +53,11 @@ ASSET_TO_CARD_V2["chart_ecosystem"] = 3   # v2 改为 card_3
 
 
 def _company_where(company_name: str, company_key: str = "") -> tuple[str, list]:
-    """构建 company WHERE 子句 — 优先 company_key，回退 company_name。"""
+    """构建 company WHERE 子句 — 优先 company_key，回退 case-insensitive company_name。"""
     if company_key:
-        return ("(company_key=? OR (company_key IS NULL AND company_name=?))",
+        return ("(LOWER(company_key)=LOWER(?) OR (company_key IS NULL AND LOWER(company_name)=LOWER(?)))",
                 [company_key, company_name])
-    return ("company_name=?", [company_name])
+    return ("LOWER(company_name)=LOWER(?)", [company_name])
 
 
 def _company_write_cols(company_name: str, company_key: str = "") -> tuple[list[str], list]:
@@ -82,12 +82,14 @@ def init_assets_db(db_path: str):
 def _ensure_assets_schema(conn: sqlite3.Connection):
     """Migrate existing local DB files to the current image asset schema."""
     _add_missing_columns(conn, "company_assets", {
+        "company_key": "TEXT",
         "selected_variant_id": "INTEGER",
         "final_score": "REAL DEFAULT 0",
         "auto_selected": "INTEGER DEFAULT 0",
         "fail_reason": "TEXT",
     })
     _add_missing_columns(conn, "image_variants", {
+        "company_key": "TEXT",
         "width": "INTEGER",
         "height": "INTEGER",
         "file_size": "INTEGER",

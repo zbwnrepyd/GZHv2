@@ -70,6 +70,16 @@
       </div>
     </div>
 
+    <!-- 4. 数据库全字段 -->
+    <div class="accordion-section">
+      <div class="accordion-header" data-section="db-fields">
+        <span class="arrow">&#9654;</span> 数据库全字段
+      </div>
+      <div class="accordion-body" data-section="db-fields">
+        <!-- 入口按钮，点击后在右侧展示 -->
+      </div>
+    </div>
+
     <div class="editor-goto-layout" data-od-id="editor-goto-layout">
       <a id="btn-go-layout" class="go-layout-link" href="#" data-od-id="editor-btn-go-layout">进入排版 →</a>
     </div>
@@ -89,6 +99,29 @@
   <div id="text-finalize-mode">
     <div id="text-finalize-mode-content" class="preview-content"></div>
   </div>
+
+  <!-- 数据库全字段 overlay -->
+  <div id="db-fields-mode">
+    <div class="db-fields-head">
+      <span id="db-fields-title">数据库全字段</span>
+      <span class="spacer"></span>
+      <span id="db-fields-count"></span>
+    </div>
+    <div id="db-fields-table-wrap">
+      <table id="db-fields-table">
+        <thead><tr>
+          <th>字段 Key</th>
+          <th>标签</th>
+          <th class="col-ver">Standard</th>
+          <th class="col-ver">Business</th>
+          <th class="col-ver">Spread</th>
+          <th>定稿值</th>
+          <th>状态</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
 </main>
 
 <script src="/static/js/api.js"></script>
@@ -98,6 +131,7 @@
 <!-- GZHv2 新面板 -->
 <script src="/static/js/editor/card-settings-panel.js"></script>
 <script src="/static/js/editor/text-finalize-panel.js"></script>
+<script src="/static/js/editor/db-fields-panel.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);

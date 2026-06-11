@@ -95,7 +95,7 @@ def run_export(job_id: str, project_root: str):
             return
 
         # 解析每个卡片的内容
-        from repositories.field_repo import get_final_field_value, get_research_field_value
+        from repositories.field_repo import get_final_field_value, get_research_field_value, _EMPTY_FINAL
         from asset_store import ensure_assets_rows, get_asset
         ensure_assets_rows(config.DB_PATH_ASSETS, company)
 
@@ -109,12 +109,13 @@ def run_export(job_id: str, project_root: str):
             for item in card.get("items", []):
                 resolved = dict(item)
                 if item["item_type"] == "field":
-                    value = (
-                        get_final_field_value(config.DB_PATH_FINAL, company, item["item_key"])
-                        or get_research_field_value(config.DB_PATH_RESEARCH, company, item["item_key"])
-                        or ""
-                    )
-                    resolved["value"] = value
+                    raw = get_final_field_value(config.DB_PATH_FINAL, company, item["item_key"])
+                    if raw is _EMPTY_FINAL:
+                        resolved["value"] = ""
+                    elif raw is not None:
+                        resolved["value"] = raw
+                    else:
+                        resolved["value"] = get_research_field_value(config.DB_PATH_RESEARCH, company, item["item_key"]) or ""
                 elif item["item_type"] == "media":
                     media = get_asset(config.DB_PATH_ASSETS, company, item["item_key"]) or {}
                     resolved["url"] = media.get("local_path", "")

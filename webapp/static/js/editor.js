@@ -174,6 +174,7 @@ const EditorApp = {
       'image':          () => { this.showImageMode(); },
       'card-settings':  () => { this.showCardSettingsMode(); CardSettingsPanel.init(this.companyName); },
       'text-finalize':  () => { this.showTextFinalizeMode(); TextFinalizePanel.init(this.companyName); },
+      'db-fields':      () => { this.showDbFieldsMode(); DbFieldsPanel.init(this.companyName); },
     };
     const handler = modeHandlers[section];
     if (handler) handler();
@@ -181,7 +182,7 @@ const EditorApp = {
 
   /* ── 模式切换 ── */
 
-  _OVERLAY_IDS: ['image-studio-frame', 'card-settings-mode', 'text-finalize-mode'],
+  _OVERLAY_IDS: ['image-studio-frame', 'card-settings-mode', 'text-finalize-mode', 'db-fields-mode'],
 
   _closeAllOverlays() {
     this._OVERLAY_IDS.forEach(id => document.getElementById(id).classList.remove('open'));
@@ -211,6 +212,10 @@ const EditorApp = {
 
   showTextFinalizeMode() {
     this._hidePanesShowOverlay('text-finalize-mode');
+  },
+
+  showDbFieldsMode() {
+    this._hidePanesShowOverlay('db-fields-mode');
   },
 
   /* ── 图片槽位列表 ── */

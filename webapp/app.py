@@ -635,7 +635,7 @@ def _default_chart_params(asset_key: str) -> dict:
         "show_label": False,
         "subtitle": "",
         "note": "",
-        "width": 900,
+        "width": 800,
         "height": 600,
     }
     if asset_key == "chart_competitive":
@@ -645,8 +645,8 @@ def _default_chart_params(asset_key: str) -> dict:
     elif asset_key == "chart_ecosystem":
         base.update({
             "title": "AI 栈生态位图",
-            "width": 1440,
-            "height": 900,
+            "width": 800,
+            "height": 600,
         })
     elif asset_key == "flywheel":
         base.update({
@@ -1110,6 +1110,77 @@ def get_resolved_assets():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/company/<company>/all-fields")
+def get_company_all_fields(company: str):
+    """返回公司全部字段（三版本 research_fields + final_fields 合并视图）。"""
+    try:
+        from repositories.field_repo import get_research_fields, get_final_fields
+        from repositories.field_repo import get_final_field_value, _EMPTY_FINAL
+
+        # 三版本 research_fields
+        versions = ["standard", "business", "spread"]
+        research_by_version = {}
+        all_keys = set()
+        for v in versions:
+            fields = get_research_fields(config.DB_PATH_RESEARCH, company, v)
+            research_by_version[v] = {f["field_key"]: f for f in fields}
+            all_keys.update(f["field_key"] for f in fields)
+
+        final_fields = get_final_fields(config.DB_PATH_FINAL, company)
+        final_index = {f["field_key"]: f for f in final_fields}
+        all_keys.update(f["field_key"] for f in final_fields)
+
+        # 从任一版本取 field_label（优先 standard）
+        def _label(fk):
+            for v in versions:
+                rf = research_by_version[v].get(fk)
+                if rf and rf.get("field_label"):
+                    return rf["field_label"]
+            ff = final_index.get(fk, {})
+            return ff.get("field_label", "")
+
+        # 从 standard 取 confidence / source_type
+        def _meta(fk, key):
+            std = research_by_version.get("standard", {}).get(fk, {})
+            return std.get(key, "")
+
+        rows = []
+        for fk in sorted(all_keys):
+            ff = final_index.get(fk, {})
+            final_value = get_final_field_value(config.DB_PATH_FINAL, company, fk)
+            if final_value is _EMPTY_FINAL:
+                final_display = ""
+            elif final_value is not None:
+                final_display = final_value
+            else:
+                final_display = None
+
+            rows.append({
+                "field_key": fk,
+                "field_label": _label(fk),
+                "value_standard": research_by_version.get("standard", {}).get(fk, {}).get("field_value", ""),
+                "value_business": research_by_version.get("business", {}).get(fk, {}).get("field_value", ""),
+                "value_spread": research_by_version.get("spread", {}).get(fk, {}).get("field_value", ""),
+                "final_value": final_display,
+                "final_status": ff.get("status") or "",
+                "confidence": _meta(fk, "confidence"),
+                "source_type": _meta(fk, "source_type"),
+            })
+
+        # 统计每个版本的实际字段数
+        counts = {v: len(research_by_version[v]) for v in versions}
+
+        return jsonify({
+            "company_name": company,
+            "total": len(rows),
+            "research_counts": counts,
+            "final_count": len(final_fields),
+            "fields": rows,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/assets/<company>")
 def get_company_assets(company: str):
     """获取某公司全部资产"""
@@ -1132,10 +1203,13 @@ def collect_assets(company: str):
         asset_key = request.args.get("asset_key", "").strip()
 
         company_data = {
+            "company_name": company,
             "company_url": research.get("website_url", ""),
             "website_url": research.get("website_url", ""),
             "location": research.get("location", ""),
             "founder_name": research.get("founder_name", ""),
+            "main_product_name": research.get("main_product_name", ""),
+            "main_product_img_src": research.get("main_product_img_src", ""),
             "office_photo_hints": _safe_json_parse(research.get("office_photo_hints", "")),
             "other_products": research.get("other_products", ""),
             "competitors": research.get("competitors", ""),
@@ -1143,7 +1217,7 @@ def collect_assets(company: str):
 
         images_root = config.IMAGES_DIR
 
-        # founder_photo 按需触发，不走主 pipeline
+        # founder_photo / logo 单独处理，不走主 pipeline
         if asset_key == "founder_photo":
             from asset_pipeline import _collect_founder_photo_variants
             ensure_assets_rows(config.DB_PATH_ASSETS, company)
@@ -1151,6 +1225,18 @@ def collect_assets(company: str):
                 config.DB_PATH_ASSETS, images_root, company, company_data,
             )
             return jsonify({"status": "ok", "company_name": company, "results": {"founder_photo": n}})
+
+        if asset_key == "logo":
+            from asset_pipeline import collect_logo
+            ensure_assets_rows(config.DB_PATH_ASSETS, company)
+            result = collect_logo(
+                config.DB_PATH_ASSETS, images_root, company,
+                company_url=company_data.get("company_url", ""),
+                website_url=company_data.get("website_url", ""),
+                company_key=company_data.get("company_name", ""),
+            )
+            return jsonify({"status": "ok", "company_name": company,
+                          "results": {"logo": 1 if result else 0}})
 
         from asset_pipeline import collect_image_variants_pipeline
         results = collect_image_variants_pipeline(

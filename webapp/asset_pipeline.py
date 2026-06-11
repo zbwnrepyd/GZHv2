@@ -297,14 +297,167 @@ def _domain_from_url(url: str) -> str:
 # 1. Logo
 # ═══════════════════════════════════════════════════════════════
 
+def _extract_logo_from_website(website_url: str) -> str | None:
+    """从官网 HTML 提取 logo 图片 URL。按可靠性优先级：
+    1. <link rel="icon/apple-touch-icon">
+    2. <meta property="og:image">
+    3. <img> 含 logo 关键词（src/alt/class/id）
+    4. header 内的第一个 img
+    返回绝对 URL 或 None。
+    """
+    from bs4 import BeautifulSoup
+    import re
+
+    try:
+        resp = requests.get(
+            website_url,
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"},
+            timeout=15, allow_redirects=True,
+        )
+    except Exception:
+        return None
+
+    if resp.status_code >= 400:
+        return None
+
+    base_url = resp.url  # 最终请求的 URL（处理了重定向）
+    soup = BeautifulSoup(resp.text, "lxml")
+
+    def _abs(src: str) -> str:
+        """解析相对 URL"""
+        if not src:
+            return ""
+        src = src.strip()
+        if src.startswith("data:"):
+            return ""
+        if src.startswith("http"):
+            return src
+        if src.startswith("//"):
+            return f"https:{src}"
+        if src.startswith("/"):
+            parsed = urlparse(base_url)
+            return f"{parsed.scheme}://{parsed.netloc}{src}"
+        return f"{base_url.rstrip('/')}/{src}"
+
+    # 1. <link> 图标 — 优先大尺寸（apple-touch-icon > icon）
+    for rel in ("apple-touch-icon", "apple-touch-icon-precomposed", "icon", "shortcut icon"):
+        for tag in soup.find_all("link", rel=rel):
+            href = tag.get("href", "")
+            if href:
+                return _abs(href)
+        # 也检查 rel 含 "icon" 的情况 (如 "fluid-icon")
+        for tag in soup.find_all("link"):
+            r = (tag.get("rel") or [""])[0] if isinstance(tag.get("rel"), list) else tag.get("rel", "")
+            if "icon" in str(r).lower() and tag.get("href"):
+                icon_url = _abs(tag.get("href", ""))
+                if icon_url:
+                    return icon_url
+
+    # 2. og:image
+    for tag in soup.find_all("meta", property="og:image"):
+        src = tag.get("content", "")
+        if src:
+            return _abs(src)
+
+    # 3. <img> 含 logo 关键词
+    logo_pattern = re.compile(r"logo|brand", re.IGNORECASE)
+    candidates = []
+    for img in soup.find_all("img"):
+        src = img.get("src") or img.get("data-src") or ""
+        alt = img.get("alt") or ""
+        cls = " ".join(img.get("class") or [])
+        img_id = img.get("id") or ""
+        combined = f"{src} {alt} {cls} {img_id}"
+        if logo_pattern.search(combined):
+            abs_url = _abs(src)
+            if abs_url:
+                w = int(img.get("width") or 0)
+                h = int(img.get("height") or 0)
+                candidates.append((w * h if w and h else 5000, abs_url))
+    if candidates:
+        candidates.sort(reverse=True)
+        return candidates[0][1]
+
+    # 4. header 内第一个 img（兜底）
+    header = soup.find("header") or soup.find("nav")
+    if header:
+        img = header.find("img")
+        if img:
+            src = img.get("src") or img.get("data-src") or ""
+            abs_url = _abs(src)
+            if abs_url:
+                return abs_url
+
+    return None
+
+
 def collect_logo(db_path: str, images_root: str, company_name: str,
-                 company_url: str = "", website_url: str = "") -> dict | None:
+                 company_url: str = "", website_url: str = "",
+                 company_key: str = "") -> dict | None:
     domain = _domain_from_url(company_url or website_url)
     if not domain:
         return None
 
+    from asset_store import insert_variant, select_variant
+    from PIL import Image
+
     dest_dir = asset_dir(images_root, company_name)
-    dest = os.path.join(dest_dir, "logo.png")
+    os.makedirs(dest_dir, exist_ok=True)
+
+    def _image_size(path):
+        """获取本地图片宽高和文件大小，返回 dict。"""
+        try:
+            with Image.open(path) as im:
+                w, h = im.size
+            return {"width": w, "height": h, "file_size": os.path.getsize(path)}
+        except Exception:
+            return None
+
+    def _save_logo_variant(img_path, source_type, source_url, prompt="", auto_select=True):
+        """下载好的 logo 写入变体库并设为 selected，更新 company_assets。"""
+        # 确保文件在 variants 子目录，与 _variant_browser_path 对齐
+        variant_dir = os.path.join(dest_dir, "variants")
+        os.makedirs(variant_dir, exist_ok=True)
+        variant_dest = os.path.join(variant_dir, os.path.basename(img_path))
+        if os.path.abspath(img_path) != os.path.abspath(variant_dest):
+            shutil.copy2(img_path, variant_dest)
+            img_path = variant_dest
+
+        info = _image_size(img_path)
+        w = info["width"] if info else 0
+        h = info["height"] if info else 0
+        ratio = w / max(h, 1) if h else 1
+        variant_id = insert_variant(
+            db_path, company_name, "logo",
+            local_path=_variant_browser_path(company_name, img_path, company_key=company_key),
+            source_type=source_type,
+            source_url=source_url,
+            width=w, height=h,
+            file_size=info.get("file_size", 0) if info else 0,
+            aspect_ratio=ratio,
+            final_score=90 if 0.7 <= ratio <= 1.5 else 70,
+            prompt=prompt,
+            company_key=company_key,
+        )
+        if variant_id and auto_select:
+            select_variant(db_path, company_name, "logo", variant_id,
+                          auto_selected=True, company_key=company_key)
+            upsert_asset(db_path, company_name, "logo", status="ready")
+        return variant_id
+
+    # 策略0: 从官网 HTML 提取 logo（最可靠）
+    url_to_visit = company_url or website_url
+    if url_to_visit:
+        logo_url = _extract_logo_from_website(url_to_visit)
+        if logo_url:
+            dest = os.path.join(dest_dir, "logo_web.png")
+            if _download(logo_url, dest, timeout=15):
+                vid = _save_logo_variant(dest, "website_extract", logo_url,
+                                        prompt="官网提取 logo")
+                if vid:
+                    return {"local_path": None, "source_type": "website_extract",
+                            "source_url": logo_url, "variant_id": vid}
 
     # 策略1: Clearbit Logo API
     sources = [
@@ -314,11 +467,41 @@ def collect_logo(db_path: str, images_root: str, company_name: str,
     ]
 
     for src_type, url in sources:
-        if _download(url, dest):
-            upsert_asset(db_path, company_name, "logo",
-                        local_path=f"/images/{company_name}/logo.png",
-                        source_type=src_type, source_url=url, status="ready")
-            return {"local_path": f"/images/{company_name}/logo.png", "source_type": src_type}
+        dest = os.path.join(dest_dir, f"logo_{src_type}.png")
+        if _download(url, dest, timeout=15):
+            vid = _save_logo_variant(dest, src_type, url, prompt=f"{src_type} logo")
+            if vid:
+                return {"local_path": None, "source_type": src_type,
+                        "source_url": url, "variant_id": vid}
+
+    # 策略3: Tavily 搜 logo（只选方形/小尺寸图，过滤办公室照片）
+    if company_name:
+        logo_urls = _tavily_image_urls(
+            f'"{company_name}" logo',
+            max_results=5,
+        )
+        if logo_urls:
+            best = None
+            for i, img_url in enumerate(logo_urls[:5]):
+                variant_dest = os.path.join(dest_dir, f"logo_tavily_{i}.png")
+                if not _download(img_url, variant_dest, timeout=15):
+                    continue
+                info = _image_size(variant_dest)
+                if not info:
+                    continue
+                w, h = info["width"], info["height"]
+                ratio = w / max(h, 1)
+                if ratio < 0.5 or ratio > 2.0:
+                    continue
+                if w > 2000 or h > 2000:
+                    continue
+                vid = _save_logo_variant(variant_dest, "web_tavily", img_url,
+                                        prompt="Tavily logo search", auto_select=(best is None))
+                if vid:
+                    if best is None:
+                        best = vid
+            if best:
+                return {"local_path": None, "source_type": "web_tavily", "variant_id": best}
 
     upsert_asset(db_path, company_name, "logo", status="failed")
     return None
@@ -663,7 +846,8 @@ def collect_all_assets(db_path: str, images_root: str, company_name: str,
     query_config = build_image_queries(company_data)
 
     # 1. Logo
-    r = collect_logo(db_path, images_root, company_name, company_url, website_url)
+    r = collect_logo(db_path, images_root, company_name, company_url, website_url,
+                     company_key=company_data.get("company_key", ""))
     results["logo"] = r
 
     # 2. Office
@@ -710,7 +894,8 @@ def _collect_assets_as_variants(db_path: str, images_root: str, company_name: st
     ensure_assets_rows(db_path, company_name)
 
     # Logo — 保持原有逻辑（单候选，直接写 company_assets）
-    collect_logo(db_path, images_root, company_name, company_url, website_url)
+    collect_logo(db_path, images_root, company_name, company_url, website_url,
+                 company_key=company_data.get("company_key", ""))
 
     # Office — 多候选采集
     off_cfg = query_config.get("office", {})
@@ -1342,13 +1527,6 @@ def _compose_competitor_logo_strip(logos: list[dict], dest: str,
 
     for i, item in enumerate(logos[:slot_count]):
         left = margin_x + i * (slot_w + slot_gap)
-        draw.rounded_rectangle(
-            [left, top, left + slot_w, top + slot_h],
-            radius=18,
-            fill=(248, 250, 252),
-            outline=(226, 232, 240),
-            width=2,
-        )
         img = Image.open(item["path"]).convert("RGBA")
         img.thumbnail((slot_w - 88, slot_h - 120), Image.LANCZOS)
         x = left + (slot_w - img.width) // 2
@@ -1558,11 +1736,95 @@ def _collect_office_variants(db_path: str, images_root: str, company_name: str,
     return count
 
 
+def _extract_hero_images_from_page(url: str, max_images: int = 3) -> list[str]:
+    """从页面抓取产品/主视觉大图（> 400px，非 logo/icon/favicon）。
+    优先主内容区，其次 hero banner，最后全页。"""
+    from bs4 import BeautifulSoup
+    import re
+
+    try:
+        resp = requests.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"},
+            timeout=15, allow_redirects=True,
+        )
+    except Exception:
+        return []
+
+    if resp.status_code >= 400:
+        return []
+
+    base_url = resp.url
+    soup = BeautifulSoup(resp.text, "lxml")
+
+    def _abs(src: str) -> str:
+        if not src or src.startswith("data:"):
+            return ""
+        src = src.strip()
+        if src.startswith("http"):
+            return src
+        if src.startswith("//"):
+            return f"https:{src}"
+        if src.startswith("/"):
+            parsed = urlparse(base_url)
+            return f"{parsed.scheme}://{parsed.netloc}{src}"
+        return f"{base_url.rstrip('/')}/{src}"
+
+    exclude = re.compile(r"logo|icon|favicon|avatar|\.svg", re.IGNORECASE)
+    results = []
+
+    # 优先搜索区域：main > [class*=hero/banner] > body
+    search_areas = []
+    main = soup.find("main")
+    if main:
+        search_areas.append(main)
+    for tag in soup.find_all(class_=re.compile(r"hero|banner", re.IGNORECASE)):
+        search_areas.append(tag)
+    search_areas.append(soup)
+
+    seen = set()
+    for area in search_areas:
+        for img in area.find_all("img"):
+            src = img.get("src") or img.get("data-src") or ""
+            abs_url = _abs(src)
+            if not abs_url or abs_url in seen:
+                continue
+            alt = img.get("alt") or ""
+            cls = " ".join(img.get("class") or [])
+            if exclude.search(f"{alt} {cls} {abs_url}"):
+                continue
+            w = int(img.get("width") or 0)
+            h = int(img.get("height") or 0)
+            # 有明确尺寸且太小 → 跳过；无尺寸属性的不跳过（常见于响应式图片）
+            if w and h and (w < 400 or h < 300):
+                continue
+            seen.add(abs_url)
+            results.append(abs_url)
+            if len(results) >= max_images:
+                return results
+
+    return results
+
+
 def _collect_product_main_variants(db_path: str, images_root: str, company_name: str,
                                    query_config: dict, company_key: str = "") -> int:
-    """Card 4: official OG + Playwright + Tavily -> scored variants."""
+    """Card 4: 官网 hero 图提取 + OG + Playwright + Tavily -> scored variants."""
 
     count = 0
+
+    # 策略0: 从官网抓取产品主图（hero/banner 区域大图）
+    for url in (query_config.get("playwright_urls") or [])[:2]:
+        if not url or not url.startswith("http"):
+            continue
+        for hero_url in _extract_hero_images_from_page(url):
+            if hero_url and count < 6:
+                if _collect_downloaded_candidate(
+                    db_path, images_root, company_name, "product_main", hero_url,
+                    "official_hero_image", f"hero_{count}", source_page=url,
+                    prompt="official website hero image",
+                ):
+                    count += 1
 
     # Official/product page OG image.
     for url in (query_config.get("playwright_urls") or [])[:2]:
@@ -1779,6 +2041,8 @@ def _collect_website_screenshot_variants(
                         company_key=company_key)
             return 0
     except Exception as e:
+        import traceback
+        print(f"[官网截图异常] {company_name}: {traceback.format_exc()}", flush=True)
         upsert_asset(db_path, company_name, "website_screenshot",
                     status="failed", fail_reason=str(e), company_key=company_key)
         return 0
@@ -2014,8 +2278,12 @@ def collect_image_variants_pipeline(
                     "count": n,
                 })
         except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            print(f"[图片采集-{label}] {company_name}: {tb}", flush=True)
             results[asset_key] = 0
             upsert_asset(db_path, company_name, asset_key, status="failed",
+                        fail_reason=f"{e}",
                         company_key=company_key)
             if progress_callback:
                 progress_callback("图片采集", {

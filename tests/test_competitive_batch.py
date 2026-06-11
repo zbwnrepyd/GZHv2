@@ -74,9 +74,9 @@ class CompetitiveBatchTests(unittest.TestCase):
         self.assertEqual(row["ai_model_dependency"], "fine_tuned")
         self.assertEqual(row["customer_segment_type"], "developer_api")
         self.assertEqual(row["funding_stage"], "series_b")
-        self.assertAlmostEqual(row["score_defensibility"], 6.3)
-        self.assertAlmostEqual(row["score_incumbent_attention"], 8.0)
-        self.assertAlmostEqual(row["score_value_capture"], 5.75)
+        self.assertAlmostEqual(row["score_defensibility"], 5.9)
+        self.assertAlmostEqual(row["score_incumbent_attention"], 5.4)
+        self.assertAlmostEqual(row["score_value_capture"], 5.9)
 
     def test_dry_run_does_not_write_database(self):
         def fake_call(system_prompt, user_prompt):
