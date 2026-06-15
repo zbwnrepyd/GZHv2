@@ -82,7 +82,7 @@ def update_template(db_path: str, template_id: str, **kwargs) -> bool:
         cur = conn.execute(
             f"""UPDATE card_templates SET {sets},
                 updated_at=CURRENT_TIMESTAMP
-                WHERE template_id=? AND is_builtin=0""",
+                WHERE template_id=?""",
             [*updates.values(), template_id])
         conn.commit()
         return cur.rowcount > 0

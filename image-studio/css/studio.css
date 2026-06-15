@@ -557,6 +557,9 @@ a:hover { text-decoration: underline; }
 .chart-workspace {
   grid-template-rows: auto minmax(260px, 1fr) minmax(190px, 34vh) auto;
 }
+.chart-workspace.flywheel-workspace {
+  grid-template-rows: auto minmax(220px, 1fr) minmax(96px, auto) minmax(150px, 28vh) auto;
+}
 .workspace-header {
   display: flex;
   align-items: center;
@@ -620,6 +623,81 @@ a:hover { text-decoration: underline; }
   overflow: hidden;
   border-top: 1px solid var(--border);
   background: var(--surface);
+}
+.flywheel-stage-host {
+  min-height: 0;
+  max-height: 168px;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.stage-editor-panel {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 6px 10px 7px;
+}
+.stage-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.stage-editor-head span {
+  color: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.stage-add,
+.stage-del {
+  flex-shrink: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-secondary);
+  cursor: pointer;
+}
+.stage-add {
+  width: 26px;
+  height: 24px;
+  color: var(--accent);
+  border-color: rgba(41,184,212,.55);
+  font: 700 14px/1 var(--font);
+}
+.stage-editor-rows {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 5px;
+  padding-right: 2px;
+}
+.stage-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.stage-text {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 12px/1.4 var(--font);
+}
+.stage-del {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
 }
 .chart-param-bottom .param-inspector-compact {
   height: 100%;
@@ -1240,6 +1318,9 @@ a:hover { text-decoration: underline; }
   }
   body.chart-mode .chart-preview-stage {
     padding: 12px;
+  }
+  .stage-editor-rows {
+    grid-template-columns: 1fr;
   }
 }
 

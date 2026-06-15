@@ -104,6 +104,17 @@ class DecoupledSystemTests(unittest.TestCase):
         # card_1 应该是 v2_card_01
         self.assertEqual(payload["cards"][0]["card_id"], "v2_card_01")
 
+    def test_single_render_data_route_uses_set_key_for_v2_cards(self):
+        from repositories.card_config_repo import init_company_set
+        init_company_set(self.composition_db, "V2Co", "v2", "v2")
+
+        response = self.client.get("/api/render-data/V2Co/v2_card_01?set=v2")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["card_id"], "v2_card_01")
+        self.assertEqual(payload["card_index"], 1)
+
     def test_render_data_auto_creates_defaults_and_resolves_items(self):
         upsert_final_field(self.final_db, "DemoCo", "company_name", "DemoCo", status="confirmed")
         asset_store.ensure_assets_rows(self.assets_db, "DemoCo")
@@ -253,6 +264,35 @@ class DecoupledSystemTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertTrue(payload["job_id"].startswith("exp_"))
+
+    def test_export_image_url_maps_inside_images_root(self):
+        from services.export_service import _local_image_path_for_url
+
+        images_dir = os.path.join(ROOT, "images")
+        mapped = _local_image_path_for_url("/images/DemoCo/variants/logo.png", images_dir)
+
+        self.assertEqual(
+            str(mapped),
+            os.path.abspath(os.path.join(images_dir, "DemoCo", "variants", "logo.png")),
+        )
+        encoded = _local_image_path_for_url("/images/DemoCo/%E5%9B%BE%E6%A0%87.png", images_dir)
+        self.assertEqual(
+            str(encoded),
+            os.path.abspath(os.path.join(images_dir, "DemoCo", "图标.png")),
+        )
+        self.assertIsNone(_local_image_path_for_url("/images/../README.md", images_dir))
+
+    def test_markdown_export_html_uses_local_font_stack(self):
+        from services.export_service import _build_markdown_card_html
+
+        html = _build_markdown_card_html(
+            {"layout_json": {"mode": "markdown_first", "markdown": "# DemoCo"}},
+            [],
+            {"mode": "markdown_first", "markdown": "# DemoCo"},
+        )
+
+        self.assertNotIn("fonts.googleapis.com", html)
+        self.assertIn("Noto Sans SC", html)
 
 
 if __name__ == "__main__":

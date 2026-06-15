@@ -12,7 +12,7 @@
 | 套卡2 · 新版7张 | `v2` | 7 | 内置，不可删除 |
 | 用户自定义 | `user_{timestamp}` | 7 或 8 | 基于 v1 或 v2 规格创建 |
 
-每家公司在每个套卡中独立维护确认状态（`final_content`）。
+每家公司在每个套卡中独立维护卡片编排（`card_compositions` / `card_items`，由 `card_set_key` 区分）；文字定稿仍按字段写入 `final_fields`，不绑定卡片索引。旧 `final_content` 仅保留兼容读取。
 
 ## 卡片规范 v2（套卡2）
 

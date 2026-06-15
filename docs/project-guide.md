@@ -170,5 +170,5 @@ curl -X POST http://127.0.0.1:5050/api/research/start \
 open "http://127.0.0.1:5050/editor?company=Anthropic"
 
 # 7. 导出卡片 PNG
-node canvas/screenshot.js --company Anthropic --base-url http://127.0.0.1:5050
+node canvas/screenshot.js --company Anthropic --set v2 --base-url http://127.0.0.1:5050
 ```

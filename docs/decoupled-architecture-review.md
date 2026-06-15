@@ -15,7 +15,7 @@
 - 图片定稿新流程：90% ✅（图片槽三栏布局 + 图表槽 ECharts 实时预览，嵌入编辑器和独立页面双模式）
 - ECharts 生成图：95% ✅（chart_competitive/chart_ecosystem 走独立 workspace，ECharts 代码编辑 + 实时预览 + 参数调节；渲染路径内联本地 ECharts runtime）
 - 排版界面：80% ✅（图层选择 + 属性面板 + Markdown 文字编辑 + layout overrides 持久化）
-- 导出：80% ✅（render-data API + template-renderer + Puppeteer 批量截图）
+- 导出：90% ✅（排版中心导出弹窗 + render-data API + template-renderer + Puppeteer 批量截图）
 
 ## 最该先修的 7 个点（2026-06-06 状态更新）
 
@@ -37,8 +37,8 @@ chart_competitive / chart_ecosystem 使用独立 WorkspaceChart 控制器，HTML
 ### 6. 修 TemplateRenderer 多图绑定（P2）✅ 已完成
 `canvas/js/template-renderer.js` 会优先用 region `bind` 精确匹配 `item_key`，同一 role 下的多个 chart/image region 不再重复取第一张 media item。
 
-### 7. 导出改成弹窗（P2）⚠️ 未实施
-当前导出仍使用命令行 `node canvas/screenshot.js`。前端弹窗导出界面待实现。
+### 7. 导出改成弹窗（P2）✅ 已完成
+排版中心已提供导出弹窗，可选择范围、格式和倍率并通过 `/api/export/<company>` 启动异步导出。命令行 `node canvas/screenshot.js --company <公司> --set v1|v2` 仍保留为批量截图和自动化验证路径。
 
 ## 已完成的部分
 
@@ -47,7 +47,7 @@ chart_competitive / chart_ecosystem 使用独立 WorkspaceChart 控制器，HTML
 - ✅ 新 API 框架：card_config, field, render_data, media Blueprint
 - ✅ 排版界面雏形：卡片列表、模板选择、图层列表、属性面板
 - ✅ 模板制作界面：画布尺寸、背景、文字/图片/形状区域、角色绑定
-- ✅ 导出服务基础：多文件 ZIP、card_ids、format、scale
+- ✅ 导出服务基础：多文件 ZIP、card_ids、format、scale、card_set_key
 
 ## 目标链路
 

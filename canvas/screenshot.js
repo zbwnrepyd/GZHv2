@@ -5,10 +5,11 @@ const path = require('path');
 
 function usage() {
   console.log(`Usage:
-  node canvas/screenshot.js --company <name> [--base-url http://127.0.0.1:5050] [--out output/cards/<name>] [--bg-image <path>] [--shots 3] [--scale 3] [--params <json>] [--params-file <path>]
+  node canvas/screenshot.js --company <name> [--set v1|v2] [--base-url http://127.0.0.1:5050] [--out output/cards/<name>] [--bg-image <path>] [--shots 3] [--scale 3] [--params <json>] [--params-file <path>]
 
 Options:
   --company      Company name to export. Required.
+  --set          Card set key. Default: v1.
   --base-url     Flask base URL. Default: http://127.0.0.1:5050
   --out          Output directory. Default: output/cards/<company>
   --bg-image     Path to local watermark image (PNG/JPEG). Injected as base64 data URL.
@@ -30,6 +31,7 @@ function parseArgs(argv) {
   const args = {
     baseUrl: 'http://127.0.0.1:5050',
     company: '',
+    set: 'v1',
     out: '',
     bgImage: null,
     shots: 3,
@@ -44,6 +46,8 @@ function parseArgs(argv) {
       args.help = true;
     } else if (item === '--company') {
       args.company = argv[++i] || '';
+    } else if (item === '--set') {
+      args.set = argv[++i] || args.set;
     } else if (item === '--base-url') {
       args.baseUrl = argv[++i] || args.baseUrl;
     } else if (item === '--out') {
@@ -69,19 +73,23 @@ function safeName(value) {
   return String(value || 'company').replace(/[/\\?%*:|"<>]/g, '_');
 }
 
-function buildCardUrl(baseUrl, company, cardId, bgImagePath, params) {
+function buildCardUrl(baseUrl, company, cardId, setKey, bgImagePath, params) {
   let url = `${baseUrl.replace(/\/$/, '')}/canvas/card/${encodeURIComponent(company)}/${encodeURIComponent(cardId)}`;
-  const sep = url.includes('?') ? '&' : '?';
+  const query = [];
+  if (setKey) {
+    query.push(`set=${encodeURIComponent(setKey)}`);
+  }
   if (bgImagePath) {
     const mime = bgImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
     const b64 = fs.readFileSync(bgImagePath).toString('base64');
     const dataUrl = `data:${mime};base64,${b64}`;
-    url += `${sep}bg=${encodeURIComponent(dataUrl)}`;
+    query.push(`bg=${encodeURIComponent(dataUrl)}`);
   }
   if (params) {
     const encoded = Buffer.from(JSON.stringify(params)).toString('base64');
-    url += `${url.includes('?') ? '&' : '?'}params=${encodeURIComponent(encoded)}`;
+    query.push(`params=${encodeURIComponent(encoded)}`);
   }
+  if (query.length) url += `?${query.join('&')}`;
   return url;
 }
 
@@ -103,6 +111,18 @@ function loadParams(args) {
     }
   }
   return null;
+}
+
+async function resolveFetch() {
+  if (typeof globalThis.fetch === 'function') {
+    return globalThis.fetch.bind(globalThis);
+  }
+  try {
+    const mod = await import('node-fetch');
+    return mod.default || mod;
+  } catch (error) {
+    throw new Error(`Fetch is unavailable. Use Node.js 18+ or install node-fetch. ${error.message}`);
+  }
 }
 
 async function waitForCard(page) {
@@ -183,8 +203,9 @@ async function run() {
   // 从 render-data API 获取启用的卡片列表（GZHv2 动态卡片数）
   let cards = [];
   try {
-    const fetch = (await import('node-fetch')).default || globalThis.fetch;
-    const resp = await fetch(`${args.baseUrl.replace(/\/$/, '')}/api/render-data/${encodeURIComponent(company)}`);
+    const fetch = await resolveFetch();
+    const renderDataUrl = `${args.baseUrl.replace(/\/$/, '')}/api/render-data/${encodeURIComponent(company)}?set=${encodeURIComponent(args.set)}`;
+    const resp = await fetch(renderDataUrl);
     if (resp.ok) {
       const data = await resp.json();
       cards = (data.cards || []).filter(c => c.enabled !== false).sort((a, b) => (a.card_index || 0) - (b.card_index || 0));
@@ -212,7 +233,7 @@ async function run() {
 
     for (const card of cards) {
       const cardId = card.card_id || String(card.card_index);
-      const url = buildCardUrl(args.baseUrl, company, cardId, args.bgImage, params);
+      const url = buildCardUrl(args.baseUrl, company, cardId, args.set, args.bgImage, params);
       await page.goto(url, { waitUntil: 'networkidle0' });
       await waitForCard(page);
       const clip = await cardClip(page);

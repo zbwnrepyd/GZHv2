@@ -393,6 +393,13 @@ def _fallback_svg_data(asset_key: str, markdown: str) -> dict | None:
         return {"events": events} if events else None
 
     if asset_key == "flywheel":
+        # 快速路径：如果内容含 → 箭头，直接按箭头拆分为阶段
+        full_text = " ".join(lines)
+        if "→" in full_text:
+            parts = [p.strip() for p in full_text.split("→") if p.strip()]
+            if len(parts) >= 2:
+                return {"stages": [{"label": p, "desc": ""} for p in parts]}
+
         stages = []
         for line in lines:
             match = re.match(r"^(?:[-*]\s*)?\*\*([^*：:]{2,14})\*\*[：:]\s*(.+)$", line)
@@ -652,12 +659,9 @@ def _default_chart_params(asset_key: str) -> dict:
         base.update({
             "title": "飞轮图",
             "template_id": "flywheel_circular",
-            "radius": 200,
-            "node_radius": 48,
-            "arrow_curve": 40,
-            "label_size": 16,
-            "desc_size": 12,
-            "show_desc": True,
+            "height": 520,
+            "label_size": 25,
+            "show_desc": False,
         })
     elif asset_key == "timeline":
         base.update({
@@ -688,23 +692,23 @@ def _load_svg_data(company: str, asset_key: str, markdown: str) -> tuple[dict | 
     if cached:
         return cached, True
 
-    def ds_call(system_prompt, user_message, **kw):
-        return call_deepseek(
-            config.DEEPSEEK_API_KEY, system_prompt, user_message,
-            model=config.DEEPSEEK_MODEL, **kw
-        )
-
-    data = None
-    try:
-        if asset_key == "flywheel":
-            data = extract_flywheel_json(markdown, ds_call)
-        else:
-            data = extract_timeline_json(markdown, ds_call)
-    except Exception:
-        data = None
+    # 快速路径：→ 箭头分隔的内容直接拆分，不走 LLM
+    data = _fallback_svg_data(asset_key, markdown)
 
     if not data:
-        data = _fallback_svg_data(asset_key, markdown)
+        def ds_call(system_prompt, user_message, **kw):
+            return call_deepseek(
+                config.DEEPSEEK_API_KEY, system_prompt, user_message,
+                model=config.DEEPSEEK_MODEL, **kw
+            )
+
+        try:
+            if asset_key == "flywheel":
+                data = extract_flywheel_json(markdown, ds_call)
+            else:
+                data = extract_timeline_json(markdown, ds_call)
+        except Exception:
+            data = None
 
     if data:
         upsert_asset(config.DB_PATH_ASSETS, company, asset_key,
@@ -2400,7 +2404,7 @@ def update_card_template(template_id: str):
             updates["background_value"] = bg.get("value")
         ok = update_template(config.DB_PATH_TEMPLATE, template_id, **updates)
         if not ok:
-            return jsonify({"error": "模板不存在、为内置模板或没有可更新字段"}), 404
+            return jsonify({"error": "模板不存在或没有可更新字段"}), 404
         return jsonify({"status": "ok", "template_id": template_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2449,7 +2453,15 @@ def get_card_layout(company: str, card_id: str):
 def update_card_layout(company: str, card_id: str):
     try:
         from services.layout_service import update_layout_override
+        from repositories.layout_repo import save_layout
         data = request.get_json() or {}
+        layout = data.get("layout")
+        if isinstance(layout, dict):
+            template_id = layout.get("template_id", "")
+            save_layout(config.DB_PATH_TEMPLATE, company, card_id, layout,
+                        template_id=template_id)
+            return jsonify({"status": "ok"})
+
         overrides = data.get("overrides", {})
         template_id = data.get("template_id", "")
         for region_id, override in overrides.items():
@@ -2481,8 +2493,9 @@ def start_export(company: str):
         card_ids = data.get("card_ids")  # None = 全部启用卡片
         fmt = data.get("format", "png")
         scale = data.get("scale", 2)
+        set_key = data.get("set", "v1")
 
-        job_id = create_job(company, card_ids=card_ids, fmt=fmt, scale=scale)
+        job_id = create_job(company, card_ids=card_ids, fmt=fmt, scale=scale, card_set_key=set_key)
         project_root = str(Path(__file__).resolve().parent.parent)
 
         t = threading.Thread(target=run_export, args=(job_id, project_root), daemon=True)

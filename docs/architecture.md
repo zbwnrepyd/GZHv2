@@ -35,13 +35,13 @@ The app no longer depends on n8n for the main path. Research is started from the
 - `image-studio/js/search-panel.js`: middle panel for image slots — preview/search toggle bar, large preview stage, search results grid with pagination, and toolbar (search bar + engine selector, recollect all/slot, AI generation, upload, URL import).
 - `image-studio/js/variant-sidebar.js`: right panel — 2-column candidate thumbnail grid with sort control, preview highlighting, delete, and "确定图片" confirm button.
 - `canvas/`: HTML/CSS card workbench, single-card render page, and Puppeteer screenshot CLI.
-- `canvas/js/render-data-loader.js` and `canvas/js/template-renderer.js`: dynamic GZHv2 renderer path. The card workbench, layout center, and single-card page first load `/api/render-data/<company>` and render enabled `card_compositions`; the legacy fixed-card renderer remains as fallback. Text regions support Markdown `value` overrides from layout editing; an override takes precedence over field items for that region.
+- `canvas/js/render-data-loader.js` and `canvas/js/template-renderer.js`: dynamic GZHv2 renderer path. The card workbench, layout center, and single-card page first load `/api/render-data/<company>` and render enabled `card_compositions`; single-card loads preserve `?set=v1|v2` for dynamic IDs such as `v2_card_01`. The legacy fixed-card renderer remains as fallback. Text regions support Markdown `value` overrides from layout editing; an override takes precedence over field items for that region.
 - `webapp/static/js/layout/layout-app.js`: layout center controller. It renders selected cards into a scaled iframe, overlays parent-page transparent region hitboxes for layer selection, opens a Markdown textarea inside text regions on double-click, writes text/geometry/style changes into layout overrides, and saves them through `/api/layout/<company>/<card_id>`.
 - `canvas/js/api-loader.js`: legacy fallback loader for `/api/final/export?format=json` and `/api/assets/<company>`.
 - `canvas/js/html-card-renderer.js`: converts parsed card data into editable `<style> + <article>` card source; maps asset images to card image boxes via `CARD_ASSET_MAP`.
 - `canvas/js/source-editor.js`: syntax-highlighted HTML/CSS source editor with live iframe rendering.
 - `canvas/js/param-controls.js`: collapsible parameter-tuning bar in the card workbench. Renders accordion sliders/color-pickers for typography, colors, spacing, and layout. Changes are debounced and injected directly into the iframe via `renderSourceIntoDocument()`. Params persist in localStorage key `aistartups.paramTuning`.
-- `canvas/screenshot.js`: loads enabled cards from `/api/render-data/<company>` and screenshots each card through Puppeteer; falls back to legacy 1-8 only when render-data is unavailable.
+- `canvas/screenshot.js`: loads enabled cards from `/api/render-data/<company>?set=v1|v2` and screenshots each card through Puppeteer; `--set` defaults to `v1`, and fallback to legacy 1-8 is used only when render-data is unavailable.
 
 ## Research Pipeline
 
@@ -166,7 +166,7 @@ Pages and static assets:
 - `GET /layout`, `GET /layout?company=<company>`, and `GET /layout/<company>` — layout center for template selection, layer editing, and PNG export dialog.
 - `GET /template-maker` — template creation and editing UI.
 - `GET /canvas/` — card workbench. Use `?company=<company>` to load confirmed cards.
-- `GET /canvas/card/<company>/<card_id>` — single-card HTML page for iframe preview and Puppeteer export. `card_id` may be a dynamic ID such as `card_06`; numeric legacy IDs still work.
+- `GET /canvas/card/<company>/<card_id>` — single-card HTML page for iframe preview and Puppeteer export. `card_id` may be a dynamic ID such as `card_06` or `v2_card_01`; pass `?set=v2` for v2 dynamic IDs. Numeric legacy IDs still work.
 - `GET /canvas/<path>`
 
 `POST /api/generate-image` accepts the existing `company_name`, `field_name`, and `prompt` fields. It also accepts optional runtime `image_api_url` and `image_api_key`; these override environment defaults for that request only. The API key is never returned in the response.
@@ -201,7 +201,7 @@ SVG infographics are auto-generated on card confirmation using default templates
 
 `canvas/js/markdown-parser.js` supports current `markdown_full` exports and legacy field rows. It preserves remote and local Markdown images as `_image`, maps card 1 `# 公司名` plus bold-only subtitle into homepage fields, and maps unlabeled body text on cards 2 and 4 into the expected intro/product fields so the canvas does not drop finalized prose.
 
-The CLI export path opens `/canvas/card/<company>/<card_index>` for each card and captures PNG files. The single-card page loads the same company assets as the full workbench, so selected image-studio variants appear in exported screenshots. Install Node dependencies with `npm install`, then run `node canvas/screenshot.js --company <company> --base-url http://127.0.0.1:5050`.
+The CLI export path opens `/canvas/card/<company>/<card_id>?set=<set_key>` for each card and captures PNG files. The single-card page loads the same company assets as the full workbench, so selected image-studio variants appear in exported screenshots. Install Node dependencies with `npm install`, then run `node canvas/screenshot.js --company <company> --set v2 --base-url http://127.0.0.1:5050`.
 
 ## Design Constraints
 

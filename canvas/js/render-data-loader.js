@@ -13,8 +13,10 @@ const RenderDataLoader = {
     return data;
   },
 
-  async loadCard(company, cardId) {
-    const r = await fetch(`/api/render-data/${encodeURIComponent(company)}/${encodeURIComponent(cardId)}`);
+  async loadCard(company, cardId, setKey = '') {
+    const effectiveSet = setKey || new URLSearchParams(window.location.search).get('set') || '';
+    const setQuery = effectiveSet ? `?set=${encodeURIComponent(effectiveSet)}` : '';
+    const r = await fetch(`/api/render-data/${encodeURIComponent(company)}/${encodeURIComponent(cardId)}${setQuery}`);
     if (!r.ok) throw new Error(`render-data single card API ${r.status}`);
     return await r.json();
   },

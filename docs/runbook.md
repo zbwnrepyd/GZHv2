@@ -207,6 +207,7 @@ Batch export:
 # 不带水印
 node canvas/screenshot.js \
   --company Anthropic \
+  --set v2 \
   --base-url http://127.0.0.1:5050 \
   --out output/cards/Anthropic \
   --shots 3 \
@@ -215,6 +216,7 @@ node canvas/screenshot.js \
 # 带背景水印图片
 node canvas/screenshot.js \
   --company Anthropic \
+  --set v2 \
   --base-url http://127.0.0.1:5050 \
   --out output/cards/Anthropic \
   --bg-image /path/to/watermark.png \
@@ -224,13 +226,14 @@ node canvas/screenshot.js \
 # 带参数覆盖（从 param-editor 导出的 JSON）
 node canvas/screenshot.js \
   --company Anthropic \
+  --set v2 \
   --base-url http://127.0.0.1:5050 \
   --params-file /path/to/card-params.json \
   --shots 3 \
   --scale 3
 ```
 
-`--shots` 控制每张卡导出几张候选图；`--scale` 控制 Puppeteer 的 `deviceScaleFactor`，数值越高图片越清晰、文件越大。默认是 `--shots 3 --scale 3`。
+`--set` 控制导出的套卡，默认 `v1`；导出新版 7 张卡时传 `--set v2`。单卡页面会把 `?set=` 透传到 `/api/render-data/<company>/<card_id>`，因此动态 ID（如 `v2_card_01`）可以直接截图导出。`--shots` 控制每张卡导出几张候选图；`--scale` 控制 Puppeteer 的 `deviceScaleFactor`，数值越高图片越清晰、文件越大。默认是 `--shots 3 --scale 3`。
 `--params` 和 `--params-file` 接受卡片参数 JSON（字号/颜色/间距覆盖），参数通过 base64 编码注入到卡片页面 URL。
 
 Asset collection and infographic generation:

@@ -97,18 +97,18 @@ const ParamInspector = {
   schemaFor(assetKey, chartData) {
     const base = [
       { group: 'content', key: 'title', label: '标题', type: 'text' },
-      { group: 'content', key: 'subtitle', label: '副标题', type: 'text' },
-      { group: 'content', key: 'note', label: '图下注释', type: 'textarea' },
       { group: 'layout', key: 'width', label: '宽度', type: 'range', min: 640, max: 1200, step: 20 },
       { group: 'layout', key: 'height', label: '高度', type: 'range', min: 420, max: 1200, step: 20 },
       { group: 'visual', key: 'theme', label: '主题', type: 'select', options: [['dark', '深色'], ['light', '浅色']] },
       { group: 'visual', key: 'accent_color', label: '强调色', type: 'color' },
       { group: 'visual', key: 'title_size', label: '标题字号', type: 'range', min: 12, max: 30, step: 1 },
-      { group: 'visual', key: 'label_size', label: '标签字号', type: 'range', min: 8, max: 18, step: 1 },
       { group: 'visual', key: 'show_label', label: '显示标签', type: 'checkbox' },
     ];
     const chartSpecific = {
       chart_competitive: [
+        { group: 'content', key: 'subtitle', label: '副标题', type: 'text' },
+        { group: 'content', key: 'note', label: '图下注释', type: 'textarea' },
+        { group: 'chart', key: 'label_size', label: '标签字号', type: 'range', min: 8, max: 18, step: 1, default: 12 },
         { group: 'chart', key: 'x_split', label: 'X 分割线', type: 'range', min: 0, max: 1, step: 0.01 },
         { group: 'chart', key: 'y_split', label: 'Y 分割线', type: 'range', min: 0, max: 1, step: 0.01 },
         { group: 'chart', key: 'point_size', label: '基础气泡', type: 'range', min: 4, max: 28, step: 1 },
@@ -118,6 +118,9 @@ const ParamInspector = {
         { group: 'chart', key: 'raw_score_max', label: '原始分上限', type: 'range', min: 10, max: 10, step: 1 },
       ],
       chart_ecosystem: [
+        { group: 'content', key: 'subtitle', label: '副标题', type: 'text' },
+        { group: 'content', key: 'note', label: '图下注释', type: 'textarea' },
+        { group: 'chart', key: 'label_size', label: '标签字号', type: 'range', min: 8, max: 18, step: 1, default: 12 },
         { group: 'chart', key: 'point_size', label: '基础气泡', type: 'range', min: 4, max: 28, step: 1 },
         { group: 'chart', key: 'max_companies', label: '最多公司数', type: 'range', min: 4, max: 12, step: 1 },
         { group: 'chart', key: 'label_max_chars', label: '标签截断', type: 'range', min: 4, max: 12, step: 1 },
@@ -126,10 +129,8 @@ const ParamInspector = {
       ],
       flywheel: [
         { group: 'chart', key: 'template_id', label: '模板', type: 'select', options: this._templateOptions(chartData) },
-        { group: 'chart', key: 'radius', label: '环半径', type: 'range', min: 120, max: 280, step: 10 },
-        { group: 'chart', key: 'node_radius', label: '节点半径', type: 'range', min: 28, max: 72, step: 2 },
-        { group: 'chart', key: 'arrow_curve', label: '箭头曲率', type: 'range', min: 10, max: 80, step: 5 },
-        { group: 'chart', key: 'show_desc', label: '显示描述', type: 'checkbox' },
+        { group: 'chart', key: 'label_size', label: '字号', type: 'range', min: 18, max: 34, step: 1, default: 25 },
+        { group: 'chart', key: 'show_desc', label: '显示描述', type: 'checkbox', default: false },
       ],
       timeline: [
         { group: 'chart', key: 'template_id', label: '模板', type: 'select', options: this._templateOptions(chartData) },

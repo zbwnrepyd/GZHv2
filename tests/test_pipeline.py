@@ -253,6 +253,7 @@ class PipelineFailureTests(unittest.TestCase):
         with patch.object(pipeline, "_collect_all", return_value={"website": {"text": "ok"}}), \
              patch.object(pipeline, "llm_analysis", return_value=[dict(records[0])]), \
              patch.object(pipeline.database, "save_research_records", return_value=[101]), \
+             patch.object(pipeline.config, "COLLECTION_ENABLE_GAP_REFETCH", False), \
              patch.object(field_repo, "insert_research_fields_batch", side_effect=lambda _db, rows: inserted_batches.append(rows) or len(rows)), \
              patch("asset_pipeline.collect_image_variants_pipeline", return_value={}):
             ids = pipeline.run_pipeline("Limitless", "https://www.limitless.ai")
