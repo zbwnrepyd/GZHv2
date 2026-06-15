@@ -104,11 +104,14 @@ def register(bp: Blueprint):
         """返回单张卡片的渲染数据"""
         try:
             from repositories.card_config_repo import get_card
-            card = get_card(config.DB_PATH_COMPOSITION, company, card_id)
+            set_key = _get_set_key()
+            card = get_card(config.DB_PATH_COMPOSITION, company, card_id,
+                            card_set_key=set_key)
             if not card:
                 return jsonify({"error": "卡片不存在"}), 404
 
-            items = get_card_items(config.DB_PATH_COMPOSITION, company, card_id)
+            items = get_card_items(config.DB_PATH_COMPOSITION, company, card_id,
+                                   card_set_key=set_key)
             resolved_items = []
             for item in items:
                 resolved = dict(item)

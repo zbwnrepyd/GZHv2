@@ -105,11 +105,11 @@ http://127.0.0.1:5050/layout?company=Anthropic&set=v2
 
 ```bash
 npm install
-node canvas/screenshot.js --company Anthropic --base-url http://127.0.0.1:5050
+node canvas/screenshot.js --company Anthropic --set v2 --base-url http://127.0.0.1:5050
 ```
 
 `npm install` 同时安装 `echarts@5.6.0`。生成图表预览和 Playwright PNG 渲染使用 `webapp/static/vendor/echarts.min.js` 的本地副本，避免 iframe `srcdoc` 或 `file://` 渲染路径依赖外部 CDN。
 
-默认每张卡会导出 3 张高倍率候选图（`--shots 3 --scale 3`），文件名形如 `Anthropic_card_01_shot_01.png`。需要更少或更高倍率可改 `--shots`、`--scale`。
+默认每张卡会导出 3 张高倍率候选图（`--shots 3 --scale 3`），默认套卡为 `--set v1`；导出新版 7 张卡时传 `--set v2`。需要更少或更高倍率可改 `--shots`、`--scale`。
 
 更多架构和运维细节见 [docs/architecture.md](docs/architecture.md)、[docs/runbook.md](docs/runbook.md) 和 [docs/scoring-system.md](docs/scoring-system.md)。新人推荐先读 [docs/project-guide.md](docs/project-guide.md) 了解项目全貌。

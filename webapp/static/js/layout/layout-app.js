@@ -1,15 +1,32 @@
-/* layout-app.js — GZHv2 排版界面控制器
-   加载 render-data → 选择卡片 → 选模板 → iframe 预览 → 区域调参 → 保存 layout */
+/* layout-app.js — Markdown-first 排版中心
+   加载 render-data → 每卡 Markdown → 实时预览 → 保存 layout → 导出 */
 const LayoutApp = {
+  _assetTokenExamples: '{{logo}} {{founder_photo}} {{chart_competitive}}',
   _company: '',
+  _setKey: 'v1',
   _data: null,
   _cards: [],
+  _templates: [],
   _activeCardId: null,
   _activeCard: null,
-  _templates: [],
-  _activeRegionId: null,
+  _markdownByCard: {},
+  _styleByCard: {},
   _layoutOverrides: {},
-  _scale: 1.0,
+  _assetByKey: {},
+  _mode: 'split',
+  _splitRatio: 0.58,
+  _previewScale: 1,
+  _styleAppliedToAllDirty: false,
+  _defaultStyle: {
+    fontSize: 30,
+    lineHeight: 1.45,
+    paragraphGap: 16,
+    padding: 64,
+    bgColor: '#FFFFFF',
+    textColor: '#172033',
+    accentColor: '#29B8D4',
+    imageMaxHeight: 360,
+  },
 
   async init() {
     const p = new URLSearchParams(window.location.search);
@@ -21,31 +38,79 @@ const LayoutApp = {
     }
 
     document.getElementById('company-label').textContent = `排版 · ${this._company}`;
-    this._setStatus('加载中');
     document.getElementById('btn-back-editor').href = `/editor?company=${encodeURIComponent(this._company)}&set=${this._setKey}`;
+    this._bindChrome();
+    this._setStatus('加载中');
+    await this._loadData();
+    await this._loadTemplates();
+    this._renderCardList();
+    this._renderTemplateSelect();
+    this._setMode('split');
+    this._restoreLocal();
+    this._renderAssetTokenHelp();
+    if (this._cards.length) this._selectCard(this._cards[0].card_id);
+  },
+
+  _bindChrome() {
     document.getElementById('btn-template-maker').addEventListener('click', () => {
       window.open('/template-maker', '_blank');
     });
     document.getElementById('btn-export').addEventListener('click', () => this._exportPNG());
     document.getElementById('btn-apply-template').addEventListener('click', () => this._applyTemplate());
     document.getElementById('btn-save-layout').addEventListener('click', () => this._saveLayout());
+    document.getElementById('btn-save-local').addEventListener('click', () => this._saveLocalCurrent());
+    document.getElementById('btn-save-local-all').addEventListener('click', () => this._saveLocalAll());
     document.getElementById('btn-reset-layout').addEventListener('click', () => this._resetLayout());
-
-    await this._loadData();
-    await this._loadTemplates();
-    this._renderCardList();
-    this._renderTemplateSelect();
-    // 自动选第一张卡片
-    if (this._cards.length) this._selectCard(this._cards[0].card_id);
+    document.getElementById('btn-apply-style-all').addEventListener('click', () => this._applyStyleToAllCards());
+    document.getElementById('btn-fit-preview').addEventListener('click', () => this._fitPreview());
+    // 高级样式弹窗
+    document.getElementById('btn-advanced-style').addEventListener('click', () => this._toggleAdvancedStyle());
+    document.getElementById('btn-asp-apply').addEventListener('click', () => this._applyAdvancedStyle());
+    document.getElementById('btn-asp-cancel').addEventListener('click', () => this._hideAdvancedStyle());
+    document.querySelectorAll('.asp-align').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.asp-align').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+    document.getElementById('markdown-editor').addEventListener('input', () => {
+      if (!this._activeCardId) return;
+      this._markdownByCard[this._activeCardId] = document.getElementById('markdown-editor').value;
+      this._debouncedPreview();
+      this._autoSave();
+    });
+    document.getElementById('markdown-toolbar').addEventListener('click', event => {
+      const btn = event.target.closest('[data-action]');
+      if (!btn) return;
+      this._handleToolbarAction(btn.dataset.action, btn.dataset.value || '');
+    });
+    ['font-size', 'line-height', 'paragraph-gap', 'padding', 'image-max-height', 'bg-color', 'text-color', 'accent-color'].forEach(key => {
+      document.getElementById(`style-${key}`).addEventListener('input', () => this._onStyleInput());
+    });
+    document.getElementById('splitter').addEventListener('mousedown', event => this._startSplitDrag(event));
+    window.addEventListener('resize', () => this._fitPreview());
   },
 
-  /* ── 数据加载 ── */
   async _loadData() {
     try {
       const r = await fetch(`/api/render-data/${encodeURIComponent(this._company)}?set=${this._setKey}`);
       if (!r.ok) throw new Error(`render-data ${r.status}`);
       this._data = await r.json();
       this._cards = this._data.cards || [];
+      this._assetByKey = {};
+      this._cards.forEach(card => {
+        (card.items || []).forEach(item => {
+          if (item.item_type === 'media') {
+            this._assetByKey[item.item_key] = item;
+          }
+        });
+        const layout = card.layout || {};
+        this._markdownByCard[card.card_id] = layout.markdown || this._markdownFromCard(card);
+        this._styleByCard[card.card_id] = {
+          ...this._defaultStyle,
+          ...(layout.style || this._styleFromTemplate(card.template)),
+        };
+      });
       this._setStatus(`已加载 ${this._cards.length} 张卡`);
     } catch (e) {
       console.error('加载 render-data 失败:', e);
@@ -55,32 +120,32 @@ const LayoutApp = {
   },
 
   async _loadTemplates() {
+    this._templates = [];
     try {
-      const r = await fetch('/api/svg-templates');
-      const d = await r.json();
-      this._templates = d.templates || [];
-      // Fallback: also load from template repo
-    } catch { this._templates = []; }
+      const r = await fetch('/api/templates');
+      if (r.ok) {
+        const d = await r.json();
+        this._templates = d.templates || [];
+      }
+    } catch { /* keep empty */ }
     try {
-      const r2 = await fetch('/api/templates');
+      const r2 = await fetch('/api/svg-templates');
       if (r2.ok) {
         const d2 = await r2.json();
         this._templates = [...this._templates, ...(d2.templates || [])];
       }
-    } catch { /* no /api/templates yet */ }
+    } catch { /* keep existing */ }
   },
 
-  /* ── 左侧卡片列表 ── */
   _renderCardList() {
     const el = document.getElementById('card-list');
     el.innerHTML = this._cards.map(c => `
-      <div class="layout-card-item" data-card-id="${c.card_id}" id="card-item-${c.card_id}">
-        <span class="layout-card-idx">${c.card_index}</span>
+      <div class="layout-card-item" data-card-id="${this._escAttr(c.card_id)}" id="card-item-${this._escAttr(c.card_id)}">
+        <span class="layout-card-idx">${this._esc(c.card_index)}</span>
         <span class="layout-card-title">${this._esc(c.card_title)}</span>
         <span class="layout-card-badge">${(c.items || []).length}项</span>
       </div>
     `).join('');
-
     el.querySelectorAll('.layout-card-item').forEach(item => {
       item.addEventListener('click', () => this._selectCard(item.dataset.cardId));
     });
@@ -88,670 +153,689 @@ const LayoutApp = {
 
   _renderTemplateSelect() {
     const sel = document.getElementById('template-select');
-    sel.innerHTML = '<option value="">-- 选择模板 --</option>' +
-      this._templates.map(t => `<option value="${t.id || t.template_id}">${this._esc(t.name || t.template_name)}</option>`).join('');
+    sel.innerHTML = '<option value="">默认 Markdown 卡片</option>' +
+      this._templates.map(t => {
+        const id = t.id || t.template_id || '';
+        const name = t.name || t.template_name || id || '未命名模板';
+        return `<option value="${this._escAttr(id)}">${this._esc(name)}</option>`;
+      }).join('');
   },
 
-  /* ── 选择卡片 → 渲染预览 ── */
   _selectCard(cardId) {
     this._activeCardId = cardId;
     this._activeCard = this._cards.find(c => c.card_id === cardId);
-    this._layoutOverrides = JSON.parse(JSON.stringify(this._activeCard?.layout?.overrides || {}));
-    document.querySelectorAll('.layout-card-item').forEach(el =>
-      el.classList.toggle('active', el.dataset.cardId === cardId));
-
-    // 同步模板 select
-    if (this._activeCard?.template_id) {
-      document.getElementById('template-select').value = this._activeCard.template_id;
-    }
-
-    this._renderPreview();
-    this._renderLayerList();
-    // Re-setup iframe for editing after card switch
-    requestAnimationFrame(() => {
-      const iframe = document.getElementById('preview-iframe');
-      if (iframe) this._setupIframeRegions(iframe, this._effectiveTemplate());
+    if (!this._activeCard) return;
+    this._layoutOverrides = this._activeCard.layout?.overrides || {};
+    document.querySelectorAll('.layout-card-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.cardId === cardId);
     });
+    document.getElementById('active-card-title').textContent =
+      `${this._activeCard.card_index}. ${this._activeCard.card_title}`;
+    document.getElementById('template-select').value = this._activeCard.template_id || '';
+    document.getElementById('markdown-editor').value = this._markdownByCard[cardId] || '';
+    this._syncStylePanel();
+    this._renderMarkdownPreview();
   },
 
-  /* ── iframe 预览 ── */
-  _renderPreview() {
-    const area = document.getElementById('canvas-area');
-    const card = this._activeCard;
-    if (!card) {
-      area.innerHTML = '<div class="empty-state">未选择卡片</div>';
+  _markdownFromCard(card) {
+    const lines = [];
+    const items = card.items || [];
+    const fields = items.filter(item => item.item_type === 'field' && String(item.value || '').trim());
+    const media = items.filter(item => item.item_type === 'media');
+    const titleFields = fields.filter(item => (item.display_role || '') === 'title');
+    const subtitleFields = fields.filter(item => (item.display_role || '') === 'subtitle');
+    const bodyFields = fields.filter(item => !['title', 'subtitle'].includes(item.display_role || 'body'));
+
+    if (titleFields.length) {
+      titleFields.forEach(item => lines.push(`# ${item.value}`));
+    } else if (card.card_title) {
+      lines.push(`# ${card.card_title}`);
+    }
+    subtitleFields.forEach(item => lines.push(`\n## ${item.value}`));
+    media.forEach(item => {
+      if (item.url) lines.push(`\n{{${item.item_key}}}`);
+    });
+    bodyFields.forEach(item => {
+      const label = item.item_label || item.field_label || '';
+      const value = String(item.value || '').trim();
+      if (!value) return;
+      if (label && value !== label) {
+        lines.push(`\n### ${label}\n${value}`);
+      } else {
+        lines.push(`\n${value}`);
+      }
+    });
+    return lines.join('\n').replace(/\n{4,}/g, '\n\n\n').trim();
+  },
+
+  _styleFromTemplate(template) {
+    const style = {};
+    const regions = template?.regions || [];
+    const bodyRegion = regions.find(r => r.type === 'text' && (r.role || 'body') === 'body') ||
+      regions.find(r => r.type === 'text');
+    if (bodyRegion?.style?.fontSize) style.fontSize = bodyRegion.style.fontSize;
+    if (bodyRegion?.style?.lineHeight) style.lineHeight = bodyRegion.style.lineHeight;
+    if (template?.background?.type === 'color' && template.background.value) {
+      style.bgColor = template.background.value;
+      style.textColor = this._readableTextColor(template.background.value);
+    }
+    if (bodyRegion?.style?.color) style.textColor = bodyRegion.style.color;
+    return style;
+  },
+
+  _syncStylePanel() {
+    const style = this._currentStyle();
+    document.getElementById('style-font-size').value = style.fontSize;
+    document.getElementById('style-line-height').value = style.lineHeight;
+    document.getElementById('style-paragraph-gap').value = style.paragraphGap;
+    document.getElementById('style-padding').value = style.padding;
+    document.getElementById('style-bg-color').value = style.bgColor;
+    document.getElementById('style-text-color').value = style.textColor;
+    document.getElementById('style-accent-color').value = style.accentColor;
+    document.getElementById('style-image-max-height').value = style.imageMaxHeight;
+  },
+
+  _onStyleInput() {
+    if (!this._activeCardId) return;
+    this._styleByCard[this._activeCardId] = {
+      fontSize: Number(document.getElementById('style-font-size').value || this._defaultStyle.fontSize),
+      lineHeight: Number(document.getElementById('style-line-height').value || this._defaultStyle.lineHeight),
+      paragraphGap: Number(document.getElementById('style-paragraph-gap').value || this._defaultStyle.paragraphGap),
+      padding: Number(document.getElementById('style-padding').value || this._defaultStyle.padding),
+      bgColor: document.getElementById('style-bg-color').value || this._defaultStyle.bgColor,
+      textColor: document.getElementById('style-text-color').value || this._defaultStyle.textColor,
+      accentColor: document.getElementById('style-accent-color').value || this._defaultStyle.accentColor,
+      imageMaxHeight: Number(document.getElementById('style-image-max-height').value || this._defaultStyle.imageMaxHeight),
+    };
+    this._debouncedPreview();
+    this._autoSave();
+  },
+
+  _currentStyle() {
+    return { ...this._defaultStyle, ...(this._styleByCard[this._activeCardId] || {}) };
+  },
+
+  _debouncedPreview() {
+    clearTimeout(this._previewTimer);
+    this._previewTimer = setTimeout(() => this._renderMarkdownPreview(), 80);
+  },
+
+  // 自动保存：每次编辑 → localStorage 即时 + 服务端 2s 防抖（静默，无提示）
+  _autoSave() {
+    if (!this._activeCardId) return;
+    // 即刻写入 localStorage
+    this._saveLocalCurrentSilent();
+    // 防抖写入服务端
+    clearTimeout(this._autoSaveTimer);
+    this._autoSaveTimer = setTimeout(() => {
+      this._saveLayoutSilent().catch(() => {});
+    }, 2000);
+  },
+
+  _saveLocalCurrentSilent() {
+    if (!this._activeCardId) return;
+    const data = this._loadLocalData();
+    data.markdownByCard[this._activeCardId] = this._markdownByCard[this._activeCardId] || '';
+    data.styleByCard[this._activeCardId] = { ...this._currentStyle() };
+    this._writeLocalData(data);
+  },
+
+  async _saveLayoutSilent() {
+    if (!this._activeCardId) return;
+    try {
+      await fetch(`/api/layout/${encodeURIComponent(this._company)}/${encodeURIComponent(this._activeCardId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layout: this._layoutPayload() }),
+      });
+    } catch (_) { /* 静默失败，下次操作会重试 */ }
+  },
+
+  _renderMarkdownPreview() {
+    const iframe = document.getElementById('preview-frame');
+    const status = document.getElementById('preview-status');
+    if (!this._activeCardId || !iframe) return;
+    const markdown = this._markdownByCard[this._activeCardId] || '';
+    const style = this._currentStyle();
+    iframe.srcdoc = this._buildPreviewHtml(markdown, style);
+    if (status) status.textContent = '已同步';
+    requestAnimationFrame(() => this._fitPreview());
+  },
+
+  _buildPreviewHtml(markdown, style) {
+    const body = this._renderMarkdownToHtml(markdown);
+    return `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 900px; height: 1200px; overflow: hidden; }
+  body {
+    background: ${style.bgColor};
+    color: ${style.textColor};
+    font-family: "Noto Sans SC", "Instrument Sans", sans-serif;
+    font-size: ${style.fontSize}px;
+    line-height: ${style.lineHeight};
+    letter-spacing: 0;
+  }
+  .layout-md-card {
+    position: relative;
+    width: 900px;
+    height: 1200px;
+    padding: ${style.padding}px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .layout-md-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .layout-md-spacer { flex: 1; }
+  .layout-md-body > * { margin: 0 0 ${style.paragraphGap}px; }
+  .layout-md-body > *:last-child { margin-bottom: 0; }
+  h1, h2, h3 { margin-top: 0; }
+  h1 {
+    font-size: ${Math.round(style.fontSize * 1.9)}px;
+    line-height: 1.08;
+    font-weight: 900;
+    color: ${style.textColor};
+    margin-bottom: ${Math.round(style.paragraphGap * 1.4)}px;
+  }
+  h2 {
+    font-size: ${Math.round(style.fontSize * 1.28)}px;
+    line-height: 1.16;
+    color: ${style.accentColor};
+    font-weight: 800;
+  }
+  h3 {
+    font-size: ${Math.round(style.fontSize * 1.05)}px;
+    line-height: 1.2;
+    color: ${style.textColor};
+    font-weight: 700;
+  }
+  p, li, blockquote { word-wrap: break-word; }
+  ul { padding-left: 1.2em; }
+  blockquote {
+    border-left: 6px solid ${style.accentColor};
+    padding: 10px 14px;
+    background: rgba(41, 184, 212, .09);
+    border-radius: 0 8px 8px 0;
+  }
+  strong { font-weight: 900; }
+  em { font-style: italic; }
+  a { color: ${style.accentColor}; text-decoration: none; }
+  img.layout-md-image, .layout-asset img {
+    display: block;
+    max-width: 100%;
+    max-height: ${style.imageMaxHeight}px;
+    object-fit: contain;
+    border-radius: 10px;
+  }
+  .layout-asset {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .layout-asset-missing {
+    padding: 18px;
+    color: rgba(15, 23, 42, .38);
+    border: 1px dashed rgba(15, 23, 42, .18);
+  }
+</style></head><body>
+  <article class="layout-md-card" data-od-id="card-root">
+    <div class="layout-md-body">${body}</div>
+  </article>
+</body></html>`;
+  },
+
+  _renderMarkdownToHtml(markdown) {
+    const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
+    const html = [];
+    let listOpen = false;
+    const closeList = () => {
+      if (listOpen) {
+        html.push('</ul>');
+        listOpen = false;
+      }
+    };
+
+    const _unwrapInline = (line) => {
+      const m = line.match(/^(<(span|mark|center)\b[^>]*>)(.*?)(<\/\2>)$/i);
+      return m ? { open: m[1], close: m[4], inner: m[3].trim() } : null;
+    };
+
+    // 从 wrapper span 中提取 font-size，转移到 heading 上，避免被 CSS 覆盖
+    const _extractFontSize = (open) => {
+      const m = (open || '').match(/font-size:\s*(\d+)px/i);
+      return m ? ` style="font-size:${m[1]}px"` : '';
+    };
+
+    const _headingTag = (level, wrap, inner) => {
+      const tag = `h${level}`;
+      const extra = wrap ? _extractFontSize(wrap.open) : '';
+      const content = this._inlineMarkdown(inner);
+      return wrap
+        ? `${wrap.open.replace(/font-size:\s*\d+px;?/gi, '')}<${tag}${extra}>${content}</${tag}>${wrap.close}`
+        : `<${tag}>${content}</${tag}>`;
+    };
+
+    lines.forEach(rawLine => {
+      const line = rawLine.trim();
+      if (!line) {
+        closeList();
+        return;
+      }
+      const wrap = _unwrapInline(line);
+      const body = wrap ? wrap.inner : line;
+      const assetOnly = body.match(/^\{\{([a-zA-Z0-9_:-]+)\}\}$/);
+      const imageOnly = body.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+      if (assetOnly) {
+        closeList();
+        html.push(this._assetHtml(assetOnly[1]));
+      } else if (imageOnly) {
+        closeList();
+        html.push(`<p><img class="layout-md-image" src="${this._escAttr(imageOnly[2])}" alt="${this._escAttr(imageOnly[1])}"></p>`);
+      } else if (body.startsWith('# ')) {
+        closeList();
+        html.push(_headingTag(1, wrap, body.slice(2)));
+      } else if (body.startsWith('## ')) {
+        closeList();
+        html.push(_headingTag(2, wrap, body.slice(3)));
+      } else if (body.startsWith('### ')) {
+        closeList();
+        html.push(_headingTag(3, wrap, body.slice(4)));
+      } else if (body === '---') {
+        closeList();
+        html.push('<div class="layout-md-spacer"></div>');
+      } else if (body.startsWith('> ')) {
+        closeList();
+        html.push(wrap ? `${wrap.open}<blockquote>${this._inlineMarkdown(body.slice(2))}</blockquote>${wrap.close}` : `<blockquote>${this._inlineMarkdown(body.slice(2))}</blockquote>`);
+      } else if (/^[-*]\s+/.test(body)) {
+        if (!listOpen) {
+          html.push('<ul>');
+          listOpen = true;
+        }
+        html.push(wrap ? `${wrap.open}<li>${this._inlineMarkdown(body.replace(/^[-*]\s+/, ''))}</li>${wrap.close}` : `<li>${this._inlineMarkdown(body.replace(/^[-*]\s+/, ''))}</li>`);
+      } else {
+        closeList();
+        html.push(`<p>${this._inlineMarkdown(line)}</p>`);
+      }
+    });
+    closeList();
+    return html.join('\n');
+  },
+
+  _inlineMarkdown(text) {
+    const preserved = [];
+    let safe = String(text || '')
+      .replace(/<br\s*\/?>/gi, match => {
+        const token = `@@HTML_${preserved.length}@@`;
+        preserved.push(match);
+        return token;
+      })
+      .replace(/<(span|mark)\b[^>]*>.*?<\/\1>/g, match => {
+        const token = `@@HTML_${preserved.length}@@`;
+        preserved.push(match);
+        return token;
+      });
+    safe = this._esc(safe)
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) =>
+        `<a href="${this._escAttr(url)}">${label}</a>`)
+      .replace(/\{\{([a-zA-Z0-9_:-]+)\}\}/g, (_m, key) => this._assetHtml(key));
+    preserved.forEach((html, index) => {
+      safe = safe.replace(`@@HTML_${index}@@`, this._sanitizeInlineHtml(html));
+    });
+    return safe;
+  },
+
+  _sanitizeInlineHtml(html) {
+    return String(html || '')
+      .replace(/<(?!\/?(span|mark|br)\b)/g, '&lt;')
+      .replace(/\son[a-z]+\s*=/gi, ' data-blocked=')
+      .replace(/javascript:/gi, '');
+  },
+
+  _assetHtml(key) {
+    const asset = this._resolveAssetToken(key);
+    if (!asset?.url) {
+      return `<div class="layout-asset layout-asset-missing">{{${this._esc(key)}}} 未选择素材</div>`;
+    }
+    return `<figure class="layout-asset" data-asset-key="${this._escAttr(key)}">
+      <img src="${this._escAttr(asset.url)}" alt="${this._escAttr(asset.media_label || key)}">
+    </figure>`;
+  },
+
+  _resolveAssetToken(key) {
+    return this._assetByKey[key] || null;
+  },
+
+  _readableTextColor(hex) {
+    const m = String(hex || '').trim().match(/^#?([0-9a-f]{6})$/i);
+    if (!m) return this._defaultStyle.textColor;
+    const raw = m[1];
+    const r = parseInt(raw.slice(0, 2), 16);
+    const g = parseInt(raw.slice(2, 4), 16);
+    const b = parseInt(raw.slice(4, 6), 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance < 0.52 ? '#F8FAFC' : '#172033';
+  },
+
+  _toggleAdvancedStyle() {
+    const popover = document.getElementById('advanced-style-popover');
+    popover.style.display = popover.style.display === 'none' ? 'flex' : 'none';
+  },
+
+  _hideAdvancedStyle() {
+    document.getElementById('advanced-style-popover').style.display = 'none';
+  },
+
+  _applyAdvancedStyle() {
+    const alignBtn = document.querySelector('.asp-align.active');
+    const align = alignBtn ? alignBtn.dataset.align : 'left';
+    const fontFamily = document.getElementById('asp-font-family').value;
+    const fontSize = document.getElementById('asp-font-size').value || 24;
+    const editor = document.getElementById('markdown-editor');
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    const selected = editor.value.slice(start, end) || '文字';
+    const styles = [`display:block`, `text-align:${align}`, `font-size:${fontSize}px`];
+    if (fontFamily) styles.unshift(`font-family:'${fontFamily}',sans-serif`);
+    const open = `<span style="${styles.join(';')}">`;
+    const close = '</span>';
+    editor.setRangeText(`${open}${selected}${close}`, start, end, 'select');
+    this._markdownByCard[this._activeCardId] = editor.value;
+    this._hideAdvancedStyle();
+    this._renderMarkdownPreview();
+  },
+
+  _handleToolbarAction(action, value) {
+    const editor = document.getElementById('markdown-editor');
+    editor.focus();
+    if (action === 'bold') this._wrapSelection('**', '**', '加粗文字');
+    if (action === 'italic') this._wrapSelection('*', '*', '斜体文字');
+    if (action === 'h1') this._prefixSelection('# ');
+    if (action === 'h2') this._prefixSelection('## ');
+    if (action === 'quote') this._prefixSelection('> ');
+    if (action === 'list') this._prefixSelection('- ');
+    if (action === 'image') this._insertMarkdown('![图片描述](图片URL)');
+    if (action === 'link') this._wrapSelection('[', '](https://)', '链接文字');
+    if (action === 'color') this._wrapSelection(`<span style="color:${value}">`, '</span>', '文字');
+    if (action === 'bg') this._wrapSelection(`<mark style="background:${value};border-radius:3px;padding:0 2px">`, '</mark>', '高亮文字');
+    if (action === 'br') this._insertMarkdown('<br>');
+    if (action === 'spacer') this._insertMarkdown('\n---\n');
+    if (action === 'center') this._wrapSelection('<span style="display:block;text-align:center">', '</span>', '居中文字');
+    if (action === 'clear') this._clearInlineStyle();
+  },
+
+  _wrapSelection(open, close, placeholder = '') {
+    const editor = document.getElementById('markdown-editor');
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    const selected = editor.value.slice(start, end) || placeholder;
+    const next = `${open}${selected}${close}`;
+    editor.setRangeText(next, start, end, 'select');
+    editor.selectionStart = start + open.length;
+    editor.selectionEnd = start + open.length + selected.length;
+    this._markdownByCard[this._activeCardId] = editor.value;
+    this._renderMarkdownPreview();
+  },
+
+  _prefixSelection(prefix) {
+    const editor = document.getElementById('markdown-editor');
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    const selected = editor.value.slice(start, end) || '文本';
+    const next = selected.split('\n').map(line => `${prefix}${line}`).join('\n');
+    editor.setRangeText(next, start, end, 'select');
+    this._markdownByCard[this._activeCardId] = editor.value;
+    this._renderMarkdownPreview();
+  },
+
+  _insertMarkdown(text) {
+    const editor = document.getElementById('markdown-editor');
+    const start = editor.selectionStart;
+    const pad = start > 0 && editor.value[start - 1] !== '\n' ? '\n' : '';
+    editor.setRangeText(`${pad}${text}`, start, editor.selectionEnd, 'end');
+    this._markdownByCard[this._activeCardId] = editor.value;
+    this._renderMarkdownPreview();
+  },
+
+  _clearInlineStyle() {
+    const editor = document.getElementById('markdown-editor');
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    const scope = start === end ? editor.value : editor.value.slice(start, end);
+    const cleaned = scope.replace(/<\/?(span|mark)[^>]*>/g, '');
+    if (start === end) editor.value = cleaned;
+    else editor.setRangeText(cleaned, start, end, 'select');
+    this._markdownByCard[this._activeCardId] = editor.value;
+    this._renderMarkdownPreview();
+  },
+
+  _applyStyleToAllCards() {
+    if (!this._activeCardId) return;
+    const style = { ...this._currentStyle() };
+    this._cards.forEach(card => {
+      this._styleByCard[card.card_id] = { ...style };
+    });
+    this._styleAppliedToAllDirty = true;
+    this._setStatus('样式已应用到全套，记得保存');
+    this._renderMarkdownPreview();
+  },
+
+  _renderAssetTokenHelp() {
+    const el = document.getElementById('asset-token-list');
+    if (!el) return;
+    const entries = Object.entries(this._assetByKey);
+    if (!entries.length) {
+      el.innerHTML = '<span>暂无图片素材，请先在图片定稿台采集</span>';
       return;
     }
-
-    const template = this._effectiveTemplate() || TemplateRenderer?.DEFAULT_TEMPLATE || {};
-    const canvas = template.canvas || { width: 900, height: 1200 };
-    const regions = template.regions || [];
-    const overrides = this._layoutOverrides || {};
-
-    // Apply overrides + cached text edits to regions for rendering
-    const mergedRegions = regions.map(r => {
-      const ov = overrides[r.id] || {};
-      const merged = this._deepMerge({ ...r }, ov);
-      // Preserve edited text content across iframe rebuilds
-      if (this._regionTextCache?.[r.id]) {
-        merged.value = this._regionTextCache[r.id];
-      }
-      return merged;
-    });
-
-    const renderCard = {
-      ...card,
-      template: { ...template, regions: mergedRegions },
-      layout: { overrides: {} },
-    };
-
-    let html;
-    if (typeof TemplateRenderer !== 'undefined') {
-      html = TemplateRenderer.render(renderCard);
-    } else {
-      html = this._fallbackRender(renderCard);
-    }
-
-    // Inject editable text + region highlight styles
-    html = html.replace('</style>', `
-      [data-od-id] { transition: box-shadow .15s; }
-      html,
-      body,
-      body * {
-        -webkit-user-select:none !important;
-        user-select:none !important;
-      }
-      [data-od-id].region-selected {
-        box-shadow: inset 0 0 0 2px #29B8D4 !important;
-        outline: 2px solid #29B8D4 !important; outline-offset: -1px;
-      }
-      [data-od-id][data-markdown-editable="true"] { cursor: text; }
-      [data-od-id][data-markdown-editable="true"]:hover { outline: 1px dashed rgba(41,184,212,.4); outline-offset: -1px; }
-      .fmt-toolbar {
-        position:absolute;
-        left:0;
-        right:0;
-        top:0;
-        z-index:3;
-        display:flex;
-        align-items:center;
-        gap:4px;
-        padding:5px 8px;
-        margin-bottom:4px;
-        background:rgba(27,42,74,0.96);
-        border-radius:8px;
-        box-shadow:0 2px 12px rgba(0,0,0,0.3);
-        flex-wrap:wrap;
-        -webkit-user-select:none !important;
-        user-select:none !important;
-      }
-      .fmt-label { font-size:10px; color:rgba(255,255,255,0.45); letter-spacing:.04em; }
-      .fmt-sep { width:1px; height:14px; background:rgba(255,255,255,0.15); margin:0 2px; }
-      .fmt-swatch {
-        width:16px;
-        height:16px;
-        border-radius:50%;
-        border:1.5px solid transparent;
-        cursor:pointer;
-        transition:transform .1s, box-shadow .1s;
-        padding:0;
-      }
-      .fmt-swatch:hover { transform:scale(1.25); box-shadow:0 0 0 2px rgba(255,255,255,0.4); }
-      .fmt-bg-swatch {
-        padding:1px 6px;
-        font-size:10px;
-        border-radius:4px;
-        border:1px solid rgba(255,255,255,0.1);
-        cursor:pointer;
-        color:#111;
-      }
-      .fmt-custom {
-        background:rgba(255,255,255,0.12)!important;
-        color:#fff;
-        font-size:12px;
-        border-color:rgba(255,255,255,0.2)!important;
-      }
-      .fmt-clear {
-        font-size:10px;
-        color:rgba(255,255,255,0.5);
-        background:none;
-        border:none;
-        cursor:pointer;
-        padding:1px 4px;
-      }
-      .fmt-clear:hover { color:#EF4444; }
-      .region-markdown-editor {
-        position:absolute;
-        left:0;
-        right:0;
-        top:34px;
-        bottom:0;
-        width:100%;
-        height:auto;
-        resize:none;
-        border:0;
-        border-radius:4px;
-        padding:8px;
-        background:rgba(255,255,255,.96);
-        color:#111;
-        font:14px/1.45 'IBM Plex Mono', ui-monospace, monospace;
-        white-space:pre-wrap;
-        box-shadow:inset 0 0 0 2px #29B8D4;
-        outline:none;
-        -webkit-user-select:text !important;
-        user-select:text !important;
-      }
-      .region-markdown-editor * {
-        -webkit-user-select:text !important;
-        user-select:text !important;
-      }
-      .region-markdown-editor:focus {
-        box-shadow: inset 0 0 0 2px #29B8D4 !important; outline: 2px solid #29B8D4 !important; outline-offset: -1px;
-      }
-    </style>`);
-
-    this._scale = Math.min(
-      (area.clientWidth - 40) / canvas.width,
-      (area.clientHeight - 40) / canvas.height,
-      1.0
-    );
-
-    area.innerHTML = `<div class="canvas-stage" id="canvas-stage" style="width:${canvas.width * this._scale}px;height:${canvas.height * this._scale}px;position:relative">
-      <iframe id="preview-iframe" srcdoc="${this._escAttr(html)}" style="width:${canvas.width}px;height:${canvas.height}px;transform:scale(${this._scale});transform-origin:top left;border:none"></iframe>
-      <div id="region-hitboxes" style="position:absolute;inset:0;z-index:2">
-        ${this._renderRegionHitboxes(mergedRegions)}
-      </div>
-    </div>`;
-    this._bindRegionHitboxes();
-
-    // srcdoc iframe：先试同步访问，失败则等 load
-    const iframe = document.getElementById('preview-iframe');
-    const setup = () => this._setupIframeRegions(iframe, template);
-    // 延迟一帧确保 DOM ready
-    requestAnimationFrame(() => {
-      if (!this._setupIframeRegions(iframe, template)) {
-        iframe.addEventListener('load', setup);
-      }
-    });
-  },
-
-  _renderRegionHitboxes(regions) {
-    return (regions || []).map(region => {
-      const cursor = region.type === 'text' ? 'text' : 'pointer';
-      return `<div class="region-hitbox" data-region-id="${this._escAttr(region.id)}" data-region-type="${this._escAttr(region.type || '')}" style="position:absolute;left:${(region.x || 0) * this._scale}px;top:${(region.y || 0) * this._scale}px;width:${(region.w || 0) * this._scale}px;height:${(region.h || 0) * this._scale}px;cursor:${cursor};background:transparent"></div>`;
+    el.innerHTML = entries.map(([key, item]) => {
+      const label = item.media_label || item.item_label || key;
+      return '<code>' + this._esc(label) + '：{{' + this._esc(key) + '}}</code>';
     }).join('');
+    const hint = document.createElement('span');
+    hint.textContent = ' 或 ![](...)';
+    el.appendChild(hint);
   },
 
-  _bindRegionHitboxes() {
-    document.querySelectorAll('.region-hitbox').forEach(hitbox => {
-      const regionId = hitbox.dataset.regionId;
-      const beginEdit = (event) => {
-        if (hitbox.dataset.regionType !== 'text') return;
-        event.preventDefault();
-        event.stopPropagation();
-        this._beginMarkdownEditFromParent(regionId);
-      };
-      hitbox.addEventListener('mousedown', (event) => {
-        event.preventDefault();
-        if (event.detail >= 2) beginEdit(event);
-      });
-      hitbox.addEventListener('click', (event) => {
-        event.preventDefault();
-        if (event.detail >= 2) {
-          beginEdit(event);
-        } else {
-          this._selectRegion(regionId);
-        }
-      });
-      hitbox.addEventListener('dblclick', beginEdit);
+  _lsKey() {
+    return `layout_local:${this._company}:${this._setKey}`;
+  },
+
+  _saveLocalCurrent() {
+    if (!this._activeCardId) return;
+    const data = this._loadLocalData();
+    data.markdownByCard[this._activeCardId] = this._markdownByCard[this._activeCardId] || '';
+    data.styleByCard[this._activeCardId] = { ...this._currentStyle() };
+    this._writeLocalData(data);
+    this._setStatus('当前卡片已暂存到浏览器');
+  },
+
+  _saveLocalAll() {
+    const data = this._loadLocalData();
+    this._cards.forEach(card => {
+      data.markdownByCard[card.card_id] = this._markdownByCard[card.card_id] || '';
+      data.styleByCard[card.card_id] = { ...this._defaultStyle, ...(this._styleByCard[card.card_id] || {}) };
     });
+    this._writeLocalData(data);
+    this._setStatus(`全部 ${this._cards.length} 张卡片已暂存到浏览器`);
   },
 
-  _setupIframeRegions(iframe, template) {
+  _loadLocalData() {
     try {
-      const doc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (!doc || !doc.body) return false;
-
-      const regions = template.regions || [];
-      const textRegions = regions.filter(r => r.type === 'text');
-      doc._layoutTextRegionIds = new Set(textRegions.map(r => r.id));
-      const editableSelector = '[data-markdown-editable="true"]';
-      const editorSelector = '.region-markdown-editor';
-      const closestFromEvent = (target, selector) => {
-        const el = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
-        return el?.closest?.(selector) || null;
-      };
-      const beginEditFromEvent = (event, regionEl) => {
-        const regionId = regionEl?.dataset?.odId;
-        if (!regionId || !doc._layoutTextRegionIds?.has(regionId)) return false;
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        doc.getSelection?.().removeAllRanges();
-        if (this._activeRegionId !== regionId) this._selectRegion(regionId);
-        this._beginMarkdownEdit(doc, regionId);
-        return true;
-      };
-
-      if (!doc._layoutMarkdownHandlersInstalled) {
-        doc.addEventListener('selectstart', (event) => {
-          if (!closestFromEvent(event.target, editorSelector)) event.preventDefault();
-        }, true);
-        doc.addEventListener('selectionchange', () => {
-          if (doc.activeElement?.classList?.contains('region-markdown-editor')) return;
-          const selection = doc.getSelection?.();
-          if (selection && !selection.isCollapsed) selection.removeAllRanges();
-        });
-        doc.addEventListener('pointerdown', (event) => {
-          if (closestFromEvent(event.target, editorSelector)) return;
-          const regionEl = closestFromEvent(event.target, editableSelector);
-          if (!regionEl) return;
-          event.preventDefault();
-          doc.getSelection?.().removeAllRanges();
-          if (event.detail >= 2) beginEditFromEvent(event, regionEl);
-        }, true);
-        doc.addEventListener('mousedown', (event) => {
-          if (closestFromEvent(event.target, editorSelector)) return;
-          const regionEl = closestFromEvent(event.target, editableSelector);
-          if (!regionEl) return;
-          event.preventDefault();
-          event.stopPropagation();
-          doc.getSelection?.().removeAllRanges();
-          if (event.detail >= 2) beginEditFromEvent(event, regionEl);
-        }, true);
-        doc.addEventListener('click', (event) => {
-          if (closestFromEvent(event.target, editorSelector)) return;
-          const regionEl = closestFromEvent(event.target, editableSelector);
-          if (regionEl && event.detail >= 2) beginEditFromEvent(event, regionEl);
-        }, true);
-        doc.addEventListener('dblclick', (event) => {
-          if (closestFromEvent(event.target, editorSelector)) return;
-          const regionEl = closestFromEvent(event.target, editableSelector);
-          if (regionEl) beginEditFromEvent(event, regionEl);
-        }, true);
-        doc._layoutMarkdownHandlersInstalled = true;
+      const raw = localStorage.getItem(this._lsKey());
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          markdownByCard: parsed.markdownByCard || {},
+          styleByCard: parsed.styleByCard || {},
+        };
       }
-
-      let editableCount = 0;
-      textRegions.forEach(r => {
-        const el = doc.querySelector(`[data-od-id="${r.id}"]`);
-        if (el && el.tagName !== 'IMG') {
-          el.dataset.markdownEditable = 'true';
-          editableCount++;
-        }
-      });
-
-      this._refreshRegionHighlight(doc);
-      return editableCount > 0;
-    } catch (e) { return false; }
+    } catch {}
+    return { markdownByCard: {}, styleByCard: {} };
   },
 
-  _refreshRegionHighlight(doc) {
-    if (!doc) return;
-    doc.querySelectorAll('.region-selected').forEach(el => el.classList.remove('region-selected'));
-    if (this._activeRegionId) {
-      const el = doc.querySelector(`[data-od-id="${this._activeRegionId}"]`);
-      if (el) el.classList.add('region-selected');
+  _writeLocalData(data) {
+    try {
+      localStorage.setItem(this._lsKey(), JSON.stringify({
+        markdownByCard: data.markdownByCard,
+        styleByCard: data.styleByCard,
+        savedAt: new Date().toISOString(),
+      }));
+    } catch (e) {
+      alert('暂存失败: ' + e.message);
     }
   },
 
-  _beginMarkdownEdit(doc, regionId) {
-    const region = (this._effectiveTemplate().regions || []).find(r => r.id === regionId);
-    if (!region || region.type !== 'text') return;
-    const el = doc.querySelector(`[data-od-id="${regionId}"]`);
-    if (!el || el.querySelector('.region-markdown-editor')) return;
-    const hitboxes = document.getElementById('region-hitboxes');
-    if (hitboxes) hitboxes.style.pointerEvents = 'none';
-    const iframe = document.getElementById('preview-iframe');
-    if (iframe) iframe.style.pointerEvents = 'auto';
-
-    const textarea = doc.createElement('textarea');
-    textarea.className = 'region-markdown-editor';
-    textarea.value = this._markdownForRegion(region);
-    textarea.setAttribute('aria-label', `${regionId} Markdown`);
-    el.innerHTML = '';
-    const toolbar = doc.createElement('div');
-    toolbar.className = 'fmt-toolbar';
-    toolbar.innerHTML = `
-      <span class="fmt-label">颜色</span>
-      ${['#FFFFFF','#29B8D4','#1B2A4A','#F97316','#EF4444','#22C55E'].map(c =>
-        `<button class="fmt-swatch" data-action="color" data-value="${c}"
-          style="background:${c};border-color:${c==='#FFFFFF'?'#ccc':c}" title="${c}"></button>`
-      ).join('')}
-      <button class="fmt-swatch fmt-custom" data-action="color-pick" title="自定义">+</button>
-      <span class="fmt-sep"></span>
-      <span class="fmt-label">底色</span>
-      ${[['#FEF08A','高亮'],['rgba(41,184,212,0.2)','青底'],['rgba(239,68,68,0.15)','红底']].map(([c,l]) =>
-        `<button class="fmt-bg-swatch" data-action="bg" data-value="${c}"
-          style="background:${c}">${l}</button>`
-      ).join('')}
-      <button class="fmt-swatch fmt-custom" data-action="bg-pick" title="自定义背景">+</button>
-      <span class="fmt-sep"></span>
-      <button class="fmt-clear" data-action="clear">清除</button>
-    `;
-    el.appendChild(toolbar);
-    el.appendChild(textarea);
-
-    toolbar.addEventListener('mousedown', (event) => {
-      event.preventDefault();
-      const btn = event.target.closest('[data-action]');
-      if (!btn) return;
-      const action = btn.dataset.action;
-
-      const wrapSel = (open, close) => {
-        const s = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        if (s === end) return;
-        const sel = textarea.value.slice(s, end);
-        const repl = open + sel + close;
-        textarea.value = textarea.value.slice(0, s) + repl + textarea.value.slice(end);
-        textarea.selectionStart = s + open.length;
-        textarea.selectionEnd = s + open.length + sel.length;
-        textarea.focus();
-      };
-
-      if (action === 'color') {
-        wrapSel(`<span style="color:${btn.dataset.value}">`, '</span>');
-      } else if (action === 'bg') {
-        wrapSel(`<mark style="background:${btn.dataset.value};border-radius:3px;padding:0 2px">`, '</mark>');
-      } else if (action === 'color-pick') {
-        const inp = doc.createElement('input');
-        inp.type = 'color';
-        inp.value = '#29B8D4';
-        inp.style.cssText = 'position:absolute;opacity:0;pointer-events:none';
-        doc.body.appendChild(inp);
-        inp.click();
-        inp.oninput = () => wrapSel(`<span style="color:${inp.value}">`, '</span>');
-        inp.addEventListener('blur', () => inp.remove());
-      } else if (action === 'bg-pick') {
-        const inp = doc.createElement('input');
-        inp.type = 'color';
-        inp.value = '#FEF08A';
-        inp.style.cssText = 'position:absolute;opacity:0;pointer-events:none';
-        doc.body.appendChild(inp);
-        inp.click();
-        inp.oninput = () => wrapSel(`<mark style="background:${inp.value};border-radius:3px;padding:0 2px">`, '</mark>');
-        inp.addEventListener('blur', () => inp.remove());
-      } else if (action === 'clear') {
-        const s = textarea.selectionStart;
-        const e2 = textarea.selectionEnd;
-        const scope = s === e2 ? textarea.value : textarea.value.slice(s, e2);
-        const cleaned = scope.replace(/<\/?(span|mark)[^>]*>/g, '');
-        if (s === e2) {
-          textarea.value = cleaned;
-        } else {
-          textarea.value = textarea.value.slice(0, s) + cleaned + textarea.value.slice(e2);
-        }
-        textarea.focus();
+  _restoreLocal() {
+    const data = this._loadLocalData();
+    const mdKeys = Object.keys(data.markdownByCard);
+    const stKeys = Object.keys(data.styleByCard);
+    if (!mdKeys.length && !stKeys.length) return;
+    mdKeys.forEach(cardId => {
+      if (this._markdownByCard.hasOwnProperty(cardId)) {
+        this._markdownByCard[cardId] = data.markdownByCard[cardId];
       }
     });
-
-    textarea.focus();
-    const end = textarea.value.length;
-    textarea.setSelectionRange(end, end);
-
-    let committed = false;
-    const commit = () => {
-      if (committed) return;
-      committed = true;
-      this._commitMarkdownEdit(regionId, textarea.value);
-    };
-    textarea.addEventListener('blur', commit);
-    textarea.addEventListener('keydown', (event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-        event.preventDefault();
-        commit();
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        committed = true;
-        this._renderPreview();
+    stKeys.forEach(cardId => {
+      if (this._styleByCard.hasOwnProperty(cardId)) {
+        this._styleByCard[cardId] = { ...this._defaultStyle, ...data.styleByCard[cardId] };
       }
     });
+    const count = new Set([...mdKeys, ...stKeys]).size;
+    this._setStatus(`已从浏览器恢复 ${count} 张卡片的暂存`);
   },
 
-  _beginMarkdownEditFromParent(regionId) {
-    const iframe = document.getElementById('preview-iframe');
-    if (!iframe) return;
-    try {
-      const doc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (!doc) return;
-      if (this._activeRegionId !== regionId) this._selectRegion(regionId);
-      doc.getSelection?.().removeAllRanges();
-      this._beginMarkdownEdit(doc, regionId);
-    } catch (e) { /* iframe not ready */ }
+  _setMode(mode) {
+    this._mode = 'split';
+    requestAnimationFrame(() => this._fitPreview());
   },
 
-  _commitMarkdownEdit(regionId, markdown) {
-    if (!this._activeCard) return;
-    this._layoutOverrides[regionId] = this._deepMerge(
-      this._layoutOverrides[regionId] || {},
-      { value: String(markdown || '') }
-    );
-    this._activeCard.layout = {
-      ...(this._activeCard.layout || {}),
-      overrides: this._layoutOverrides,
+  _startSplitDrag(event) {
+    if (this._mode !== 'split') return;
+    event.preventDefault();
+    const shell = document.getElementById('editor-shell');
+    const move = moveEvent => {
+      const rect = shell.getBoundingClientRect();
+      const ratio = (moveEvent.clientX - rect.left) / rect.width;
+      this._splitRatio = Math.min(0.72, Math.max(0.32, ratio));
+      shell.style.gridTemplateColumns =
+        `minmax(320px, ${this._splitRatio}fr) 8px minmax(300px, ${1 - this._splitRatio}fr)`;
+      this._fitPreview();
     };
-    this._renderPreview();
-    this._renderLayerList();
-    requestAnimationFrame(() => this._selectRegion(regionId));
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
   },
 
-  _markdownForRegion(region) {
-    if (region.value !== undefined) return String(region.value || '');
-    const role = region.role || 'body';
-    const items = this._activeCard?.items || [];
-    const roleItems = items.filter(item => (item.display_role || 'body') === role);
-    const textItems = roleItems.length ? roleItems : items.filter(item => (item.display_role || 'body') === 'body');
-    return textItems
-      .filter(item => item.item_type === 'field')
-      .map(item => item.value || '')
-      .filter(Boolean)
-      .join('\n\n');
-  },
-
-  _bindRegionClicks() {
-    // Now handled by _setupIframeRegions
-  },
-
-  _fallbackRender(card) {
-    const items = card.items || [];
-    const fields = items.filter(i => i.item_type === 'field').map(i => `<p>${this._esc(i.value || '')}</p>`).join('');
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{width:900px;height:1200px;background:#fff;font-family:sans-serif;padding:68px}</style></head><body><h1>${this._esc(card.card_title)}</h1>${fields}</body></html>`;
+  _fitPreview() {
+    const frame = document.getElementById('preview-frame');
+    const wrap = document.getElementById('preview-frame-wrap');
+    const stage = document.getElementById('preview-stage');
+    if (!frame || !wrap || !stage || this._mode === 'write') return;
+    const scale = Math.min((stage.clientWidth - 48) / 900, (stage.clientHeight - 48) / 1200, 1);
+    this._previewScale = Math.max(0.2, scale);
+    wrap.style.width = `${900 * this._previewScale}px`;
+    wrap.style.height = `${1200 * this._previewScale}px`;
+    frame.style.transform = `scale(${this._previewScale})`;
+    frame.style.width = '900px';
+    frame.style.height = '1200px';
   },
 
   _effectiveTemplate() {
-    const base = this._activeCard?.template || TemplateRenderer?.DEFAULT_TEMPLATE || {};
-    const regions = (base.regions || []).map(region => {
-      const override = this._layoutOverrides[region.id];
-      return override ? this._deepMerge(region, override) : region;
-    });
-    return { ...base, regions };
+    return this._activeCard?.template || {};
   },
 
-  _deepMerge(base, override) {
-    const result = { ...(base || {}) };
-    Object.entries(override || {}).forEach(([key, value]) => {
-      if (value && typeof value === 'object' && !Array.isArray(value) && result[key] && typeof result[key] === 'object') {
-        result[key] = this._deepMerge(result[key], value);
-      } else {
-        result[key] = value;
-      }
-    });
-    return result;
-  },
-
-  /* ── 区域点击 → 属性面板 ── */
-  _bindRegionClicks() {
-    // 绑定 iframe 内区域点击（如果有的话）；不做任何会清除选中状态的事
-  },
-
-  /* ── 图层列表 ── */
-  _renderLayerList() {
-    const el = document.getElementById('layer-list');
-    const template = this._effectiveTemplate();
-    const regions = template.regions || [];
-    el.innerHTML = regions.map((r, i) => `
-      <div class="layer-item${r.id === this._activeRegionId ? ' active' : ''}" data-region-id="${r.id}">
-        <span class="layer-dot" style="background:${r.type==='text'?'#29B8D4':r.type==='image'?'#81C784':'#C4B5FD'}"></span>
-        <span class="layer-name">${this._esc(r.id)}</span>
-        <span class="layer-role">${r.role || r.type || ''}</span>
-      </div>
-    `).join('');
-
-    el.querySelectorAll('.layer-item').forEach(item => {
-      item.addEventListener('click', () => {
-        this._selectRegion(item.dataset.regionId);
-      });
-    });
-  },
-
-  _selectRegion(regionId) {
-    this._activeRegionId = regionId;
-    // 更新图层列表 active 状态
-    document.querySelectorAll('.layer-item').forEach(li =>
-      li.classList.toggle('active', li.dataset.regionId === regionId));
-    const template = this._effectiveTemplate();
-    const region = (template.regions || []).find(r => r.id === regionId);
-    this._renderPropertyPanel(region);
-    // 高亮 iframe 中的区域
-    const iframe = document.getElementById('preview-iframe');
-    if (iframe) {
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow?.document;
-        this._refreshRegionHighlight(doc);
-      } catch (e) { /* cross-origin */ }
-    }
-  },
-
-  /* ── 属性面板 ── */
-  _renderPropertyPanel(region) {
-    const el = document.getElementById('property-panel');
-    if (!region) {
-      el.innerHTML = '<div class="empty-state">选择图层查看属性</div>';
-      return;
-    }
-
-    const s = region.style || {};
-    const fontFamilies = ['Noto Sans SC', 'Instrument Sans', 'Bebas Neue', 'IBM Plex Mono', 'DM Serif Display'];
-
-    el.innerHTML = `
-      <label>ID: <strong>${this._esc(region.id)}</strong> (${region.type} / ${region.role || '-'})</label>
-      <div class="prop-row">
-        <label>X <input type="number" value="${region.x}" data-key="x" data-rid="${region.id}" onchange="LayoutApp._onPropChange(this)"></label>
-        <label>Y <input type="number" value="${region.y}" data-key="y" data-rid="${region.id}" onchange="LayoutApp._onPropChange(this)"></label>
-      </div>
-      <div class="prop-row">
-        <label>W <input type="number" value="${region.w}" data-key="w" data-rid="${region.id}" onchange="LayoutApp._onPropChange(this)"></label>
-        <label>H <input type="number" value="${region.h}" data-key="h" data-rid="${region.id}" onchange="LayoutApp._onPropChange(this)"></label>
-      </div>
-      ${region.type === 'text' ? `
-        <label>字体 <select data-key="fontFamily" data-rid="${region.id}" onchange="LayoutApp._onPropChange(this)" style="width:100%">
-          ${fontFamilies.map(f => `<option ${s.fontFamily===f?'selected':''}>${f}</option>`).join('')}
-        </select></label>
-        <div class="prop-row">
-          <label>字号 <input type="range" min="10" max="96" value="${s.fontSize||24}" data-key="fontSize" data-rid="${region.id}" oninput="LayoutApp._onPropChange(this)"><span style="font-size:10px">${s.fontSize||24}</span></label>
-        </div>
-        <div class="prop-row">
-          <label>字重 <input type="range" min="100" max="900" step="100" value="${s.fontWeight||400}" data-key="fontWeight" data-rid="${region.id}" oninput="LayoutApp._onPropChange(this)"><span style="font-size:10px">${s.fontWeight||400}</span></label>
-        </div>
-        <label>颜色 <input type="color" value="${s.color||'#111111'}" data-key="color" data-rid="${region.id}" onchange="LayoutApp._onPropChange(this)"></label>
-        <label>行高 <input type="number" step="0.1" min="1" max="3" value="${s.lineHeight||1.5}" data-key="lineHeight" data-rid="${region.id}" onchange="LayoutApp._onPropChange(this)"></label>
-      ` : ''}
-      ${region.type === 'image' || region.type === 'chart' ? `
-        <label>圆角 <input type="range" min="0" max="40" value="${s.borderRadius||0}" data-key="borderRadius" data-rid="${region.id}" oninput="LayoutApp._onPropChange(this)"><span style="font-size:10px">${s.borderRadius||0}</span></label>
-        <label>适应方式 <select data-key="objectFit" data-rid="${region.id}" onchange="LayoutApp._onPropChange(this)">
-          <option ${s.objectFit==='contain'?'selected':''}>contain</option>
-          <option ${s.objectFit==='cover'?'selected':''}>cover</option>
-        </select></label>
-      ` : ''}
-      <label>透明度 <input type="range" min="0" max="1" step="0.05" value="${s.opacity||1}" data-key="opacity" data-rid="${region.id}" oninput="LayoutApp._onPropChange(this)"><span style="font-size:10px">${s.opacity||1}</span></label>
-    `;
-  },
-
-  _onPropChange(el) {
-    const rid = el.dataset.rid;
-    const key = el.dataset.key;
-    let val = el.value;
-    if (el.type === 'range' || el.type === 'number') val = parseFloat(val);
-
-    const region = (this._effectiveTemplate().regions || []).find(r => r.id === rid);
-    if (!region) return;
-
-    const geometryKeys = new Set(['x', 'y', 'w', 'h']);
-    const patch = geometryKeys.has(key)
-      ? { [key]: val }
-      : { style: { [key]: val } };
-    this._layoutOverrides[rid] = this._deepMerge(this._layoutOverrides[rid] || {}, patch);
-    this._activeCard.layout = {
-      ...(this._activeCard.layout || {}),
-      overrides: this._layoutOverrides,
-    };
-
-    // Range sliders: debounce preview. Number/color: immediate.
-    const doPreview = () => {
-      this._renderPreview();
-      // Re-setup iframe after preview rebuild
-      const iframe = document.getElementById('preview-iframe');
-      if (iframe) {
-        requestAnimationFrame(() => {
-          this._setupIframeRegions(iframe, this._effectiveTemplate());
-        });
-      }
-    };
-    if (el.type === 'range') {
-      clearTimeout(this._previewDebounce);
-      this._previewDebounce = setTimeout(doPreview, 60);
-    } else {
-      doPreview();
-    }
-    // Keep active region visible in layer list without rebuilding property panel
-    document.querySelectorAll('.layer-item').forEach(li =>
-      li.classList.toggle('active', li.dataset.regionId === this._activeRegionId));
-    // Update the displayed value text next to range sliders
-    const valSpan = el.nextElementSibling;
-    if (valSpan && el.type === 'range') valSpan.textContent = el.value;
-  },
-
-  /* ── 应用模板 ── */
   async _applyTemplate() {
     const tid = document.getElementById('template-select').value;
-    if (!tid || !this._activeCardId) return;
-
-    // 更新 card_compositions 的 template_id
+    if (!this._activeCardId) return;
+    const currentMarkdown = this._markdownByCard[this._activeCardId] || '';
     try {
       const r = await fetch(`/api/card-config/${encodeURIComponent(this._company)}/cards/${encodeURIComponent(this._activeCardId)}?set=${this._setKey}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template_id: tid }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       await this._loadData();
+      this._markdownByCard[this._activeCardId] = currentMarkdown;
       this._selectCard(this._activeCardId);
-    } catch (e) { alert('应用失败: ' + e.message); }
+      this._autoSave();
+      this._setStatus('模板已应用，正文已保留');
+    } catch (e) {
+      alert('应用失败: ' + e.message);
+    }
   },
 
-  /* ── 保存排版 ── */
+  _layoutPayload(cardId = this._activeCardId) {
+    const card = this._cards.find(c => c.card_id === cardId) || this._activeCard || {};
+    return {
+      mode: 'markdown_first',
+      markdown: this._markdownByCard[cardId] || '',
+      style: { ...this._defaultStyle, ...(this._styleByCard[cardId] || {}) },
+      template_id: card.template_id || '',
+      overrides: card.layout?.overrides || {},
+    };
+  },
+
   async _saveLayout() {
     if (!this._activeCardId) return;
+    if (this._styleAppliedToAllDirty) {
+      await this._saveAllLayouts();
+      return;
+    }
     try {
       const r = await fetch(`/api/layout/${encodeURIComponent(this._company)}/${encodeURIComponent(this._activeCardId)}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ overrides: this._layoutOverrides }),
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layout: this._layoutPayload() }),
       });
-      if (r.ok) {
-        alert('排版已保存');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      this._setStatus('排版已保存');
+    } catch (e) {
+      alert('保存失败: ' + e.message);
+    }
+  },
+
+  async _saveAllLayouts() {
+    try {
+      for (const card of this._cards) {
+        const r = await fetch(`/api/layout/${encodeURIComponent(this._company)}/${encodeURIComponent(card.card_id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ layout: this._layoutPayload(card.card_id) }),
+        });
+        if (!r.ok) throw new Error(`${card.card_id} HTTP ${r.status}`);
       }
-    } catch (e) { alert('保存失败: ' + e.message); }
+      this._styleAppliedToAllDirty = false;
+      this._setStatus('全套样式已保存');
+    } catch (e) {
+      alert('保存失败: ' + e.message);
+    }
   },
 
   async _resetLayout() {
     if (!this._activeCardId) return;
-    if (!confirm('重置当前卡片排版到模板默认值？')) return;
+    if (!confirm('重置当前卡片排版？Markdown 会恢复为定稿台内容。')) return;
     try {
       await fetch(`/api/layout/${encodeURIComponent(this._company)}/${encodeURIComponent(this._activeCardId)}/reset`, { method: 'POST' });
       await this._loadData();
       this._selectCard(this._activeCardId);
-    } catch (e) { alert('重置失败: ' + e.message); }
+      this._setStatus('已重置');
+    } catch (e) {
+      alert('重置失败: ' + e.message);
+    }
   },
 
   _exportPNG() {
@@ -760,7 +844,6 @@ const LayoutApp = {
 
   _showExportDialog() {
     if (document.getElementById('export-dialog-overlay')) return;
-
     const overlay = document.createElement('div');
     overlay.id = 'export-dialog-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999;display:flex;align-items:center;justify-content:center';
@@ -796,27 +879,27 @@ const LayoutApp = {
           <button id="export-dialog-confirm" style="padding:7px 20px;border:none;border-radius:6px;background:var(--cyan, #29B8D4);color:#fff;font-size:13px;font-weight:600;cursor:pointer">开始导出</button>
         </div>
       </div>`;
-
     document.body.appendChild(overlay);
-
     overlay.querySelector('#export-dialog-cancel').onclick = () => overlay.remove();
     overlay.querySelector('#export-dialog-confirm').onclick = () => {
       const range = document.getElementById('export-range').value;
       const format = document.getElementById('export-format').value;
-      const scale = parseInt(document.getElementById('export-scale').value);
+      const scale = parseInt(document.getElementById('export-scale').value, 10);
       overlay.remove();
       this._startExport({ range, format, scale });
     };
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   },
 
   async _startExport(opts = {}) {
     try {
       this._setStatus('导出中');
+      await this._saveLayout();
       const payload = {
         card_ids: opts.range === 'current' && this._activeCardId ? [this._activeCardId] : undefined,
         format: opts.format || 'png',
         scale: opts.scale || 2,
+        set: this._setKey || 'v1',
       };
       const r = await fetch(`/api/export/${encodeURIComponent(this._company)}`, {
         method: 'POST',
@@ -854,8 +937,13 @@ const LayoutApp = {
     if (el) el.textContent = text;
   },
 
-  _esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); },
-  _escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); },
+  _esc(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  },
+
+  _escAttr(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  },
 };
 
 document.addEventListener('DOMContentLoaded', () => LayoutApp.init());

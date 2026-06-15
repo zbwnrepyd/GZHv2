@@ -82,11 +82,79 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("cardData._allAssets = assets", api_loader_js)
         self.assertIn("cardData._resolvedCardAssets", api_loader_js)
 
+    def test_layout_center_is_markdown_first_without_layer_panel(self):
+        with open(os.path.join(ROOT, "webapp", "templates", "layout.html"), encoding="utf-8") as f:
+            layout_html = f.read()
+        with open(os.path.join(ROOT, "webapp", "static", "js", "layout", "layout-app.js"), encoding="utf-8") as f:
+            layout_js = f.read()
+
+        self.assertIn('id="markdown-editor"', layout_html)
+        self.assertIn('id="markdown-toolbar"', layout_html)
+        self.assertIn('id="style-panel"', layout_html)
+        self.assertIn('id="preview-pane"', layout_html)
+        self.assertIn('id="splitter"', layout_html)
+        self.assertIn('id="preview-frame-wrap"', layout_html)
+        self.assertIn("flex: 0 0 auto", layout_html)
+        self.assertIn("grid-template-columns: minmax(360px, 0.58fr) 8px minmax(320px, 0.42fr)", layout_html)
+        self.assertIn("grid-template-columns: minmax(320px, 0.58fr) 8px minmax(260px, 0.42fr)", layout_html)
+        self.assertIn("grid-template-columns: repeat(8, minmax(64px, 1fr))", layout_html)
+        self.assertIn("grid-template-columns: repeat(8, minmax(44px, 1fr))", layout_html)
+        self.assertIn("max-height: 72px", layout_html)
+        self.assertIn("Markdown 素材", layout_html)
+        self.assertIn('aria-label="清除样式"', layout_html)
+        self.assertIn("layout-editor-shell", layout_html)
+        self.assertNotIn('data-mode="split"', layout_html)
+        self.assertNotIn('data-mode="write"', layout_html)
+        self.assertNotIn('data-mode="preview"', layout_html)
+        self.assertNotIn("write-mode", layout_html)
+        self.assertNotIn("preview-mode", layout_html)
+        self.assertNotIn('id="layer-list"', layout_html)
+        self.assertNotIn('id="property-panel"', layout_html)
+        self.assertNotIn("选择图层", layout_html)
+
+        self.assertIn("_markdownByCard", layout_js)
+        self.assertIn("_styleByCard", layout_js)
+        self.assertIn("_splitRatio: 0.58", layout_js)
+        self.assertIn("_renderMarkdownPreview", layout_js)
+        self.assertIn("_resolveAssetToken", layout_js)
+        self.assertIn("{{logo}}", layout_js)
+        self.assertIn("{{chart_competitive}}", layout_js)
+        self.assertIn("_applyStyleToAllCards", layout_js)
+        self.assertNotIn("_renderLayerList", layout_js)
+        self.assertNotIn("_renderPropertyPanel", layout_js)
+
+    def test_flywheel_chart_workspace_has_stable_layout(self):
+        with open(os.path.join(ROOT, "image-studio", "js", "workspace-chart.js"), encoding="utf-8") as f:
+            workspace_js = f.read()
+        with open(os.path.join(ROOT, "image-studio", "css", "studio.css"), encoding="utf-8") as f:
+            studio_css = f.read()
+
+        self.assertIn("flywheel-workspace", workspace_js)
+        self.assertIn('id="flywheel-stage-host"', workspace_js)
+        self.assertIn("_defaultFlywheelStages()", workspace_js)
+        self.assertIn("AI提升产能", workspace_js)
+        self.assertNotIn("stageHost.style.cssText", workspace_js)
+        self.assertIn(".chart-workspace.flywheel-workspace", studio_css)
+        self.assertIn(".flywheel-stage-host", studio_css)
+        self.assertIn("grid-template-rows: auto minmax(220px, 1fr) minmax(96px, auto) minmax(150px, 28vh) auto", studio_css)
+
+    def test_v2_card_06_matches_gtm_flywheel_layout(self):
+        with open(os.path.join(ROOT, "canvas", "templates", "v2_card_06.html"), encoding="utf-8") as f:
+            html = f.read()
+
+        self.assertIn("增长飞轮与GTM策略", html)
+        self.assertIn("class=\"flywheel-stage\"", html)
+        self.assertIn("white-space: pre-line", html)
+        self.assertNotIn("GTM &amp; Growth", html)
+        self.assertNotIn("走向市场", html)
+        self.assertNotIn("background: var(--bg)", html)
+
     def test_screenshot_cli_exports_multiple_high_resolution_shots(self):
         with open(os.path.join(ROOT, "canvas", "screenshot.js"), encoding="utf-8") as f:
             script = f.read()
 
         self.assertIn("--shots", script)
+        self.assertIn("--set", script)
         self.assertIn("--scale", script)
         self.assertIn("--shot-delay", script)
         self.assertIn("deviceScaleFactor: args.scale", script)
@@ -94,6 +162,10 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("_shot_", script)
         self.assertIn("encodeURIComponent(cardId)", script)
         self.assertIn("safeName(card.card_title || card.card_id)", script)
+        self.assertIn("async function resolveFetch()", script)
+        self.assertIn("globalThis.fetch", script)
+        self.assertIn("?set=${encodeURIComponent(args.set)}", script)
+        self.assertIn("buildCardUrl(args.baseUrl, company, cardId, args.set", script)
 
     def test_editor_api_exposes_research_job_helpers(self):
         with open(os.path.join(ROOT, "webapp", "static", "js", "api.js"), encoding="utf-8") as f:
@@ -172,6 +244,8 @@ class StaticContractTests(unittest.TestCase):
             index_js = f.read()
         with open(os.path.join(ROOT, "webapp", "app.py"), encoding="utf-8") as f:
             app_py = f.read()
+        with open(os.path.join(ROOT, "webapp", "services", "export_service.py"), encoding="utf-8") as f:
+            export_service = f.read()
 
         self.assertIn('id="source-status-grid"', index_html)
         self.assertIn("renderSourceStatus", index_js)
@@ -346,6 +420,8 @@ class StaticContractTests(unittest.TestCase):
             card_html = f.read()
         with open(os.path.join(ROOT, "canvas", "js", "api-loader.js"), encoding="utf-8") as f:
             api_loader = f.read()
+        with open(os.path.join(ROOT, "canvas", "js", "render-data-loader.js"), encoding="utf-8") as f:
+            render_data_loader = f.read()
         with open(os.path.join(ROOT, "canvas", "js", "html-card-renderer.js"), encoding="utf-8") as f:
             renderer = f.read()
         with open(os.path.join(ROOT, "canvas", "js", "template-renderer.js"), encoding="utf-8") as f:
@@ -355,6 +431,8 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("render-data-loader.js", card_html)
         self.assertIn("template-renderer.js", card_html)
         self.assertIn("RenderDataLoader.loadCard", card_html)
+        self.assertIn("new URLSearchParams(window.location.search).get('set')", render_data_loader)
+        self.assertIn("?set=${encodeURIComponent(effectiveSet)}", render_data_loader)
         self.assertIn("const TemplateRenderer", template_renderer)
         self.assertIn("render(cardData)", template_renderer)
         self.assertIn("knowledge-card", template_renderer)
@@ -373,6 +451,8 @@ class StaticContractTests(unittest.TestCase):
             routes_init = f.read()
         with open(os.path.join(ROOT, "webapp", "routes", "media_routes.py"), encoding="utf-8") as f:
             media_routes = f.read()
+        with open(os.path.join(ROOT, "webapp", "services", "export_service.py"), encoding="utf-8") as f:
+            export_service = f.read()
         with open(os.path.join(ROOT, "webapp", "templates", "layout.html"), encoding="utf-8") as f:
             layout_html = f.read()
         with open(os.path.join(ROOT, "webapp", "templates", "template_maker.html"), encoding="utf-8") as f:
@@ -402,41 +482,43 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("/canvas/js/template-renderer.js", layout_html)
         self.assertIn("_layoutOverrides", layout_js)
         self.assertIn("_effectiveTemplate()", layout_js)
-        self.assertIn("body: JSON.stringify({ overrides: this._layoutOverrides })", layout_js)
-        self.assertIn("_beginMarkdownEdit", layout_js)
-        self.assertIn("_beginMarkdownEditFromParent", layout_js)
-        self.assertIn("_renderRegionHitboxes", layout_js)
-        self.assertIn("_bindRegionHitboxes", layout_js)
-        self.assertIn("region-hitboxes", layout_js)
-        self.assertIn("dblclick", layout_js)
-        self.assertIn("_commitMarkdownEdit", layout_js)
-        self.assertIn("_markdownForRegion", layout_js)
-        self.assertIn("selectstart", layout_js)
-        self.assertIn("selectionchange", layout_js)
-        self.assertIn("pointerdown", layout_js)
-        self.assertIn("beginEditFromEvent", layout_js)
-        self.assertIn("stopImmediatePropagation", layout_js)
-        self.assertIn("event.detail >= 2", layout_js)
-        self.assertIn("parentElement", layout_js)
-        self.assertIn('user-select:text', layout_js)
+        self.assertIn("body: JSON.stringify({ layout: this._layoutPayload() })", layout_js)
+        self.assertIn("_markdownFromCard", layout_js)
+        self.assertIn("_insertMarkdown", layout_js)
+        self.assertIn("_setMode(mode)", layout_js)
+        self.assertIn("this._mode = 'split'", layout_js)
+        self.assertIn("_startSplitDrag", layout_js)
+        self.assertIn("_renderMarkdownPreview", layout_js)
+        self.assertIn("wrap.style.width = `${900 * this._previewScale}px`", layout_js)
+        self.assertIn("frame.style.width = '900px'", layout_js)
+        self.assertIn("layout-md-body", layout_js)
+        self.assertIn("_styleAppliedToAllDirty", layout_js)
+        self.assertIn("_saveAllLayouts", layout_js)
         self.assertIn("template-status", template_maker_html)
         self.assertIn("template-checks", template_maker_html)
         self.assertIn("_validateTemplate()", template_maker_html)
         self.assertIn("data-od-id", template_maker_html)
         self.assertIn("URLSearchParams(window.location.search)", editor_html)
         self.assertIn("/api/media/", card_settings_js)
+        self.assertIn('data.get("layout")', app_py)
+        self.assertIn("save_layout(config.DB_PATH_TEMPLATE", app_py)
+        self.assertIn("_build_markdown_card_html", export_service)
+        self.assertIn('layout_json.get("mode") == "markdown_first"', export_service)
 
     def test_layout_markdown_editor_has_inline_format_toolbar(self):
+        with open(os.path.join(ROOT, "webapp", "templates", "layout.html"), encoding="utf-8") as f:
+            layout_html = f.read()
         with open(os.path.join(ROOT, "webapp", "static", "js", "layout", "layout-app.js"), encoding="utf-8") as f:
             layout_js = f.read()
 
-        self.assertIn("fmt-toolbar", layout_js)
-        self.assertIn("fmt-swatch", layout_js)
-        self.assertIn("data-action=\"color\"", layout_js)
-        self.assertIn("data-action=\"bg\"", layout_js)
-        self.assertIn("wrapSel(`<span style=\"color:${btn.dataset.value}\">`, '</span>')", layout_js)
-        self.assertIn("wrapSel(`<mark style=\"background:${btn.dataset.value};border-radius:3px;padding:0 2px\">`, '</mark>')", layout_js)
-        self.assertIn("scope.replace(/<\\/?(span|mark)[^>]*>/g, '')", layout_js)
+        self.assertIn("fmt-toolbar", layout_html)
+        self.assertIn("fmt-swatch", layout_html)
+        self.assertIn("data-action=\"color\"", layout_html)
+        self.assertIn("data-action=\"bg\"", layout_html)
+        self.assertIn("_wrapSelection", layout_js)
+        self.assertIn('this._wrapSelection(`<span style="color:${value}">`', layout_js)
+        self.assertIn('this._wrapSelection(`<mark style="background:${value};border-radius:3px;padding:0 2px">`', layout_js)
+        self.assertIn("replace(/<\\/?(span|mark)[^>]*>/g, '')", layout_js)
 
     def test_card_spec_freezes_current_seven_card_asset_contract(self):
         with open(os.path.join(ROOT, "docs", "card-spec.md"), encoding="utf-8") as f:

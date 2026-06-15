@@ -13,6 +13,7 @@ from infographic import (
     build_competitive_landscape_svg,
     build_stack_positioning_svg,
 )
+from infographic_templates import get as get_template
 
 
 class NormalizationTests(unittest.TestCase):
@@ -187,7 +188,7 @@ class EcosystemChartV2Tests(unittest.TestCase):
             {"company_name": "OtherCo", "score_value_capture": 4.0, "stack_layer": "middleware", "funding_stage_score": 4},
         ], "TestCo", {"theme": "light"})
         self.assertIn("TestCo", html)
-        self.assertIn("价值捕获", html)
+        self.assertIn("变现能力", html)
 
     def test_title_fallback(self):
         html = build_stack_positioning_svg([
@@ -207,7 +208,7 @@ class EcosystemChartV2Tests(unittest.TestCase):
         html = build_stack_positioning_svg([
             {"company_name": "TestCo", "score_value_capture": 7, "stack_layer": "vertical_app", "funding_stage_score": 6},
         ], "TestCo", {"theme": "light"})
-        self.assertIn("价值捕获能力", html)
+        self.assertIn("变现能力", html)
         self.assertIn(" / 10", html)
 
     def test_null_stack_layer_handled(self):
@@ -264,10 +265,11 @@ class EcosystemChartV2Tests(unittest.TestCase):
         self.assertIn("OtherCo", html)
 
     def test_bottom_guide(self):
+        # 底部引导文字已删除；验证无数据提示仍正常
         html = build_stack_positioning_svg([
             {"company_name": "TestCo", "score_value_capture": 7, "stack_layer": "vertical_app", "funding_stage_score": 6},
         ], "TestCo", {"theme": "light"})
-        self.assertIn("价值捕获：低", html)
+        self.assertIn("TestCo", html)
 
     def test_fixed_symbol_size(self):
         html = build_stack_positioning_svg([
@@ -276,6 +278,24 @@ class EcosystemChartV2Tests(unittest.TestCase):
         ], "TestCo", {"theme": "light"})
         self.assertIn("symbolSize", html)
         self.assertIn("is_highlight", html)
+
+
+class FlywheelTemplateTests(unittest.TestCase):
+    def test_circular_flywheel_wraps_long_stage_text(self):
+        template = get_template("flywheel_circular")
+        self.assertIsNotNone(template)
+        svg = template.build({
+            "stages": [
+                {"label": "高意向用户进入内容自动化工作流", "desc": "形成稳定获客线索"},
+                {"label": "产品使用数据反哺模型和模板", "desc": "提升生成质量"},
+                {"label": "成功案例带来更多垂直行业客户", "desc": "扩大分发"},
+                {"label": "客户复用资产并邀请团队协作", "desc": "提高留存"},
+            ],
+        }, {"width": 800, "height": 800, "label_size": 36, "show_desc": True})
+
+        self.assertIn("<tspan", svg)
+        self.assertIn('class="flywheel-stage-label"', svg)
+        self.assertNotIn("高意向用户进入内容自动化工作流 | 形成稳定获客线索</text>", svg)
 
 
 if __name__ == "__main__":

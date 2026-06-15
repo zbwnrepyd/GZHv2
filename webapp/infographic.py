@@ -15,119 +15,80 @@ from string import Template
 # ═══════════════════════════════════════════════════════════════
 
 FLYWHEEL_SVG = Template("""\
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 $width $height" width="$width" height="$height">
   <defs>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="3" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0B1629"/>
-      <stop offset="100%" stop-color="#162440"/>
-    </linearGradient>
-    <linearGradient id="arrowGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#29B8D4"/>
-      <stop offset="100%" stop-color="#1A8FA8"/>
-    </linearGradient>
-    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
-      <polygon points="0,0 10,4 0,8" fill="#29B8D4" opacity="0.6"/>
+    <marker id="arrowhead" viewBox="0 0 12 12" refX="9" refY="6" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M2 2L9 6L2 10" fill="none" stroke="$accent" stroke-width="3" stroke-linecap="round"/>
     </marker>
   </defs>
 
-  <!-- 背景 -->
-  <rect width="800" height="800" fill="url(#bgGrad)" rx="12"/>
+  <!-- 透明背景 -->
+  <rect width="$width" height="$height" fill="transparent" rx="12"/>
 
-  <!-- 外圈虚线环 -->
-  <circle cx="400" cy="380" r="260" fill="none" stroke="rgba(41,184,212,0.18)" stroke-width="1.5" stroke-dasharray="8 6"/>
-
-  <!-- 飞轮箭头弧线（4段贝塞尔弧） -->
+  <!-- 飞轮箭头弧线 -->
   $arrows
 
-  <!-- 阶段节点 -->
+  <!-- 阶段节点（纯文字，无圆圈） -->
   $stages
-
-  <!-- 中心文字 -->
-  $center_text
 </svg>""")
-
-# 单段箭头弧线（从角度 a1 到 a2，顺时针，在半径 r 处）
-_ARROW_ARC = Template("""\
-  <path d="$path_data"
-        fill="none" stroke="url(#arrowGrad)" stroke-width="2.5"
-        marker-end="url(#arrowhead)" opacity="0.7"/>""")
 
 _FLYWHEEL_STAGE = Template("""\
   <!-- $label -->
-  <circle cx="$cx" cy="$cy" r="48" fill="#162440" stroke="#29B8D4" stroke-width="2" filter="url(#glow)"/>
   <text x="$cx" y="$cy" text-anchor="middle" dominant-baseline="central"
         font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif"
-        font-size="16" font-weight="700" fill="#FFFFFF">$label</text>
-  <text x="$cx" y="${cy2}" text-anchor="middle" dominant-baseline="hanging"
-        font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif"
-        font-size="12" fill="rgba(255,255,255,0.55)" style="max-width:140px">
-    $desc
-  </text>""")
+        font-size="$font_size" font-weight="700" fill="#1B2A4A">$label</text>""")
 
 
-def _build_flywheel_svg(data: dict) -> str:
-    """根据结构化 JSON 构建飞轮 SVG"""
+def _build_flywheel_svg(data: dict, width: int = 800, height: int = 800) -> str:
+    """根据结构化 JSON 构建飞轮 SVG — 白色透明背景 + 椭圆闭环箭头圈 + 纯文字标签"""
     stages = data.get("stages", [])
-    center_label = data.get("center", "增长飞轮")
     n = len(stages)
     if n < 2:
         raise ValueError("飞轮至少需要 2 个阶段")
 
-    cx, cy, r = 400, 380, 200
+    cx, cy = width / 2, height / 2
+    accent = "#29B8D4"
+    font_size = 48
+    max_label_len = max((len(s.get("label", "")) for s in stages), default=2)
+    text_half_w = max_label_len * font_size * 0.6
+    margin = max(text_half_w + 20, font_size * 1.5, 80)
+    a = max((width / 2) - margin, 60)   # 水平半轴
+    b = max((height / 2) - margin, 60)  # 垂直半轴
     import math
 
-    # 阶段节点位置
+    # 阶段节点（纯文字，沿椭圆分布）
     stage_svgs = []
     for i, s in enumerate(stages):
-        angle = -90 + (360 / n) * i  # 从顶部顺时针
+        angle = -90 + (360 / n) * i
         rad = math.radians(angle)
-        sx = cx + r * math.cos(rad)
-        sy = cy + r * math.sin(rad)
+        sx = cx + a * math.cos(rad)
+        sy = cy + b * math.sin(rad)
         label = s.get("label", f"阶段{i + 1}")
-        desc = s.get("desc", "")
-        # 截断过长的描述
-        if len(desc) > 28:
-            desc = desc[:26] + "…"
         stage_svgs.append(_FLYWHEEL_STAGE.substitute(
-            cx=int(sx), cy=int(sy), cy2=int(sy) + 54,
-            label=label, desc=desc,
+            cx=f"{sx:.1f}", cy=f"{sy:.1f}", label=label, font_size=font_size,
         ))
 
-    # 箭头弧线（相邻节点之间的顺时针弧）
+    # 箭头弧线 — 椭圆弧
     arrow_svgs = []
     for i in range(n):
-        a1 = math.radians(-90 + (360 / n) * i - 10)
-        a2 = math.radians(-90 + (360 / n) * ((i + 1) % n) + 10)
-        r_arc = r - 4
-        x1 = cx + r_arc * math.cos(a1)
-        y1 = cy + r_arc * math.sin(a1)
-        x2 = cx + r_arc * math.cos(a2)
-        y2 = cy + r_arc * math.sin(a2)
-        # 用二次贝塞尔逼近弧线
-        mid_a = (a1 + a2) / 2
-        r_mid = r_arc + 40  # 外凸
-        mx = cx + r_mid * math.cos(mid_a)
-        my = cy + r_mid * math.sin(mid_a)
-        path = f"M{x1:.1f},{y1:.1f} Q{mx:.1f},{my:.1f} {x2:.1f},{y2:.1f}"
-        arrow_svgs.append(f"""  <path d="{path}" fill="none" stroke="rgba(41,184,212,0.45)" stroke-width="2" marker-end="url(#arrowhead)"/>""")
-
-    # 中心文字
-    center_svg = f"""  <circle cx="{cx}" cy="{cy}" r="56" fill="#0B1629" stroke="rgba(41,184,212,0.35)" stroke-width="1.5"/>
-  <text x="{cx}" y="{cy - 10}" text-anchor="middle" dominant-baseline="central"
-        font-family="'Bebas Neue','Noto Sans SC','PingFang SC',sans-serif"
-        font-size="28" font-weight="400" fill="#29B8D4" letter-spacing="0.06em">{center_label}</text>
-  <text x="{cx}" y="{cy + 18}" text-anchor="middle" dominant-baseline="central"
-        font-family="'IBM Plex Mono','SF Mono',Menlo,monospace"
-        font-size="11" fill="rgba(255,255,255,0.40)">{n} STAGES</text>"""
+        a1_deg = -90 + (360 / n) * i + 18
+        a2_deg = -90 + (360 / n) * ((i + 1) % n) - 18
+        a1 = math.radians(a1_deg)
+        a2 = math.radians(a2_deg)
+        x1 = cx + a * math.cos(a1)
+        y1 = cy + b * math.sin(a1)
+        x2 = cx + a * math.cos(a2)
+        y2 = cy + b * math.sin(a2)
+        span = (a2_deg - a1_deg) % 360
+        large = 1 if span > 180 else 0
+        path = f"M{x1:.1f},{y1:.1f} A{a:.1f},{b:.1f} 0 {large} 1 {x2:.1f},{y2:.1f}"
+        arrow_svgs.append(f"""  <path d="{path}" fill="none" stroke="{accent}" stroke-width="5" stroke-opacity="0.85" marker-end="url(#arrowhead)"/>""")
 
     return FLYWHEEL_SVG.substitute(
+        accent=accent,
+        width=str(width), height=str(height),
         arrows="\n".join(arrow_svgs),
         stages="\n".join(stage_svgs),
-        center_text=center_svg,
     )
 
 
@@ -338,8 +299,8 @@ def _svg_to_png(svg_content: str, dest: str, width: int = 800, height: int = 800
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@500;700&family=Noto+Sans+SC:wght@400;700;900&display=swap');
-  body {{ margin: 0; width: {width}px; height: {height}px; overflow: hidden; background: #0B1629; }}
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&display=swap');
+  body {{ margin: 0; width: {width}px; height: {height}px; overflow: hidden; background: #FFFFFF; }}
   svg {{ display: block; }}
 </style></head><body>{svg_content}</body></html>"""
     _html_to_png(html, dest, width, height, scale)
@@ -586,13 +547,13 @@ def _get_competitive_title(company_name: str, x: float, y: float) -> str:
 
 
 def _get_stack_title(company_name: str, layer: str, vc: float) -> str:
-    """根据目标公司价值捕获能力生成动态结论标题。"""
+    """根据目标公司变现能力生成动态结论标题。"""
     if vc >= 7:
-        level = "高价值捕获"
+        level = "高变现能力"
     elif vc >= 4:
-        level = "中价值捕获"
+        level = "中变现能力"
     else:
-        level = "低价值捕获"
+        level = "低变现能力"
     return f"{company_name}：{layer} / {level}"
 
 
@@ -734,9 +695,16 @@ def _build_competitive_landscape_html(
     result += '    splitNumber:5,\n'
     result += '  },\n'
     result += '  series:series,\n'
-    # 图例
+    # 象限标签（大号灰色透明文字）
     result += '  graphic:[\n'
-    result += '    {type:"text",left:82,bottom:18,style:{text:"● 目标公司    ○ 竞争对手",fill:"' + muted + '",fontSize:12}},\n'
+    # Q1 战略机会区（左上：x<5, y≥5）
+    result += '    {type:"text",left:246,top:186,style:{text:"战略机会区",fill:"rgba(40,200,120,0.18)",fontSize:28,fontWeight:900,textAlign:"center",textVerticalAlign:"middle"}},\n'
+    # Q2 硬仗区（右上：x≥5, y≥5）
+    result += '    {type:"text",left:594,top:186,style:{text:"硬仗区",fill:"rgba(255,140,0,0.18)",fontSize:28,fontWeight:900,textAlign:"center",textVerticalAlign:"middle"}},\n'
+    # Q3 高危区（右下：x≥5, y<5）
+    result += '    {type:"text",left:594,top:414,style:{text:"高危区",fill:"rgba(220,50,50,0.18)",fontSize:28,fontWeight:900,textAlign:"center",textVerticalAlign:"middle"}},\n'
+    # Q4 边缘区（左下：x<5, y<5）
+    result += '    {type:"text",left:246,top:414,style:{text:"边缘区",fill:"rgba(180,180,180,0.18)",fontSize:28,fontWeight:900,textAlign:"center",textVerticalAlign:"middle"}},\n'
     if no_data:
         result += '    {type:"text",left:"center",top:"middle",style:{text:"暂无可用图表数据",fill:"' + muted + '",fontSize:18,fontWeight:700,textAlign:"center"}},\n'
     result += '  ],\n'
@@ -776,10 +744,10 @@ def _build_ecosystem_positioning_html(
     companies: list[dict], highlight: str,
     params: dict | None = None,
 ) -> str:
-    """AI 栈生态位图 HTML — 绝对 0–10 坐标 + 5 条泳道 + 全员标签 + 动态结论标题。
+    """AI 栈生态位图 HTML — 绝对 0–10 坐标 + 5 条泳道 + 同泳道垂直错开 + 动态结论标题。
 
-    X 轴 = score_value_capture（价值捕获能力，0–10 绝对分）
-    Y 轴 = stack_layer 映射到 5 条泳道（category）
+    X 轴 = score_value_capture（变现能力，0–10 绝对分）
+    Y 轴 = value 轴（0–4）+ 同泳道 jitter 防重叠
     """
     p = dict(params or {})
     p.setdefault("max_companies", 8)
@@ -797,6 +765,9 @@ def _build_ecosystem_positioning_html(
     muted = "#6B7280" if theme == "light" else "rgba(255,255,255,0.55)"
     line_color = "#E5E7EB" if theme == "light" else "rgba(255,255,255,0.10)"
 
+    # -- 泳道 → 数值索引映射 --
+    lane_index = {label: i for i, label in enumerate(_STACK_LANE_LABELS)}  # 0..4
+
     # -- 数据：使用原始 0–10 分，不做归一化 --
     domain = [
         c for c in companies
@@ -805,57 +776,71 @@ def _build_ecosystem_positioning_html(
     ]
     domain = _point_priority(domain, highlight, max_cos)
 
-    points = []
+    # -- 按泳道分组，同泳道内按 X 排序后加 Y 偏移（垂直错开防重叠）--
+    lane_groups: dict[int, list[dict]] = {}
     for c in domain:
-        n = str(c.get("display_name") or c.get("company_name") or "")
-        sx_raw = _score(c.get("score_value_capture"))
         sl = _map_stack_layer(c.get("stack_layer"))
-        is_hi = (c.get("company_name") or "").strip().lower() == highlight.strip().lower()
-        points.append({
-            "name": n,
-            "value": [sx_raw, sl],
-            "is_highlight": is_hi,
-        })
+        li = lane_index.get(sl, 1)
+        lane_groups.setdefault(li, []).append(c)
+
+    points = []
+    for li, group in lane_groups.items():
+        group.sort(key=lambda c: _score(c.get("score_value_capture")))
+        n_lane = len(group)
+        for j, c in enumerate(group):
+            n = str(c.get("display_name") or c.get("company_name") or "")
+            sx_raw = _score(c.get("score_value_capture"))
+            is_hi = (c.get("company_name") or "").strip().lower() == highlight.strip().lower()
+            # 同泳道垂直错开：居中 + 均匀散布在泳道带内
+            if n_lane == 1:
+                y_val = float(li)
+            else:
+                y_val = li + (j - (n_lane - 1) / 2) * (0.7 / n_lane)
+            points.append({
+                "name": n,
+                "value": [sx_raw, y_val],
+                "is_highlight": is_hi,
+            })
 
     # -- 动态标题 --
     target = _find_highlight_point(points, highlight)
     if target:
         vc = target["value"][0]
-        layer = target["value"][1]
-        title_text = _get_stack_title(target["name"], layer, vc)
+        layer_name = _STACK_LANE_LABELS[int(round(target["value"][1]))]
+        title_text = _get_stack_title(target["name"], layer_name, vc)
     else:
         title_text = p.get("title", "AI 栈生态位图")
 
+    # 拆成两个 series：目标公司在 series[1]（后渲染=上层），竞品在 series[0]
+    target_points = [p for p in points if p.get("is_highlight")]
+    other_points = [p for p in points if not p.get("is_highlight")]
+    target_json = json.dumps(target_points, ensure_ascii=False)
+    other_json = json.dumps(other_points, ensure_ascii=False)
+
     no_data = not points
-    ds_json = json.dumps(points, ensure_ascii=False)
     title_json = json.dumps(title_text, ensure_ascii=False)
-    lanes_json = json.dumps(_STACK_LANE_LABELS, ensure_ascii=False)
-
     # -- ECharts JS 组件 --
-    # splitArea
-    split_area_js = (
-        'splitArea:{show:true,areaStyle:{color:["rgba(27,42,74,0.02)","rgba(27,42,74,0.05)"]}},'
-        if theme == "light" else "")
-
-    # series — 无 markPoint pin
+    # series[0] = 竞品（底层），series[1] = 目标公司（上层），series[2] = 泳道背景（最底）
     series_js = (
         'var series=[{'
-        'type:"scatter", data:points,'
-        'symbolSize:function(val,params){return params.data&&params.data.is_highlight?22:12;},'
-        'itemStyle:{'
-        'color:function(params){return params.data&&params.data.is_highlight?"' + accent + '":"rgba(27,42,74,0.30)";},'
-        'opacity:function(params){return params.data&&params.data.is_highlight?1:0.65;},'
-        'borderColor:function(params){return params.data&&params.data.is_highlight?"#FFFFFF":"transparent";},'
-        'borderWidth:function(params){return params.data&&params.data.is_highlight?2:0;},'
-        '},'
-        'label:{'
-        'show:true,'
-        'formatter:function(params){return params.data?params.data.name:"";},'
+        'name:"竞品",type:"scatter",data:' + other_json + ','
+        'symbolSize:12,'
+        'itemStyle:{color:"rgba(27,42,74,0.30)",opacity:0.65,borderColor:"transparent",borderWidth:0},'
+        'label:{show:true,formatter:function(p){return p.data?p.data.name:"";},'
         'fontSize:' + str(l_size) + ',fontWeight:"bold",color:"#1B2A4A",'
         'backgroundColor:"rgba(255,255,255,0.92)",borderRadius:4,padding:[3,6],'
         'position:"right",distance:10,'
-        '},'
-        'labelLayout:{hideOverlap:true,moveOverlap:"shiftY"},'
+        'labelLayout:{hideOverlap:true,moveOverlap:"shiftY"}},'
+        '},{'
+        'name:"目标公司",type:"scatter",data:' + target_json + ','
+        'symbolSize:22,'
+        'itemStyle:{color:"' + accent + '",opacity:1,borderColor:"#FFFFFF",borderWidth:2},'
+        'z:10,'
+        'label:{show:true,formatter:function(p){return p.data?p.data.name:"";},'
+        'fontSize:' + str(l_size) + ',fontWeight:"bold",color:"#1B2A4A",'
+        'backgroundColor:"rgba(255,255,255,0.92)",borderRadius:4,padding:[3,6],'
+        'position:"right",distance:10,'
+        'labelLayout:{hideOverlap:true,moveOverlap:"shiftY"}},'
         'markArea:{'
         'silent:true,'
         'data:[[{xAxis:7},{xAxis:10}]],'
@@ -868,8 +853,8 @@ def _build_ecosystem_positioning_html(
     xaxis_js = (
         'xAxis:{'
         'type:"value",min:0,max:10,scale:false,boundaryGap:false,'
-        'name:"价值捕获能力 →",nameLocation:"middle",nameGap:32,'
-        'nameTextStyle:{color:"' + text_color + '",fontSize:12,fontWeight:"bold"},'
+        'name:"变现能力 →",nameLocation:"middle",nameGap:36,'
+        'nameTextStyle:{color:"' + text_color + '",fontSize:18,fontWeight:"bold"},'
         'axisLine:{lineStyle:{color:"' + line_color + '",width:1.5}},'
         'axisLabel:{'
         'color:"' + muted + '",fontSize:' + str(a_size) + ','
@@ -880,16 +865,31 @@ def _build_ecosystem_positioning_html(
         '},'
     )
 
-    # yAxis — category 泳道（5条）
+    # yAxis — value 轴，自定义标签为泳道名（+ 交替背景 + 分隔线放 extra series）
     yaxis_js = (
         'yAxis:{'
-        'type:"category",inverse:true,'
-        'data:' + lanes_json + ','
-        + split_area_js + '\n    '
+        'type:"value",min:-0.5,max:4.5,interval:1,inverse:true,'
         'axisLine:{lineStyle:{color:"' + line_color + '",width:1.5}},'
-        'axisLabel:{color:"' + text_color + '",fontSize:13,fontWeight:700},'
+        'axisLabel:{color:"' + text_color + '",fontSize:13,fontWeight:700,'
+        '  formatter:function(v){var lanes=' + json.dumps(_STACK_LANE_LABELS, ensure_ascii=False) + ';return lanes[Math.round(v)]||"";}},'
         'splitLine:{show:false},'
         '},'
+    )
+
+    # 泳道交替背景 + 泳道分隔线（放在额外 series 上）
+    alt_bands = []
+    for i in range(5):
+        if i % 2 == 1:
+            alt_bands.append(
+                '[{yAxis:' + str(i - 0.5) + '},{yAxis:' + str(i + 0.5) + '}],'
+            )
+    alt_bands_js = '[' + ''.join(alt_bands) + ']'
+    lane_extra = (
+        'markArea:{silent:true,data:' + alt_bands_js + ','
+        'itemStyle:{color:"rgba(27,42,74,0.04)"}},'
+        'markLine:{silent:true,symbol:"none",'
+        'lineStyle:{color:"' + line_color + '",type:"solid",width:1},'
+        'data:[{yAxis:0.5},{yAxis:1.5},{yAxis:2.5},{yAxis:3.5}]},'
     )
 
     grid_js = 'grid:{left:110,right:40,top:72,bottom:72},'
@@ -905,10 +905,7 @@ def _build_ecosystem_positioning_html(
             'style:{text:"暂无可用图表数据",fill:"' + muted + '",fontSize:18,fontWeight:700,textAlign:"center"}}],'
         )
     else:
-        graphic_js = (
-            'graphic:[{type:"text",left:"center",bottom:22,'
-            'style:{text:"价值捕获：低 → 中 → 高",fill:"' + muted + '",fontSize:12,fontWeight:"bold",textAlign:"center"}}],'
-        )
+        graphic_js = 'graphic:[],'
 
     # -- 完整 HTML --
     result = '<!DOCTYPE html>\n'
@@ -917,7 +914,6 @@ def _build_ecosystem_positioning_html(
     result += '\n</style></head><body>\n'
     result += '<div id="chart-frame"><div id="chart"></div></div>\n'
     result += _echarts_script_tag() + '\n<script>\n'
-    result += 'var points=' + ds_json + ';\n'
     result += series_js + '\n\n'
     result += 'var opt={\n'
     result += '  animation:false,\n'
@@ -926,9 +922,11 @@ def _build_ecosystem_positioning_html(
     result += '  tooltip:{trigger:"item",\n'
     result += '    formatter:function(p){\n'
     result += '      var d=p.data||{};\n'
+    result += '      var lanes=' + json.dumps(_STACK_LANE_LABELS, ensure_ascii=False) + ';\n'
+    result += '      var layerName=lanes[Math.round(p.value[1])]||"";\n'
     result += '      return "<b>"+d.name+"</b><br/>"\n'
-    result += '        +"层级："+p.value[1]+"<br/>"\n'
-    result += '        +"价值捕获能力："+(d.value[0]!=null?d.value[0].toFixed(1)+" / 10":"-");\n'
+    result += '        +"层级："+layerName+"<br/>"\n'
+    result += '        +"变现能力："+(d.value[0]!=null?d.value[0].toFixed(1)+" / 10":"-");\n'
     result += '    }\n'
     result += '  },\n'
     result += '  legend:{show:false},\n'
@@ -938,6 +936,8 @@ def _build_ecosystem_positioning_html(
     result += '  series:series,\n'
     result += '  ' + graphic_js + '\n'
     result += '};\n'
+    # 额外 series 承载泳道交替背景 + 分隔线
+    result += 'opt.series.push({type:"scatter",data:[],' + lane_extra + '});\n'
     result += "var chart=echarts.init(document.getElementById('chart'));\n"
     result += "chart.setOption(opt);\n"
     result += _echarts_fit_script("chart", width, height) + '\n'

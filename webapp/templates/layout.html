@@ -3,115 +3,361 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>aistartups.cn — 排版界面</title>
+<title>aistartups.cn — 排版中心</title>
 <link rel="icon" type="image/jpeg" href="/images/gzh-logo.jpg">
 <link rel="apple-touch-icon" href="/images/gzh-logo.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=Instrument+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=Instrument+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/gzh2-base.css">
 <style>
-  /* 排版页面 */
-  .panel-left { width: 244px; padding: 0; gap: 0; }
-  .panel-right { width: 288px; }
-
-  /* ── 左栏区块 ── */
+  .panel-left {
+    width: 244px;
+    padding: 0;
+    gap: 0;
+    flex-shrink: 0;
+  }
   .layout-section {
-    padding: 14px 16px;
+    padding: 8px 14px;
     border-bottom: 1px solid var(--border);
   }
   .layout-section:last-child { border-bottom: none; }
-
   .layout-section-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
   }
   .layout-section-title {
-    font-size: 11px; font-weight: 700; color: var(--text-muted);
-    text-transform: uppercase; letter-spacing: 0.06em;
-    display: flex; align-items: center; gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   .layout-section-title::before {
-    content: ''; width: 3px; height: 12px; border-radius: 2px;
-    background: var(--cyan); display: inline-block;
+    content: '';
+    width: 3px;
+    height: 12px;
+    border-radius: 2px;
+    background: var(--cyan);
+    display: inline-block;
   }
-
-  /* ── 卡片列表 ── */
   .layout-card-item {
-    display: flex; align-items: center; gap: 6px;
-    padding: 5px 8px; margin-bottom: 1px; border-radius: 5px;
-    cursor: pointer; font-size: 12px; border: 1px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 7px;
+    margin-bottom: 1px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+    border: 1px solid transparent;
     transition: background .12s, border-color .12s;
   }
-  .layout-card-item:hover { background: rgba(41,184,212,.05); border-color: rgba(41,184,212,.15); }
+  .layout-card-item:hover {
+    background: rgba(41,184,212,.05);
+    border-color: rgba(41,184,212,.15);
+  }
   .layout-card-item.active {
-    background: rgba(41,184,212,.1); border-color: var(--cyan);
+    background: rgba(41,184,212,.1);
+    border-color: var(--cyan);
     font-weight: 600;
   }
   .layout-card-idx {
-    width: 18px; height: 18px; border-radius: 4px;
-    background: var(--navy); color: var(--white);
-    font-size: 9px; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
+    width: 18px;
+    height: 17px;
+    border-radius: 4px;
+    background: var(--navy);
+    color: var(--white);
+    font-size: 9px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
   }
-  .layout-card-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .layout-card-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .layout-card-badge {
-    font-size: 9px; padding: 1px 5px; border-radius: 999px;
-    background: var(--surface-2); color: var(--text-muted);
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-muted);
     flex-shrink: 0;
   }
-
-  /* ── 模板选择（选择框 + 按钮同行）── */
   .layout-template-row {
-    display: flex; gap: 6px; align-items: center;
+    display: flex;
+    gap: 6px;
+    align-items: center;
   }
   .layout-template-select {
-    flex: 1; padding: 6px 8px; font-size: 12px;
-    border: 1px solid var(--border); border-radius: 6px;
-    background: var(--surface-1); color: var(--text);
-    cursor: pointer;
-    transition: border-color .12s;
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-1);
+    color: var(--text);
+    min-width: 0;
   }
-  .layout-template-select:focus { outline: none; border-color: var(--cyan); }
-
-  /* ── 图层列表 ── */
-  .layer-item {
-    display: flex; align-items: center; gap: 8px;
-    padding: 6px 10px; margin-bottom: 1px; border-radius: 5px;
-    cursor: pointer; font-size: 12px; border: 1px solid transparent;
-    transition: background .12s, border-color .12s;
+  .left-action-row {
+    display: grid;
+    gap: 6px;
   }
-  .layer-item:hover { background: rgba(41,184,212,.05); }
-  .layer-item.active {
-    background: rgba(41,184,212,.1); border-color: rgba(41,184,212,.25);
-    font-weight: 600;
+  .left-action-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .layout-mode-fixed {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 30px;
+    border: 1px solid rgba(41,184,212,.45);
+    border-radius: 6px;
+    background: var(--cyan);
+    color: var(--white);
+    font-size: 12px;
+    font-weight: 700;
   }
-  .layer-dot {
-    width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0;
-    border: 1px solid rgba(0,0,0,.1);
+  .layout-workbench {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    background: var(--surface-2);
+    overflow: hidden;
   }
-  .layer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .layer-role {
-    font-size: 9px; padding: 1px 5px; border-radius: 999px;
-    background: var(--surface-2); color: var(--text-muted);
-    text-transform: uppercase; flex-shrink: 0;
-  }
-
-  /* ── Canvas 预览区 ── */
-  .canvas-stage iframe { pointer-events: none; }
-
-  /* ── 属性面板 ── */
-  .prop-row { display: flex; gap: 6px; }
-  .prop-row label { flex: 1; }
-  .prop-group {
-    margin-bottom: 12px; padding-bottom: 12px;
+  .layout-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
     border-bottom: 1px solid var(--border);
+    background: var(--surface-1);
   }
-  .prop-group:last-child { border-bottom: none; margin-bottom: 0; }
-  .prop-group-title {
-    font-size: 11px; font-weight: 700; color: var(--text-muted);
-    text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px;
+  .layout-toolbar .spacer { flex: 1; }
+  .layout-editor-shell {
+    display: grid;
+    grid-template-columns: minmax(360px, 0.58fr) 8px minmax(320px, 0.42fr);
+    min-height: 0;
+    overflow: hidden;
+  }
+  .markdown-pane,
+  .preview-pane {
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    background: var(--surface-1);
+    overflow: hidden;
+  }
+  .pane-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-1);
+  }
+  .pane-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .splitter {
+    background: var(--border);
+    cursor: col-resize;
+    min-width: 8px;
+  }
+  .splitter:hover { background: var(--cyan); }
+  .fmt-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .fmt-toolbar .btn {
+    min-width: 24px;
+    height: 24px;
+    padding: 0 5px;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .fmt-swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .markdown-body-wrap {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    min-height: 0;
+  }
+  #markdown-editor {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    resize: none;
+    outline: none;
+    padding: 16px;
+    background: #0f172a;
+    color: #e5eef8;
+    font: 13px/1.65 "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0;
+    tab-size: 2;
+  }
+  .style-panel {
+    border-top: 1px solid var(--border);
+    padding: 6px 10px;
+    max-height: 72px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: var(--surface-1);
+  }
+  .style-panel-grid {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(64px, 1fr));
+    gap: 6px;
+    min-width: 0;
+    align-items: end;
+  }
+  .style-panel label {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  .style-panel input {
+    width: 100%;
+    min-width: 0;
+    height: 22px;
+    padding: 1px 5px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 11px;
+  }
+  .style-panel input[type="color"] {
+    padding: 1px 3px;
+  }
+  .preview-stage {
+    position: relative;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: #D9DEE7;
+  }
+  #preview-frame {
+    position: absolute;
+    inset: 0;
+    width: 900px;
+    height: 1200px;
+    border: 0;
+    background: #fff;
+    transform-origin: top left;
+  }
+  .preview-frame-wrap {
+    position: relative;
+    flex: 0 0 auto;
+    width: 540px;
+    height: 720px;
+    box-shadow: 0 18px 55px rgba(27,42,74,.18);
+  }
+  .asset-token-help {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+  .asset-token-help summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  .asset-token-help summary::-webkit-details-marker { display: none; }
+  .asset-token-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    margin-top: 5px;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  .advanced-style-popover {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    z-index: 50;
+    box-shadow: 0 6px 24px rgba(0,0,0,.12);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 200px;
+  }
+  .asp-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .asp-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    width: 28px;
+    flex-shrink: 0;
+  }
+  .asp-align {
+    min-width: 26px;
+    height: 22px;
+    padding: 0;
+    font-size: 11px;
+  }
+  .asp-align.active {
+    background: var(--cyan);
+    color: var(--white);
+    border-color: var(--cyan);
+  }
+  .pane-header { position: relative; }
+  .asset-token-help code {
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 10px;
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (max-width: 1100px) {
+    .panel-left { width: 208px; }
+    .layout-editor-shell {
+      grid-template-columns: minmax(320px, 0.58fr) 8px minmax(260px, 0.42fr);
+    }
+    .style-panel-grid {
+      grid-template-columns: repeat(8, minmax(44px, 1fr));
+    }
   }
 </style>
 </head>
@@ -129,7 +375,6 @@
 </header>
 
 <div class="main-layout" data-od-id="layout-main">
-  <!-- 左：卡片列表 + 模板选择 + 图层 -->
   <aside class="panel panel-left" data-od-id="layout-left">
     <div class="layout-section">
       <div class="layout-section-header">
@@ -150,31 +395,117 @@
 
     <div class="layout-section">
       <div class="layout-section-header">
-        <span class="layout-section-title">图层</span>
+        <span class="layout-section-title">Markdown 素材</span>
       </div>
-      <div id="layer-list"></div>
+      <details class="asset-token-help">
+        <summary>占位符 / 图片语法</summary>
+        <div class="asset-token-list" id="asset-token-list">
+            <span>加载中…</span>
+        </div>
+      </details>
     </div>
   </aside>
 
-  <!-- 中：Canvas 预览 -->
-  <main class="panel-center" id="canvas-area" data-od-id="layout-center">
-    <div class="empty-state">请从左侧选择卡片</div>
-  </main>
-
-  <!-- 右：属性面板 -->
-  <aside class="panel panel-right" data-od-id="layout-right">
-    <div class="section-title">属性</div>
-    <div id="property-panel">
-      <div class="empty-state">选择图层查看属性</div>
-    </div>
-    <div class="btn-row" style="margin-top:16px">
+  <main class="layout-workbench" id="canvas-area" data-od-id="layout-center">
+    <div class="layout-toolbar">
+      <span class="pane-title" id="active-card-title">未选择卡片</span>
+      <span class="spacer"></span>
       <button class="btn btn-accent btn-sm" id="btn-save-layout">保存排版</button>
+      <button class="btn btn-outline btn-sm" id="btn-save-local">保存当前</button>
+      <button class="btn btn-outline btn-sm" id="btn-save-local-all">保存全部</button>
       <button class="btn btn-outline btn-sm" id="btn-reset-layout">重置</button>
+      <button class="btn btn-outline btn-sm" id="btn-apply-style-all">应用样式到全套</button>
+      <button class="btn btn-outline btn-sm" id="btn-fit-preview">适应预览</button>
     </div>
-  </aside>
+
+    <section class="layout-editor-shell" id="editor-shell">
+      <section class="markdown-pane" id="markdown-pane">
+        <div class="pane-header">
+          <span class="pane-title">Markdown</span>
+          <div class="fmt-toolbar" id="markdown-toolbar">
+            <button class="btn btn-outline btn-sm" data-action="bold"><strong>B</strong></button>
+            <button class="btn btn-outline btn-sm" data-action="italic"><em>I</em></button>
+            <button class="btn btn-outline btn-sm" data-action="h1">H1</button>
+            <button class="btn btn-outline btn-sm" data-action="h2">H2</button>
+            <button class="btn btn-outline btn-sm" data-action="quote" title="引用" aria-label="引用">引</button>
+            <button class="btn btn-outline btn-sm" data-action="list" title="列表" aria-label="列表">列</button>
+            <button class="btn btn-outline btn-sm" data-action="image" title="图片" aria-label="图片">图</button>
+            <button class="btn btn-outline btn-sm" data-action="link" title="链接" aria-label="链接">链</button>
+            <button class="fmt-swatch" data-action="color" data-value="#29B8D4" style="background:#29B8D4" title="文字色"></button>
+            <button class="fmt-swatch" data-action="bg" data-value="#FEF08A" style="background:#FEF08A" title="高亮色"></button>
+            <button class="btn btn-outline btn-sm" data-action="clear" title="清除样式" aria-label="清除样式">清</button>
+            <button class="btn btn-outline btn-sm" data-action="br" title="换行" aria-label="换行" style="margin-left:8px">换行</button>
+            <button class="btn btn-outline btn-sm" data-action="spacer" title="沉底分隔" aria-label="沉底分隔">沉底</button>
+            <button class="btn btn-outline btn-sm" data-action="center" title="居中" aria-label="居中">居中</button>
+            <button class="btn btn-outline btn-sm" id="btn-advanced-style" title="高级样式" aria-label="高级样式" style="margin-left:8px">样式</button>
+          </div>
+          <div class="advanced-style-popover" id="advanced-style-popover" style="display:none">
+            <div class="asp-row">
+              <span class="asp-label">对齐</span>
+              <button class="btn btn-sm asp-align active" data-align="left">左</button>
+              <button class="btn btn-sm asp-align" data-align="center">中</button>
+              <button class="btn btn-sm asp-align" data-align="right">右</button>
+            </div>
+            <div class="asp-row">
+              <span class="asp-label">字体</span>
+              <select id="asp-font-family" style="flex:1;min-width:0">
+                <option value="">不指定</option>
+                <option value="Noto Sans SC">Noto Sans SC</option>
+                <option value="Instrument Sans">Instrument Sans</option>
+                <option value="IBM Plex Mono">IBM Plex Mono</option>
+                <option value="Bebas Neue">Bebas Neue</option>
+                <option value="Georgia">Georgia</option>
+                <option value="SimSun">宋体</option>
+                <option value="SimHei">黑体</option>
+                <option value="KaiTi">楷体</option>
+              </select>
+            </div>
+            <div class="asp-row">
+              <span class="asp-label">字号</span>
+              <input type="number" id="asp-font-size" min="10" max="96" value="24" style="width:52px">
+              <span style="font-size:10px;color:var(--text-muted)">px</span>
+            </div>
+            <div class="asp-row">
+              <button class="btn btn-accent btn-sm" id="btn-asp-apply">套用</button>
+              <button class="btn btn-outline btn-sm" id="btn-asp-cancel">取消</button>
+            </div>
+          </div>
+        </div>
+        <div class="markdown-body-wrap">
+          <textarea id="markdown-editor" spellcheck="false" aria-label="当前卡片 Markdown"></textarea>
+          <div class="style-panel" id="style-panel">
+            <div class="style-panel-grid">
+              <label>字号 <input type="number" id="style-font-size" min="12" max="96" step="1"></label>
+              <label>行距 <input type="number" id="style-line-height" min="1" max="2.6" step="0.05"></label>
+              <label>段间距 <input type="number" id="style-paragraph-gap" min="0" max="72" step="1"></label>
+              <label>页边距 <input type="number" id="style-padding" min="0" max="180" step="1"></label>
+              <label>图片高度 <input type="number" id="style-image-max-height" min="80" max="800" step="10"></label>
+              <label>卡片背景 <input type="color" id="style-bg-color"></label>
+              <label>正文色 <input type="color" id="style-text-color"></label>
+              <label>主题色 <input type="color" id="style-accent-color"></label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="splitter" id="splitter" aria-hidden="true"></div>
+
+      <section class="preview-pane" id="preview-pane">
+        <div class="pane-header">
+          <span class="pane-title">实时预览</span>
+          <span class="od-status" id="preview-status">等待内容</span>
+        </div>
+        <div class="preview-stage" id="preview-stage">
+          <div class="preview-frame-wrap" id="preview-frame-wrap">
+            <iframe id="preview-frame" title="卡片预览"></iframe>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
 </div>
 
-<script src="/canvas/js/template-renderer.js?v=layout-md-edit"></script>
-<script src="/static/js/layout/layout-app.js?v=layout-md-edit"></script>
+<script src="/canvas/js/template-renderer.js?v=layout-md-first"></script>
+<script src="/static/js/layout/layout-app.js?v=layout-md-first"></script>
 </body>
 </html>

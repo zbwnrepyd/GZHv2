@@ -32,6 +32,8 @@ const WorkspaceChart = {
       this._data = await StudioAPI.chartData(company, slot.asset_key);
       this._defaults = Object.assign({}, this._data.params || {});
       this._params = Object.assign({}, this._defaults);
+      // 飞轮：把阶段数据灌入 stages_json 参数，供编辑
+      this._populateStagesJson();
       this._schema = ParamInspector.schemaFor(slot.asset_key, this._data);
       this._renderInspector(candidatePanel);
       await this._updatePreviewNow();
@@ -44,8 +46,9 @@ const WorkspaceChart = {
   _shell(slot) {
     const label = this._label(slot.asset_key);
     const isEcharts = slot.asset_key === 'chart_competitive' || slot.asset_key === 'chart_ecosystem';
+    const isFlywheel = slot.asset_key === 'flywheel';
     return `
-      <section class="demand-workspace chart-workspace ${isEcharts ? 'echarts-workspace' : ''}">
+      <section class="demand-workspace chart-workspace ${isEcharts ? 'echarts-workspace' : ''} ${isFlywheel ? 'flywheel-workspace' : ''}">
         <header class="workspace-header">
           <div>
             <h2>${this._esc(label)}</h2>
@@ -56,6 +59,7 @@ const WorkspaceChart = {
         <div class="chart-preview-stage">
           <iframe id="chart-live-preview" title="${this._esc(label)}预览"></iframe>
         </div>
+        ${isFlywheel ? '<div id="flywheel-stage-host" class="flywheel-stage-host"></div>' : ''}
         <div id="chart-param-bottom" class="chart-param-bottom"></div>
         <footer class="workspace-footer">
           <button class="workspace-secondary" type="button" data-chart-action="refresh">刷新预览</button>
@@ -64,23 +68,32 @@ const WorkspaceChart = {
       </section>`;
   },
 
-  _renderInspector(candidatePanel) {
+  _renderInspector(candidatePanel, options = {}) {
     const paramHost = document.getElementById('chart-param-bottom');
     if (this._isEchartsSlot()) {
       candidatePanel.innerHTML = this._rightCodeShell();
     } else {
       candidatePanel.innerHTML = this._rightActionShell();
     }
+    if (options.restoreParams !== false) {
+      this._restoreParams();
+    }
     ParamInspector.render(paramHost, this._schema, this._params, {
-      onChange: () => this._schedulePreview(),
+      onChange: () => { this._schedulePreview(); this._saveParams(); },
       onReset: () => {
         this._params = Object.assign({}, this._defaults);
-        this._renderInspector(candidatePanel);
+        this._clearSavedParams();
+        this._renderInspector(candidatePanel, { restoreParams: false });
         this._schedulePreview();
       },
       onRender: () => this._renderVersion(),
       onConfirm: () => this._confirmLatest(),
     }, { mode: 'compact' });
+    const stageHost = document.getElementById('flywheel-stage-host');
+    if (stageHost && this._slot?.asset_key === 'flywheel') {
+      stageHost.innerHTML = this._flywheelStageEditor();
+      this._bindStageEditor(stageHost);
+    }
     document.querySelector('[data-chart-action="refresh"]')?.addEventListener('click', () => this._updatePreviewNow());
     document.querySelector('[data-chart-action="render"]')?.addEventListener('click', () => this._renderVersion());
     document.querySelector('[data-chart-action="confirm"]')?.addEventListener('click', () => this._confirmLatest());
@@ -270,9 +283,10 @@ const WorkspaceChart = {
 
   async _confirmLatest() {
     if (!this._latestVariantId) {
-      this._toast('请先生成一个版本，或选择已有版本', 'error');
-      return;
+      // 还没生成过版本，自动先渲染再确认
+      await this._renderVersion();
     }
+    if (!this._latestVariantId) return;  // 渲染失败则中止
     try {
       await StudioAPI.selectVariant(this._company, this._slot.asset_key, this._latestVariantId);
       this._toast('已确定这张图片');
@@ -298,5 +312,168 @@ const WorkspaceChart = {
 
   _esc(s) {
     return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  },
+
+  // -- 飞轮阶段编辑器 --
+  _flywheelStageEditor() {
+    const stages = this._parseStages();
+    const rows = stages.map((s, i) => {
+      const text = s.label || '';
+      return `
+      <div class="stage-row" data-stage-idx="${i}">
+        <input type="text" class="stage-text" value="${this._esc(text)}" placeholder="阶段${i + 1} 内容">
+        <button type="button" class="stage-del" title="删除">×</button>
+      </div>`;
+    }).join('');
+    return `
+      <section class="stage-editor-panel">
+        <div class="stage-editor-head">
+          <span>阶段内容</span>
+          <button type="button" class="stage-add">+</button>
+        </div>
+        <div class="stage-editor-rows">${rows}</div>
+      </section>`;
+  },
+
+  _bindStageEditor(host) {
+    const collect = () => {
+      const rows = host.querySelectorAll('.stage-row');
+      const stages = [];
+      rows.forEach(row => {
+        const raw = (row.querySelector('.stage-text')?.value || '').trim();
+        if (!raw) return;
+        // 解析 "label | desc" 或纯 label
+        const pipe = raw.indexOf('|');
+        if (pipe > 0) {
+          stages.push({ label: raw.slice(0, pipe).trim(), desc: raw.slice(pipe + 1).trim() });
+        } else {
+          stages.push({ label: raw, desc: '' });
+        }
+      });
+      this._params.stages_json = JSON.stringify(stages);
+    };
+
+    // 输入时只更新参数+预览，不重建 DOM
+    host.querySelectorAll('.stage-text').forEach(input => {
+      input.addEventListener('input', () => {
+        collect();
+        this._schedulePreview();
+        this._saveParams();
+      });
+    });
+
+    // 添加阶段：重建 DOM
+    host.querySelector('.stage-add')?.addEventListener('click', () => {
+      collect();
+      const current = this._parseStages();
+      current.push({ label: '', desc: '' });
+      this._params.stages_json = JSON.stringify(current);
+      host.innerHTML = this._flywheelStageEditor();
+      this._bindStageEditor(host);
+      this._schedulePreview();
+      this._saveParams();
+    });
+
+    // 删除阶段：重建 DOM
+    host.querySelectorAll('.stage-del').forEach(btn => {
+      btn.addEventListener('click', () => {
+        collect();
+        const idx = parseInt(btn.closest('.stage-row')?.dataset.stageIdx, 10);
+        if (isNaN(idx)) return;
+        const current = this._parseStages();
+        if (current.length <= 2) return;
+        current.splice(idx, 1);
+        this._params.stages_json = JSON.stringify(current);
+        host.innerHTML = this._flywheelStageEditor();
+        this._bindStageEditor(host);
+        this._schedulePreview();
+        this._saveParams();
+      });
+    });
+  },
+
+  _parseStages() {
+    try {
+      if (this._params.stages_json) {
+        const parsed = JSON.parse(this._params.stages_json);
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      }
+    } catch (_) {}
+    const lines = this._parseStageLines(this._params.stages_json);
+    if (lines.length) return lines;
+    const dataStages = this._data?.data?.stages;
+    return (dataStages && dataStages.length) ? dataStages : this._defaultFlywheelStages();
+  },
+
+  _parseStageLines(raw) {
+    if (!raw || typeof raw !== 'string') return [];
+    const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
+    if (!lines.length) return [];
+    return lines.map(line => {
+      const pipe = line.indexOf('|');
+      if (pipe > 0) {
+        return { label: line.slice(0, pipe).trim(), desc: line.slice(pipe + 1).trim() };
+      }
+      return { label: line, desc: '' };
+    });
+  },
+
+  // 飞轮：把 data.stages 转为可编辑的 stages_json 参数
+  _populateStagesJson() {
+    if (this._slot?.asset_key !== 'flywheel') return;
+    const stages = (this._data?.data?.stages && this._data.data.stages.length)
+      ? this._data.data.stages
+      : this._defaultFlywheelStages();
+    // 如果 params 里已经有 stages_json（用户编辑过或从 localStorage 恢复），不覆盖
+    if (this._params.stages_json && this._params.stages_json.trim()) return;
+    // 格式：每行 label|desc
+    const lines = stages.map(s => {
+      const label = s.label || '';
+      const desc = s.desc || '';
+      return desc ? `${label}|${desc}` : label;
+    });
+    this._params.stages_json = lines.join('\n');
+    this._defaults.stages_json = this._params.stages_json;
+  },
+
+  _defaultFlywheelStages() {
+    return [
+      { label: 'AI提升产能', desc: '' },
+      { label: '高频赛季体验', desc: '' },
+      { label: '社区驱动收入', desc: '' },
+      { label: '收入再投入', desc: '' },
+      { label: '双螺旋增长', desc: '' },
+    ];
+  },
+
+  _paramsKey() {
+    return `chart_params:${this._company}:${this._slot?.asset_key || ''}`;
+  },
+
+  _saveParams() {
+    try {
+      localStorage.setItem(this._paramsKey(), JSON.stringify(this._params));
+    } catch (_) {}
+  },
+
+  _clearSavedParams() {
+    try {
+      localStorage.removeItem(this._paramsKey());
+    } catch (_) {}
+  },
+
+  _restoreParams() {
+    try {
+      const raw = localStorage.getItem(this._paramsKey());
+      if (raw) {
+        const saved = JSON.parse(raw);
+        // 只覆盖用户调过的参数，保留默认值兜底
+        Object.keys(saved).forEach(k => {
+          if (saved[k] !== undefined && saved[k] !== null) {
+            this._params[k] = saved[k];
+          }
+        });
+      }
+    } catch (_) {}
   },
 };
