@@ -7,3 +7,4 @@ lxml
 playwright
 Pillow
 pydantic>=2.0
+PyYAML

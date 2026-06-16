@@ -78,11 +78,12 @@ INSERT OR IGNORE INTO default_card_configs (set_key, card_id, card_index, card_t
 ('v1','card_08',8,'总结','{"fields":["market_opportunity","data_confidence"],"media":[],"template_id":"text_focus"}');
 
 -- v2 套卡的 7 张默认配置（set_key='v2'）
-INSERT OR IGNORE INTO default_card_configs (set_key, card_id, card_index, card_title, config_json) VALUES
-('v2','v2_card_01',1,'封面','{"fields":["company_name"],"media":["logo"],"template_id":"cover_v2"}'),
-('v2','v2_card_02',2,'公司概览','{"fields":["location","company_type","company_def","company_achievement","website_url"],"media":["website_screenshot"],"template_id":"overview_v2"}'),
-('v2','v2_card_03',3,'产品与定位','{"fields":["main_product_name","main_product_def","main_product_highlight","main_product_achievement","tech_stack","ecosystem_niche"],"media":["chart_ecosystem","product_main"],"template_id":"product_v2"}'),
+-- 用 OR REPLACE 让已有本地库在应用启动时拿到最新默认编排；不影响已实例化到具体公司的 card_items。
+INSERT OR REPLACE INTO default_card_configs (set_key, card_id, card_index, card_title, config_json) VALUES
+('v2','v2_card_01',1,'封面','{"fields":["company_name","company_type"],"media":["logo"],"template_id":"cover_default"}'),
+('v2','v2_card_02',2,'公司概览','{"fields":["company_def","location","funding_info","main_product_name","main_product_highlight","main_product_achievement","arr","registered_users","website_url"],"media":["website_screenshot"],"template_id":"overview_v2"}'),
+('v2','v2_card_03',3,'产品与定位','{"fields":["ecosystem_positioning","differentiation_strategy","cost_advantage","tam","sam","som","market_cagr"],"media":["chart_ecosystem"],"template_id":"product_v2"}'),
 ('v2','v2_card_04',4,'创始人与团队','{"fields":["founder_name","founder_edu","founder_bg","founder_achievement","team_size","team_highlight"],"media":["founder_photo"],"template_id":"founder_v2"}'),
-('v2','v2_card_05',5,'财务与市场','{"fields":["customer_segment","revenue_metrics","growth_metrics","regional_markets","funding_info"],"media":[],"template_id":"finance_v2"}'),
-('v2','v2_card_06',6,'GTM与增长','{"fields":["gtm_strategy","growth_flywheel"],"media":["flywheel"],"template_id":"gtm_v2"}'),
-('v2','v2_card_07',7,'竞争格局','{"fields":["moat","competitors","competitors_summary"],"media":["competitors_logo_strip","chart_competitive"],"template_id":"competitive_v2"}');
+('v2','v2_card_05',5,'核心客户','{"fields":["ideal_customer_profile","customer_segment_primary","customer_segment_secondary","retention_rate","paying_users"],"media":["product_main"],"template_id":"finance_v2"}'),
+('v2','v2_card_06',6,'GTM与增长','{"fields":["growth_strategy","gtm_motion","growth_flywheel","cac","ltv","ltv_cac_ratio"],"media":["flywheel"],"template_id":"gtm_v2"}'),
+('v2','v2_card_07',7,'竞争格局','{"fields":["competitors_summary","technical_barrier","switching_cost","score_defensibility","score_incumbent_attention"],"media":["chart_competitive"],"template_id":"competitive_v2"}');

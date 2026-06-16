@@ -151,3 +151,48 @@ def confirm_all_fields(db_path: str, company_name: str) -> int:
             (company_name,))
         conn.commit()
         return cur.rowcount
+
+
+def update_field_status_batch(db_path: str, company_name: str, version: str,
+                              results: list[dict]) -> int:
+    """批量更新 research_fields 的分辨率状态列 + 写 resolution_logs
+
+    results: [{"field_key": str, "resolution_status": str, "unavailable_reason": str|None,
+               "resolution_method": str, "field_value": str}, ...]
+    返回更新条数
+    """
+    count = 0
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        for r in results:
+            fk = r.get("field_key", "")
+            status = r.get("resolution_status", "")
+            reason = r.get("unavailable_reason", "")
+            method = r.get("resolution_method", "")
+            if not fk or not status:
+                continue
+
+            # 更新 research_fields
+            conn.execute(
+                """UPDATE research_fields
+                   SET resolution_status=?, unavailable_reason=?,
+                       resolution_method=?, updated_at=CURRENT_TIMESTAMP
+                   WHERE company_name=? AND version=? AND field_key=?""",
+                (status, reason, method, company_name, version, fk),
+            )
+            # 写 resolution_log
+            conn.execute(
+                """INSERT INTO field_resolution_logs
+                   (company_name, version, field_key, resolution_status,
+                    resolution_method, evidence_count, detail_json)
+                   VALUES (?, ?, ?, ?, ?, 0, ?)""",
+                (company_name, version, fk, status, method,
+                 f'{{"reason":"{reason}"}}' if reason else None),
+            )
+            count += 1
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+    return count

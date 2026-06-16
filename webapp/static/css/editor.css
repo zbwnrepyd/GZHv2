@@ -519,6 +519,19 @@ input, button, select, textarea { font: inherit; }
 #db-fields-table .cell-system { opacity: .55; }
 #db-fields-table .cell-hook { background: #FFFBF4; }
 
+/* 字段分辨率状态标签 */
+.res-badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 999px;
+  font-weight: 600; white-space: nowrap; letter-spacing: 0;
+}
+.res-confirmed     { background: #dcfce7; color: #16a34a; }
+.res-derived       { background: #dbeafe; color: #2563eb; }
+.res-proxy         { background: #fef3c7; color: #d97706; }
+.res-llm_extracted { background: #ede9fe; color: #7c3aed; }
+.res-unavailable   { background: #f3f4f6; color: #9ca3af; }
+.res-manual_needed { background: #fee2e2; color: #dc2626; }
+.res-not_applicable { background: #e5e7eb; color: #6b7280; }
+
 /* ── 卡片设置面板（cs-*）─────────────────────────── */
 #card-settings-mode-content,
 #text-finalize-mode-content {

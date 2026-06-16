@@ -85,10 +85,12 @@ class PipelineFailureTests(unittest.TestCase):
              patch.object(pipeline, "llm_analysis", return_value=mismatched_records), \
              patch.object(pipeline.database, "save_research_records") as save_records, \
              patch.object(field_repo, "insert_research_fields_batch"), \
+             patch.object(pipeline, "_search_tavily") as search_tavily, \
              patch("asset_pipeline.collect_image_variants_pipeline", return_value={}):
             with self.assertRaisesRegex(RuntimeError, "公司身份校验失败"):
                 pipeline.run_pipeline("Sardine", "https://www.sardine.ai")
 
+        search_tavily.assert_not_called()
         save_records.assert_not_called()
 
     def test_l3_retries_missing_founder_fields_inside_main_flow(self):
@@ -198,6 +200,33 @@ class PipelineFailureTests(unittest.TestCase):
             calls,
             ["quota-key", "working-key", "quota-key", "working-key"],
         )
+
+    def test_tavily_search_reports_partial_collection_progress(self):
+        events = []
+        queries = [
+            {"query": "DemoCo ARR", "intent": "revenue_metrics"},
+            {"query": "DemoCo users", "intent": "user_metrics"},
+            {"query": "DemoCo TAM", "intent": "market_size"},
+        ]
+
+        def fake_query(query):
+            return {"results": [{"title": query, "url": f"https://example.com/{len(events)}"}]}
+
+        with patch.object(pipeline, "_search_tavily_query", side_effect=fake_query):
+            batches = pipeline._search_tavily(
+                queries,
+                progress_callback=lambda stage, detail: events.append((stage, detail)),
+            )
+
+        self.assertEqual(len(batches), 3)
+        progress_events = [
+            detail for stage, detail in events
+            if stage == "采集" and isinstance(detail, dict) and "sources" in detail
+        ]
+        self.assertGreaterEqual(len(progress_events), 3)
+        self.assertEqual(progress_events[0]["sources"]["tavily"]["status"], "collecting")
+        self.assertEqual(progress_events[-1]["sources"]["tavily"]["count"], 3)
+        self.assertIn("3/3", progress_events[-1]["sources"]["tavily"]["detail"])
 
     def test_prepare_raw_data_for_llm_trims_tavily_raw_content(self):
         raw = {

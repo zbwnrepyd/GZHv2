@@ -90,6 +90,28 @@ class DecoupledSystemTests(unittest.TestCase):
         cards_v1 = get_cards(self.composition_db, "V2Co", card_set_key="v1")
         self.assertEqual(len(cards_v1), 0)
 
+    def test_v2_default_cards_use_operating_and_split_fields(self):
+        from repositories.card_config_repo import init_company_set, get_card_items
+        init_company_set(self.composition_db, "V2Co", "v2", "v2")
+
+        card2 = [item["item_key"] for item in get_card_items(
+            self.composition_db, "V2Co", "v2_card_02", card_set_key="v2")
+            if item["item_type"] == "field"]
+        card3 = [item["item_key"] for item in get_card_items(
+            self.composition_db, "V2Co", "v2_card_03", card_set_key="v2")
+            if item["item_type"] == "field"]
+        card6 = [item["item_key"] for item in get_card_items(
+            self.composition_db, "V2Co", "v2_card_06", card_set_key="v2")
+            if item["item_type"] == "field"]
+
+        self.assertIn("arr", card2)
+        self.assertIn("registered_users", card2)
+        self.assertIn("tam", card3)
+        self.assertIn("differentiation_strategy", card3)
+        self.assertIn("cost_advantage", card3)
+        self.assertIn("cac", card6)
+        self.assertIn("ltv", card6)
+
     def test_card_config_api_route_returns_v2_cards_when_set_v2(self):
         """RED: GET /api/card-config/<company>?set=v2 应该返回 v2 套卡的卡片"""
         from repositories.card_config_repo import init_company_set

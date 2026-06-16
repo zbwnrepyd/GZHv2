@@ -23,14 +23,15 @@
 
 ```
 Step 1: 4路并行采集
-  Tavily 多意图搜索(覆盖 overview/founders/funding/product 等 11+ 意图) + GitHub 仓库 + YouTube 创始人视频 + 官网抓取(trafilatura)
-  → 4线程并行，每路独立上报状态
+  Tavily 多意图搜索(含市场规模/收入/用户/留存/获客/资金效率运营意图) + GitHub 仓库 + YouTube 创始人视频 + 官网抓取(trafilatura)
+  → 4线程并行，每路独立上报状态；Tavily 长队列按 query 增量上报累计进度
 
 Step 2: 4层 LLM 分析
   L0 信息清洗 → L1 横纵分析 → L2 商业结构 → L3 字段提取(3版本)
 
 Step 3: 评分 + 写入
   枚举字段三层管道(规则层→LLM三组→Pydantic验证) → 加权评分 → research 表
+  → evidence_items 持久化证据 → research_fields 字段分辨率状态标记
 
 Step 4: 自动图片采集
   Logo/Office/Product/Competitors 多源候选 → 质量检测 → 评分 → image_variants 候选池
@@ -63,12 +64,12 @@ Step 4: 自动图片采集
 | 卡片 | 主题 |
 |---|---|
 | card_1 | 封面：公司名、Logo |
-| card_2 | 公司概览：官网截图、地址、行业、主营业务、成就 |
-| card_3 | 产品与定位：生态位图、主产品、技术栈 |
+| card_2 | 公司概览：官网截图、定义、地点、融资、主产品、ARR/注册用户 |
+| card_3 | 生态位与变现：生态位图、错位竞争、成本优势、TAM/SAM/SOM |
 | card_4 | 创始人与团队：创始人照片、背景、团队规模 |
-| card_5 | 财务与市场：客户、营收/增长指标、融资 |
-| card_6 | GTM 与增长：GTM 策略、增长飞轮 |
-| card_7 | 竞争格局：竞争格局图、Top3 竞品、壁垒 |
+| card_5 | 核心客户：理想客户画像、主/次客户细分、留存/付费指标 |
+| card_6 | GTM 与增长：增长策略、GTM、增长飞轮、CAC/LTV |
+| card_7 | 竞争格局：竞争格局图、竞品摘要、技术壁垒、迁移成本 |
 
 ## 关键架构决策
 
@@ -87,7 +88,7 @@ Step 4: 自动图片采集
 
 | 数据库 | 职责 |
 |---|---|
-| `research_db` | 研究原始数据（宽表 60+ 字段）+ 评分 + 任务状态 |
+| `research_db` | 研究原始数据（宽表 60+ 字段）+ 评分 + 任务状态 + 证据/字段分辨率审计 |
 | `final_db` | 人工定稿字段（按 company+field_key 唯一） |
 | `assets_db` | 图片素材槽位 + 候选池 |
 | `composition_db` | 卡片编排（每张卡有哪些字段/图片） |
@@ -152,6 +153,8 @@ sqlite3 db/research_db.sqlite < db/init_research_db.sql
 sqlite3 db/final_db.sqlite < db/init_final_db.sql
 sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 python3 db/migrate.py db/research_db.sqlite --only 001_research_fields.sql
+python3 db/migrate.py db/research_db.sqlite --only 009_evidence_items.sql
+python3 db/migrate.py db/research_db.sqlite --only 010_field_resolution.sql
 python3 db/migrate.py db/final_db.sqlite --only 002_final_fields.sql
 
 # 3. 配置 API Key

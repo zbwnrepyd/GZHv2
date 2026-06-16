@@ -107,10 +107,21 @@ const ResearchDesk = {
     if (this.detailsByCompany[companyName]) return;
     try {
       this.detailsByCompany[companyName] = await API.getAllVersions(companyName);
+      // 同时加载字段分辨率状态
+      this._loadResolutionSummary(companyName);
     } catch (e) {
       this.detailsByCompany[companyName] = { _error: e.message };
     }
     if (this.expandedCompany === companyName) this.renderCompanies();
+  },
+
+  async _loadResolutionSummary(companyName) {
+    try {
+      const r = await fetch(`/api/company/${encodeURIComponent(companyName)}/all-fields`);
+      const d = await r.json();
+      this._resolutionByCompany = this._resolutionByCompany || {};
+      this._resolutionByCompany[companyName] = d.resolution_summary || {};
+    } catch (_) {}
   },
 
   renderCompanyDetailRow(companyName) {
@@ -141,6 +152,24 @@ const ResearchDesk = {
       ['主产品', standard.main_product_name],
       ['置信度', standard.data_confidence],
     ];
+    const resolution = (this._resolutionByCompany || {})[companyName] || {};
+    const statusLabels = {
+      confirmed: '已确认', derived: '公式计算', proxy: '代理估算',
+      llm_extracted: 'LLM提取', unavailable: '不可得', manual_needed: '需人工',
+      not_applicable: '不适用',
+    };
+    const statusColors = {
+      confirmed: '#22c55e', derived: '#3b82f6', proxy: '#f59e0b',
+      llm_extracted: '#8b5cf6', unavailable: '#9ca3af', manual_needed: '#ef4444',
+      not_applicable: '#6b7280',
+    };
+    const resBadges = Object.entries(resolution).length
+      ? Object.entries(resolution).map(([k, v]) =>
+          `<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:2px 6px;border-radius:999px;background:${
+            statusColors[k] || '#9ca3af'}18;color:${statusColors[k] || '#9ca3af'};white-space:nowrap;">${
+            statusLabels[k] || k} ${v}</span>`).join(' ')
+      : '<span style="font-size:10px;color:var(--text-muted)">暂无分辨率数据（旧研究需重跑）</span>';
+
     return `<div class="company-detail-panel">
       <div class="company-detail-top">
         <div>
@@ -151,6 +180,10 @@ const ResearchDesk = {
       </div>
       <div class="detail-fact-grid">
         ${facts.map(([label, value]) => `<div class="detail-fact"><span>${this.esc(label)}</span><strong>${this.esc(this.compactValue(value))}</strong></div>`).join('')}
+      </div>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border,#E2E4E9);display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+        <span style="font-size:10px;color:var(--text-muted);margin-right:4px;">字段状态</span>
+        ${resBadges}
       </div>
     </div>`;
   },
@@ -389,6 +422,7 @@ const ResearchDesk = {
       failed: '失败',
       skipped: '跳过',
       pending: '等待',
+      collecting: '采集中',
     }[status] || status;
   },
 

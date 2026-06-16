@@ -67,6 +67,32 @@ TAVILY_QUERY_TEMPLATES: dict[str, list[str]] = {
         "{term} market region global expansion country presence",
         "{term} customers by region market share geography",
     ],
+    # 运营数据专项：借鉴 data-analytics-skills 的“子问题 + 数据依赖”拆解
+    "market_size": [
+        "{term} TAM SAM SOM market size CAGR report",
+        "{term} total addressable market serviceable obtainable market",
+        "{term} market size growth rate CAGR industry report",
+    ],
+    "revenue_metrics": [
+        "{term} ARR MRR revenue annual recurring revenue",
+        "{term} revenue run rate financial metrics",
+    ],
+    "user_metrics": [
+        "{term} registered users active users MAU DAU paying users",
+        "{term} customers users adoption growth metrics",
+    ],
+    "retention_metrics": [
+        "{term} retention rate churn rate cohort retention",
+        "{term} user retention engagement churn metrics",
+    ],
+    "unit_economics": [
+        "{term} CAC LTV LTV CAC gross margin payback period",
+        "{term} customer acquisition cost lifetime value unit economics",
+    ],
+    "capital_efficiency": [
+        "{term} burn rate runway cash runway gross margin",
+        "{term} operating metrics burn runway funding efficiency",
+    ],
     "achievement": [
         "{term} milestone achievement award recognition notable",
         "{term} announced partnership customer signed deal",
@@ -113,6 +139,8 @@ def build_search_plan(display_name: str, root_domain: str,
     core_intents = ["overview", "founders", "funding",
                     "product", "pricing", "competitors",
                     "revenue", "growth_metrics", "regional",
+                    "market_size", "revenue_metrics", "user_metrics",
+                    "retention_metrics", "unit_economics", "capital_efficiency",
                     "achievement", "tech_stack"]
     if depth == "deep":
         core_intents.extend(["gtm", "timeline", "community", "interview"])
@@ -120,18 +148,33 @@ def build_search_plan(display_name: str, root_domain: str,
     tavily_queries: list[TavilyQuery] = []
     terms = list(dict.fromkeys(aliases))[:5]
 
+    def _append_query(intent: str, term: str, tmpl: str) -> None:
+        if len(tavily_queries) >= budget:
+            return
+        q = tmpl.format(term=term, host=website_host,
+                        root=root_domain)
+        if any(existing.query == q for existing in tavily_queries):
+            return
+        tavily_queries.append(
+            TavilyQuery(query=q, intent=intent, term=term))
+
+    # 第一轮先覆盖全部意图，避免预算被早期意图耗尽。
+    primary_term = terms[0] if terms else (display_name or root_domain or website_host or "")
+    for intent in core_intents:
+        templates = TAVILY_QUERY_TEMPLATES.get(intent, [])
+        if templates and primary_term:
+            _append_query(intent, primary_term, templates[0])
+
     for intent in core_intents:
         templates = TAVILY_QUERY_TEMPLATES.get(intent, [])
         for term in terms[:3]:
             # 每意图取第1个模板（保证广度覆盖所有意图），关键意图取2个
-            limit = 2 if intent in ("funding", "product", "founders") else 1
+            limit = 2 if intent in ("funding", "product", "founders",
+                                    "market_size", "user_metrics") else 1
             for tmpl in templates[:limit]:
                 if len(tavily_queries) >= budget:
                     break
-                q = tmpl.format(term=term, host=website_host,
-                                root=root_domain)
-                tavily_queries.append(
-                    TavilyQuery(query=q, intent=intent, term=term))
+                _append_query(intent, term, tmpl)
             if len(tavily_queries) >= budget:
                 break
         if len(tavily_queries) >= budget:

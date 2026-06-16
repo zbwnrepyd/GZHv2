@@ -3,6 +3,7 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "webapp"))
 
 from search_plan import build_search_plan
+from gap_detector import detect_gaps, build_gap_queries
 
 
 class SearchPlanTests(unittest.TestCase):
@@ -35,6 +36,43 @@ class SearchPlanTests(unittest.TestCase):
     def test_empty_plan_has_defaults(self):
         plan = build_search_plan("", "", "", [])
         self.assertGreaterEqual(plan.query_count, 0)
+
+    def test_plan_includes_operating_metric_intents(self):
+        plan = build_search_plan(
+            "Azra Games", "azragames", "azragames.com",
+            ["Azra Games", "Azragames", "azragames.com"],
+        )
+        intents = {q.intent for q in plan.tavily_queries}
+        self.assertTrue(
+            {"market_size", "revenue_metrics", "user_metrics",
+             "retention_metrics", "unit_economics", "capital_efficiency"}.issubset(intents),
+            f"Missing operating metric intents, got: {intents}",
+        )
+
+    def test_gap_detector_generates_operating_metric_queries(self):
+        gaps = detect_gaps({
+            "tam": "暂缺",
+            "sam": "",
+            "som": None,
+            "arr": "暂缺",
+            "registered_users": "",
+            "cac": None,
+            "ltv": "暂缺",
+            "burn_rate": "",
+            "runway_months": None,
+        })
+
+        self.assertIn("market_size", gaps)
+        self.assertIn("revenue_metrics", gaps)
+        self.assertIn("user_metrics", gaps)
+        self.assertIn("unit_economics", gaps)
+        self.assertIn("capital_efficiency", gaps)
+
+        queries = build_gap_queries("Azra Games", "azragames.com", "azragames", gaps)
+        query_text = " ".join(q["query"] for q in queries)
+        self.assertIn("TAM", query_text)
+        self.assertIn("ARR", query_text)
+        self.assertIn("CAC", query_text)
 
 
 if __name__ == "__main__":

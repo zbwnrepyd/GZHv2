@@ -1,0 +1,278 @@
+# 字段解析清单 — 定义每个字段的获取策略、来源要求、回退行为
+# 配合 field_status.py 在 L3 提取后给 research_fields 打 resolution_status 标签
+#
+# 五类字段：
+#   A 直接事实 — 官方来源 / LinkedIn / Crunchbase / 新闻稿
+#   B 公式计算 — 输入 confirmed 则自动 derived
+#   C 市场估算 — 市场报告 + 赛道边界，多为 proxy/manual_needed
+#   D 私有经营 — 默认 unavailable，仅可信来源披露才补
+#   E B2B不适配 — 根据 company_type 标记 not_applicable
+
+fields:
+  # ── A 类：直接事实 ──
+  company_name:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  company_type:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  location:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  company_def:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  company_achievement:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  founder_name:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  founder_edu:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  founder_bg:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  founder_achievement:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  team_size:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  team_highlight:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  funding_info:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  website_url:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  main_product_name:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  main_product_def:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  main_product_highlight:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  main_product_achievement:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  main_product_img_src:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  tech_stack:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  other_products:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  competitors:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+  competitors_summary:
+    category: A
+    resolution_type: official_fact
+    if_missing: unavailable
+
+  # ── B 类：公式计算 ──
+  mrr:
+    category: B
+    resolution_type: derived
+    formula: arr / 12
+    required_inputs: [arr]
+    if_missing: unavailable
+  ltv_cac_ratio:
+    category: B
+    resolution_type: derived
+    formula: ltv / cac
+    required_inputs: [ltv, cac]
+    if_missing: unavailable
+  funding_stage_score:
+    category: B
+    resolution_type: derived
+    formula: FUNDING_MAP[funding_stage]
+    required_inputs: [funding_stage]
+    if_missing: derived
+
+  # ── C 类：市场估算 ──
+  tam:
+    category: C
+    resolution_type: market_model
+    allow_proxy: true
+    if_missing: manual_needed
+  sam:
+    category: C
+    resolution_type: market_model
+    allow_proxy: true
+    if_missing: manual_needed
+  som:
+    category: C
+    resolution_type: market_model
+    allow_proxy: true
+    if_missing: manual_needed
+  market_cagr:
+    category: C
+    resolution_type: market_model
+    allow_proxy: true
+    if_missing: manual_needed
+  market_size_source_note:
+    category: C
+    resolution_type: market_model
+    allow_proxy: true
+    if_missing: manual_needed
+
+  # ── D 类：私有经营指标 ──
+  arr:
+    category: D
+    resolution_type: private_metric
+    allow_proxy: false
+    if_missing: unavailable
+  cac:
+    category: D
+    resolution_type: private_metric
+    allow_proxy: false
+    if_missing: unavailable
+  ltv:
+    category: D
+    resolution_type: private_metric
+    allow_proxy: false
+    if_missing: unavailable
+  churn_rate:
+    category: D
+    resolution_type: private_metric
+    allow_proxy: false
+    if_missing: unavailable
+  retention_rate:
+    category: D
+    resolution_type: private_metric
+    allow_proxy: false
+    if_missing: unavailable
+  gross_margin:
+    category: D
+    resolution_type: private_metric
+    allow_proxy: false
+    if_missing: unavailable
+  burn_rate:
+    category: D
+    resolution_type: private_metric
+    allow_proxy: false
+    if_missing: unavailable
+  runway_months:
+    category: D
+    resolution_type: private_metric
+    allow_proxy: false
+    if_missing: unavailable
+  revenue_metrics:
+    category: D
+    resolution_type: private_metric
+    allow_proxy: false
+    if_missing: unavailable
+  growth_metrics:
+    category: D
+    resolution_type: private_metric
+    allow_proxy: false
+    if_missing: unavailable
+
+  # ── E 类：B2B 不适配（根据 company_type 判定）──
+  active_users:
+    category: E
+    resolution_type: b2b_remap
+    b2b_replace: active_accounts
+    if_missing: not_applicable
+  registered_users:
+    category: E
+    resolution_type: b2b_remap
+    b2b_replace: registered_accounts
+    if_missing: not_applicable
+  paying_users:
+    category: E
+    resolution_type: b2b_remap
+    b2b_replace: paying_customers
+    if_missing: not_applicable
+
+  # ── 枚举字段（已由 3 层提取 + Pydantic 验证处理）──
+  ai_model_dependency:
+    category: A
+    resolution_type: enum_extraction
+    if_missing: unavailable
+  workflow_integration_level:
+    category: A
+    resolution_type: enum_extraction
+    if_missing: unavailable
+  data_flywheel:
+    category: A
+    resolution_type: enum_extraction
+    if_missing: unavailable
+  proprietary_data_asset:
+    category: A
+    resolution_type: enum_extraction
+    if_missing: unavailable
+  incumbent_direct_competitor:
+    category: A
+    resolution_type: enum_extraction
+    if_missing: unavailable
+  customer_segment_type:
+    category: A
+    resolution_type: enum_extraction
+    if_missing: unavailable
+  funding_stage:
+    category: A
+    resolution_type: enum_extraction
+    if_missing: unavailable
+  pricing_model:
+    category: A
+    resolution_type: enum_extraction
+    if_missing: unavailable
+  inference_cost_exposure:
+    category: A
+    resolution_type: enum_extraction
+    if_missing: unavailable
+  stack_layer:
+    category: A
+    resolution_type: enum_extraction
+    if_missing: unavailable
+
+  # ── 评分字段（由 competitive_scoring 公式生成）──
+  score_defensibility:
+    category: B
+    resolution_type: derived
+    if_missing: derived
+  score_incumbent_attention:
+    category: B
+    resolution_type: derived
+    if_missing: derived
+  score_value_capture:
+    category: B
+    resolution_type: derived
+    if_missing: derived
+
+  # ── 其余：统一按 LLM 提取处理 ──
+  _default:
+    category: A
+    resolution_type: llm_extract
+    if_missing: unavailable

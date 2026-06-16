@@ -87,6 +87,10 @@ def _init_new_composition_dbs():
     # 迁移：final_fields 写入 final_db
     _run_migrations(config.DB_PATH_FINAL, ["002_final_fields.sql"])
 
+    # 迁移：证据层 + 字段分辨率（009-010，幂等）
+    _run_migrations(config.DB_PATH_RESEARCH, ["009_evidence_items.sql",
+                                               "010_field_resolution.sql"])
+
 
 # 初始化新数据库（幂等，失败不阻塞 import）
 try:
@@ -264,7 +268,8 @@ def _run_pipeline_job(job_id: str, company_name: str, company_url: str):
                 _jobs[job_id]["stage"] = stage
                 _jobs[job_id]["detail"] = message
                 if sources is not None:
-                    _jobs[job_id]["sources"] = sources
+                    current_sources = _jobs[job_id].get("sources") or {}
+                    _jobs[job_id]["sources"] = {**current_sources, **sources}
                 # 累积阶段历史
                 stages = _jobs[job_id].setdefault("stages", [])
                 if not stages or stages[-1]["stage"] != stage:
@@ -1143,7 +1148,7 @@ def get_company_all_fields(company: str):
             ff = final_index.get(fk, {})
             return ff.get("field_label", "")
 
-        # 从 standard 取 confidence / source_type
+        # 从 standard 取 metadata（含分辨率状态新列）
         def _meta(fk, key):
             std = research_by_version.get("standard", {}).get(fk, {})
             return std.get(key, "")
@@ -1169,16 +1174,27 @@ def get_company_all_fields(company: str):
                 "final_status": ff.get("status") or "",
                 "confidence": _meta(fk, "confidence"),
                 "source_type": _meta(fk, "source_type"),
+                "resolution_status": _meta(fk, "resolution_status"),
+                "unavailable_reason": _meta(fk, "unavailable_reason"),
+                "resolution_method": _meta(fk, "resolution_method"),
             })
 
         # 统计每个版本的实际字段数
         counts = {v: len(research_by_version[v]) for v in versions}
+
+        # 分辨率状态摘要（从 standard 版本统计）
+        resolution_summary = {}
+        for fk in all_keys:
+            status = _meta(fk, "resolution_status")
+            if status:
+                resolution_summary[status] = resolution_summary.get(status, 0) + 1
 
         return jsonify({
             "company_name": company,
             "total": len(rows),
             "research_counts": counts,
             "final_count": len(final_fields),
+            "resolution_summary": resolution_summary,
             "fields": rows,
         })
     except Exception as e:
