@@ -356,6 +356,27 @@ REQUIRED_RESEARCH_FIELDS = [
     "customer_segment_secondary", "growth_strategy", "gtm_motion",
     "market_opportunity", "hook_paragraph_1", "hook_paragraph_2", "hook_paragraph_3",
     "data_confidence", "tech_stack",
+    # v3 新增字段 — 公司简介页
+    "market_landscape_summary", "market_landscape_top_players",
+    "market_size_value", "market_size_currency", "market_size_year",
+    "tam_value", "tam_currency", "tam_year",
+    "founded_date", "core_business", "core_competency",
+    "funding_rounds", "company_achievements", "industry_positioning",
+    # v3 新增字段 — 主产品页
+    "product_pain_points", "product_core_features",
+    "product_usage_playbook", "product_tech_stack",
+    "regional_market_focus", "mau", "mau_as_of",
+    "retention_definition", "pricing_summary", "pricing_tiers",
+    "ecosystem_niche",
+    # v3 新增字段 — 用户群体页
+    "customer_names", "customer_selection_reasons", "customer_choice_evidence",
+    # v3 新增字段 — 能力分析页
+    "pricing_strategy", "ltv_cac_is_benchmark", "ltv_cac_benchmark_source",
+    # v3 新增字段 — GTM 页
+    "acquisition_channels",
+    # v3 新增字段 — 竞争态势页
+    "competitors_top3", "competitive_position",
+    "differentiated_opportunity", "competitive_advantages",
 ]
 
 COMPETITIVE_RESEARCH_FIELDS = [
@@ -436,6 +457,48 @@ def _ensure_research_schema(conn: sqlite3.Connection):
         "display_name": "TEXT",
         "input_name": "TEXT",
         "website_host": "TEXT",
+        # v3 新增字段 — 公司简介页
+        "market_landscape_summary": "TEXT",
+        "market_landscape_top_players": "TEXT",
+        "market_size_value": "REAL",
+        "market_size_currency": "TEXT",
+        "market_size_year": "INTEGER",
+        "tam_value": "REAL",
+        "tam_currency": "TEXT",
+        "tam_year": "INTEGER",
+        "founded_date": "TEXT",
+        "core_business": "TEXT",
+        "core_competency": "TEXT",
+        "funding_rounds": "TEXT",
+        "company_achievements": "TEXT",
+        "industry_positioning": "TEXT",
+        # v3 新增字段 — 主产品页
+        "product_pain_points": "TEXT",
+        "product_core_features": "TEXT",
+        "product_usage_playbook": "TEXT",
+        "product_tech_stack": "TEXT",
+        "regional_market_focus": "TEXT",
+        "mau": "INTEGER",
+        "mau_as_of": "TEXT",
+        "retention_definition": "TEXT",
+        "pricing_summary": "TEXT",
+        "pricing_tiers": "TEXT",
+        "ecosystem_niche": "TEXT",
+        # v3 新增字段 — 用户群体页
+        "customer_names": "TEXT",
+        "customer_selection_reasons": "TEXT",
+        "customer_choice_evidence": "TEXT",
+        # v3 新增字段 — 能力分析页
+        "pricing_strategy": "TEXT",
+        "ltv_cac_is_benchmark": "INTEGER",
+        "ltv_cac_benchmark_source": "TEXT",
+        # v3 新增字段 — GTM 页
+        "acquisition_channels": "TEXT",
+        # v3 新增字段 — 竞争态势页
+        "competitors_top3": "TEXT",
+        "competitive_position": "TEXT",
+        "differentiated_opportunity": "TEXT",
+        "competitive_advantages": "TEXT",
     }
     for name, definition in columns.items():
         if name not in existing:
@@ -451,7 +514,11 @@ def save_research_records(db_path: str, records: list[dict]) -> list[int]:
             rec = dict(rec)
             for f in REQUIRED_RESEARCH_FIELDS:
                 val = rec.get(f)
-                if val is None or (isinstance(val, str) and val.strip() == ""):
+                if f == "ltv_cac_is_benchmark" and (
+                    val is None or (isinstance(val, str) and val.strip() == "")
+                ):
+                    rec[f] = 0
+                elif val is None or (isinstance(val, str) and val.strip() == ""):
                     rec[f] = "暂缺"
                 elif isinstance(val, (list, dict)):
                     rec[f] = json.dumps(val, ensure_ascii=False)
@@ -666,7 +733,7 @@ def get_final_status(db_path: str, company_name: str,
     cards = get_final_cards(db_path, company_name, card_set_key=card_set_key)
     confirmed = sorted({c["card_index"] for c in cards if c["field_name"] == "markdown_full"} or
                        {c["card_index"] for c in cards})
-    total = 7 if card_set_key == "v2" else 8
+    total = 7 if card_set_key == "v2" else 8  # v1=8, v2=7, v3=8
     return {
         "company_name": company_name,
         "card_set_key": card_set_key,
@@ -771,10 +838,15 @@ def export_markdown(db_path: str, company_name: str, card_set_key: str = "v1") -
         card_groups.setdefault(c["card_index"], []).append(c)
 
     lines: list[str] = []
-    card_titles = [
-        "", "首页", "公司介绍", "发展沿袭",
-        "产品线（主产品）", "其他产品", "商业模式", "竞争格局", "总结",
-    ]
+    _CARD_TITLES_MAP = {
+        "v1": ["", "首页", "公司介绍", "发展沿袭",
+               "产品线（主产品）", "其他产品", "商业模式", "竞争格局", "总结"],
+        "v2": ["", "封面", "公司概览", "产品与定位",
+               "创始人与团队", "核心客户", "GTM与增长", "竞争格局"],
+        "v3": ["", "封面", "公司简介", "主产品",
+               "创始团队", "用户群体", "公司能力分析", "增长与GTM", "竞争态势"],
+    }
+    card_titles = _CARD_TITLES_MAP.get(card_set_key, _CARD_TITLES_MAP["v1"])
 
     for idx in range(1, 9):
         fields = card_groups.get(idx, [])

@@ -38,6 +38,210 @@ def get_job(job_id: str) -> dict | None:
     return _export_jobs.get(job_id)
 
 
+def _get_final_values(final_db: str, company: str, card_set_key: str) -> dict[str, str]:
+    import sqlite3
+    values: dict[str, str] = {}
+    with sqlite3.connect(final_db) as conn:
+        conn.row_factory = sqlite3.Row
+        has_set_key = any(
+            row["name"] == "card_set_key"
+            for row in conn.execute("PRAGMA table_info(final_fields)").fetchall()
+        )
+        if has_set_key:
+            rows = conn.execute(
+                """SELECT field_key, final_value FROM final_fields
+                   WHERE company_name=? AND status != 'hidden'
+                   AND (card_set_key=? OR card_set_key IS NULL OR card_set_key='')""",
+                (company, card_set_key),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT field_key, final_value FROM final_fields
+                   WHERE company_name=? AND status != 'hidden'""",
+                (company,),
+            ).fetchall()
+        for row in rows:
+            values[row["field_key"]] = row["final_value"] or ""
+    return values
+
+
+def _get_research_field_values(research_db: str, company: str) -> dict[str, str]:
+    import sqlite3
+    values: dict[str, str] = {}
+    with sqlite3.connect(research_db) as conn:
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                """SELECT field_key, field_value FROM research_fields
+                   WHERE company_name=? AND version='standard'""",
+                (company,),
+            ).fetchall()
+            for row in rows:
+                values[row["field_key"]] = row["field_value"] or ""
+        except sqlite3.Error:
+            pass
+    return values
+
+
+def _format_bundle_value(value: str) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            items = json.loads(text)
+            if isinstance(items, list):
+                lines = []
+                for item in items:
+                    if isinstance(item, dict):
+                        name = item.get("name") or item.get("title") or item.get("round") or item.get("type") or ""
+                        detail = item.get("summary") or item.get("description") or item.get("amount") or item.get("url") or ""
+                        lines.append(f"- **{name}**：{detail}" if detail else f"- {name or json.dumps(item, ensure_ascii=False)}")
+                    else:
+                        lines.append(f"- {item}")
+                return "\n".join(lines)
+        except Exception:
+            return text
+    return text
+
+
+def build_page_payload(
+    company: str,
+    page_no: int,
+    card_set_key: str = "v3",
+    composition_db: str | None = None,
+    final_db: str | None = None,
+    research_db: str | None = None,
+) -> dict:
+    """Build one page payload from default card config and final/research fields."""
+    from config import config
+    from repositories.card_config_repo import get_default_card_configs
+
+    composition_db = composition_db or config.DB_PATH_COMPOSITION
+    final_db = final_db or config.DB_PATH_FINAL
+    research_db = research_db or config.DB_PATH_RESEARCH
+    configs = get_default_card_configs(composition_db, set_key=card_set_key)
+    by_page = {cfg["card_index"]: cfg for cfg in configs}
+    schema = by_page.get(page_no)
+    if not schema:
+        raise ValueError(f"page_no not found for {card_set_key}: {page_no}")
+    config_json = schema.get("config") or {}
+    final_values = _get_final_values(final_db, company, card_set_key)
+    research_values = _get_research_field_values(research_db, company)
+    fields = {}
+    for field_key in config_json.get("fields", []):
+        fields[field_key] = final_values.get(field_key, research_values.get(field_key, ""))
+    return {
+        "company_name": company,
+        "card_set_key": card_set_key,
+        "page_no": page_no,
+        "card_id": schema["card_id"],
+        "title": schema["card_title"],
+        "template_id": config_json.get("template_id", ""),
+        "fields": fields,
+        "media": config_json.get("media", []),
+        "evidence_footnotes": [],
+    }
+
+
+def _page_to_markdown(page: dict) -> str:
+    lines = [f"## {page['page_no']}. {page['title']}", ""]
+    for key, value in page.get("fields", {}).items():
+        formatted = _format_bundle_value(value)
+        if formatted:
+            lines.append(f"**{key}**：")
+            lines.append(formatted)
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _write_minimal_pdf(path: Path, title: str, pages: list[dict]) -> None:
+    text = title + "\n" + "\n".join(f"{p['page_no']}. {p['title']}" for p in pages)
+    stream = f"BT /F1 12 Tf 72 760 Td ({_pdf_escape(text[:800])}) Tj ET"
+    objects = [
+        "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
+        "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
+        "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj",
+        "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
+        f"5 0 obj << /Length {len(stream.encode('latin-1', 'ignore'))} >> stream\n{stream}\nendstream endobj",
+    ]
+    content = "%PDF-1.4\n"
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(content.encode("latin-1")))
+        content += obj + "\n"
+    xref = len(content.encode("latin-1"))
+    content += f"xref\n0 {len(objects)+1}\n0000000000 65535 f \n"
+    for off in offsets[1:]:
+        content += f"{off:010d} 00000 n \n"
+    content += f"trailer << /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+    path.write_bytes(content.encode("latin-1", "ignore"))
+
+
+def _pdf_escape(text: str) -> str:
+    safe = text.encode("latin-1", "ignore").decode("latin-1")
+    return safe.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").replace("\n", " /  ")
+
+
+def build_notion_blocks(pages: list[dict]) -> dict:
+    children = []
+    for page in pages:
+        page_children = []
+        for key, value in page.get("fields", {}).items():
+            formatted = _format_bundle_value(value)
+            if formatted:
+                page_children.append({
+                    "type": "paragraph",
+                    "rich_text": [{"type": "text", "text": {"content": f"{key}: {formatted}"}}],
+                })
+        children.append({
+            "type": "heading_2",
+            "rich_text": [{"type": "text", "text": {"content": f"{page['page_no']}. {page['title']}"}}],
+            "children": page_children,
+        })
+    return {"type": "notion_block_tree", "children": children}
+
+
+def render_export_bundle(
+    company: str,
+    card_set_key: str = "v3",
+    composition_db: str | None = None,
+    final_db: str | None = None,
+    research_db: str | None = None,
+    output_dir: str | None = None,
+) -> dict:
+    """Export v3 pages to Markdown, a PDF placeholder, and Notion block JSON."""
+    from config import config
+
+    composition_db = composition_db or config.DB_PATH_COMPOSITION
+    final_db = final_db or config.DB_PATH_FINAL
+    research_db = research_db or config.DB_PATH_RESEARCH
+    output = Path(output_dir or (Path(__file__).resolve().parents[2] / "output" / "bundles" / company))
+    output.mkdir(parents=True, exist_ok=True)
+
+    page_count = 8 if card_set_key != "v2" else 7
+    pages = [
+        build_page_payload(company, page_no, card_set_key, composition_db, final_db, research_db)
+        for page_no in range(1, page_count + 1)
+    ]
+    markdown_path = output / f"{company}_{card_set_key}.md"
+    markdown_path.write_text("\n".join(_page_to_markdown(p) for p in pages), encoding="utf-8")
+    pdf_path = output / f"{company}_{card_set_key}.pdf"
+    _write_minimal_pdf(pdf_path, f"{company} {card_set_key}", pages)
+    notion_payload = build_notion_blocks(pages)
+    notion_path = output / f"{company}_{card_set_key}_notion.json"
+    notion_path.write_text(json.dumps(notion_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "pages": pages,
+        "markdown": str(markdown_path),
+        "pdf": str(pdf_path),
+        "notion": notion_payload,
+        "notion_json": str(notion_path),
+    }
+
+
 def run_export(job_id: str, project_root: str):
     """后台执行导出任务"""
     job = _export_jobs.get(job_id)

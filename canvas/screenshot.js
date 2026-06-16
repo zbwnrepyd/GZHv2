@@ -5,7 +5,7 @@ const path = require('path');
 
 function usage() {
   console.log(`Usage:
-  node canvas/screenshot.js --company <name> [--set v1|v2] [--base-url http://127.0.0.1:5050] [--out output/cards/<name>] [--bg-image <path>] [--shots 3] [--scale 3] [--params <json>] [--params-file <path>]
+  node canvas/screenshot.js --company <name> [--set v1|v2|v3] [--base-url http://127.0.0.1:5050] [--out output/cards/<name>] [--bg-image <path>] [--shots 3] [--scale 3] [--params <json>] [--params-file <path>]
 
 Options:
   --company      Company name to export. Required.

@@ -15,9 +15,28 @@ def _get_db(db_path: str):
         conn.close()
 
 
+def _existing_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    """返回表中已存在的列名集合。"""
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
 # ═══════════════════════════════════════════
 # research_fields — LLM 提取的原始字段
 # ═══════════════════════════════════════════
+
+# v3 可能新增的 research_fields 列（兼容旧 schema）
+_RF_V3_COLS = {
+    "value_type": "",
+    "norm_value": "",
+    "currency_code": "",
+    "unit": "",
+    "as_of_date": "",
+    "evidence_ids": "",
+    "source_urls": "",
+    "page_no": None,
+    "sort_order": 0,
+}
+
 
 def insert_research_field(db_path: str, company_name: str, version: str,
                           field_key: str, field_label: str = "",
@@ -25,32 +44,47 @@ def insert_research_field(db_path: str, company_name: str, version: str,
                           source_url: str = "", confidence: str = "",
                           raw_payload: str = "") -> int:
     with _get_db(db_path) as conn:
-        cur = conn.execute(
-            """INSERT OR REPLACE INTO research_fields
-               (company_name, version, field_key, field_label, field_value,
-                source_type, source_url, confidence, raw_payload, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
-            (company_name, version, field_key, field_label, field_value,
-             source_type, source_url, confidence, raw_payload))
+        existing = _existing_columns(conn, "research_fields")
+        base_cols = ["company_name", "version", "field_key", "field_label",
+                     "field_value", "source_type", "source_url", "confidence",
+                     "raw_payload"]
+        base_vals = [company_name, version, field_key, field_label,
+                     field_value, source_type, source_url, confidence,
+                     raw_payload]
+        extra_cols = []
+        extra_vals = []
+        for col, default in _RF_V3_COLS.items():
+            if col in existing:
+                extra_cols.append(col)
+                extra_vals.append(default)
+        all_cols = base_cols + extra_cols + ["updated_at"]
+        placeholders = ", ".join("?" for _ in all_cols[:-1]) + ", CURRENT_TIMESTAMP"
+        sql = f"INSERT OR REPLACE INTO research_fields ({', '.join(all_cols)}) VALUES ({placeholders})"
+        conn.execute(sql, base_vals + extra_vals)
         conn.commit()
-        return cur.lastrowid
+        return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
 
 def insert_research_fields_batch(db_path: str, rows: list[dict]) -> int:
     """批量写入 research_fields，返回写入数"""
     with _get_db(db_path) as conn:
+        existing = _existing_columns(conn, "research_fields")
+        base_cols = ["company_name", "version", "field_key", "field_label",
+                     "field_value", "source_type", "source_url", "confidence",
+                     "raw_payload"]
+        extra_cols = [c for c in _RF_V3_COLS if c in existing]
+        all_cols = base_cols + extra_cols + ["updated_at"]
+        placeholders = ", ".join("?" for _ in all_cols[:-1]) + ", CURRENT_TIMESTAMP"
+        sql = f"INSERT OR REPLACE INTO research_fields ({', '.join(all_cols)}) VALUES ({placeholders})"
         count = 0
         for r in rows:
-            conn.execute(
-                """INSERT OR REPLACE INTO research_fields
-                   (company_name, version, field_key, field_label, field_value,
-                    source_type, source_url, confidence, raw_payload, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
-                (r.get("company_name"), r.get("version", "standard"),
-                 r["field_key"], r.get("field_label", ""),
-                 r.get("field_value", ""), r.get("source_type", ""),
-                 r.get("source_url", ""), r.get("confidence", ""),
-                 r.get("raw_payload", "")))
+            base_vals = [r.get("company_name"), r.get("version", "standard"),
+                         r["field_key"], r.get("field_label", ""),
+                         r.get("field_value", ""), r.get("source_type", ""),
+                         r.get("source_url", ""), r.get("confidence", ""),
+                         r.get("raw_payload", "")]
+            extra_vals = [r.get(c, _RF_V3_COLS[c]) for c in extra_cols]
+            conn.execute(sql, base_vals + extra_vals)
             count += 1
         conn.commit()
         return count
@@ -81,24 +115,59 @@ def get_research_field_value(db_path: str, company_name: str,
 # final_fields — 人工定稿字段
 # ═══════════════════════════════════════════
 
+# v3 可能新增的 final_fields 列（兼容旧 schema）
+_FF_V3_COLS = {
+    "card_set_key": "v1",
+    "page_no": None,
+    "block_key": "",
+    "block_type": "field",
+    "render_json": "",
+    "export_targets": '["markdown","pdf","notion"]',
+}
+
+
 def upsert_final_field(db_path: str, company_name: str, field_key: str,
                        final_value: str, field_label: str = "",
                        source_version: str = "standard",
-                       status: str = "draft") -> int:
+                       status: str = "draft",
+                       card_set_key: str = "v1",
+                       page_no: int = None,
+                       block_key: str = "",
+                       block_type: str = "field",
+                       render_json: str = "",
+                       export_targets: str = '["markdown","pdf","notion"]') -> int:
     with _get_db(db_path) as conn:
-        cur = conn.execute(
-            """INSERT INTO final_fields
-               (company_name, field_key, field_label, final_value,
-                source_version, status, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-               ON CONFLICT(company_name, field_key) DO UPDATE SET
-               final_value=excluded.final_value,
-               field_label=excluded.field_label,
-               source_version=excluded.source_version,
-               status=excluded.status,
-               updated_at=CURRENT_TIMESTAMP""",
-            (company_name, field_key, field_label or "", final_value,
-             source_version, status))
+        existing = _existing_columns(conn, "final_fields")
+        base_cols = ["company_name", "field_key", "field_label", "final_value",
+                     "source_version", "status"]
+        base_vals = [company_name, field_key, field_label or "", final_value,
+                     source_version, status]
+        extra_cols = [c for c in _FF_V3_COLS if c in existing]
+        param_map = {
+            "card_set_key": card_set_key, "page_no": page_no,
+            "block_key": block_key, "block_type": block_type,
+            "render_json": render_json, "export_targets": export_targets,
+        }
+        extra_vals = [param_map[c] for c in extra_cols]
+        all_cols = base_cols + extra_cols + ["updated_at"]
+        placeholders = ", ".join("?" for _ in all_cols[:-1]) + ", CURRENT_TIMESTAMP"
+
+        # ON CONFLICT DO UPDATE — 基础字段 + 已存在的 v3 字段
+        set_parts = [
+            "final_value=excluded.final_value",
+            "field_label=excluded.field_label",
+            "source_version=excluded.source_version",
+            "status=excluded.status",
+        ]
+        for c in extra_cols:
+            set_parts.append(f"{c}=excluded.{c}")
+        set_parts.append("updated_at=CURRENT_TIMESTAMP")
+        set_clause = ", ".join(set_parts)
+
+        sql = (f"INSERT INTO final_fields ({', '.join(all_cols)}) "
+               f"VALUES ({placeholders}) "
+               f"ON CONFLICT(company_name, field_key) DO UPDATE SET {set_clause}")
+        cur = conn.execute(sql, base_vals + extra_vals)
         conn.commit()
         return cur.lastrowid
 

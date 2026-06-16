@@ -18,6 +18,17 @@ CRITICAL_GAPS: dict[str, list[str]] = {
     "retention_metrics": ["retention_rate", "churn_rate"],
     "unit_economics": ["cac", "ltv", "ltv_cac_ratio", "gross_margin"],
     "capital_efficiency": ["burn_rate", "runway_months"],
+    # v3 新增缺口意图
+    "customers": ["customer_names", "customer_selection_reasons", "customer_choice_evidence"],
+    "pricing_details": ["pricing_summary", "pricing_tiers", "pricing_strategy"],
+    "competitive_position": ["competitors_top3", "competitive_position", "competitive_advantages"],
+    "differentiated_opportunity": ["differentiated_opportunity"],
+    "company_profile_v3": ["founded_date", "core_business", "core_competency",
+                            "funding_rounds", "company_achievements", "industry_positioning"],
+    "product_v3": ["product_pain_points", "product_core_features", "product_usage_playbook",
+                   "product_tech_stack", "regional_market_focus", "mau", "mau_as_of",
+                   "retention_definition"],
+    "gtm_v3": ["acquisition_channels"],
 }
 
 GAP_QUERY_TEMPLATES: dict[str, list[str]] = {
@@ -72,6 +83,34 @@ GAP_QUERY_TEMPLATES: dict[str, list[str]] = {
     "capital_efficiency": [
         '"{display_name}" burn rate runway cash runway gross margin',
         '"{display_name}" operating metrics burn runway funding efficiency',
+    ],
+    "customers": [
+        '"{display_name}" customers case study enterprise clients testimonials',
+        '"{display_name}" customer success stories client list logos',
+    ],
+    "pricing_details": [
+        "site:{website_host} pricing plans",
+        '"{display_name}" pricing tiers detailed breakdown subscription',
+    ],
+    "competitive_position": [
+        '"{display_name}" competitive advantage differentiation market position',
+        '"{display_name}" vs competitors comparison analysis alternatives',
+    ],
+    "differentiated_opportunity": [
+        '"{display_name}" market gap opportunity niche blue ocean',
+        '"{display_name}" differentiation strategy competitive white space',
+    ],
+    "company_profile_v3": [
+        '"{display_name}" founded date year headquarters location',
+        '"{display_name}" core business mission company overview achievements',
+    ],
+    "product_v3": [
+        '"{display_name}" product features tech stack architecture MAU',
+        '"{display_name}" product usage pain points core functionality pricing',
+    ],
+    "gtm_v3": [
+        '"{display_name}" acquisition channels marketing SEO social media growth',
+        '"{display_name}" go to market distribution channels user acquisition',
     ],
 }
 

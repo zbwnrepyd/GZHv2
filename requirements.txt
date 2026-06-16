@@ -8,3 +8,4 @@ playwright
 Pillow
 pydantic>=2.0
 PyYAML
+youtube-transcript-api>=0.6

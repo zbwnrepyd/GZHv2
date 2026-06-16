@@ -37,15 +37,28 @@ def persist_evidence_pool(db_path: str, company_name: str,
             if len(text) > 4000:
                 text = text[:3997] + "..."
 
+            # v3 新增字段（兼容旧 EvidenceItem 无这些属性时为空）
+            domain = (getattr(item, "domain", "") or "").strip()
+            published_at = (getattr(item, "published_at", "") or "").strip()
+            lang = (getattr(item, "lang", "") or "").strip()
+            content_hash = (getattr(item, "content_hash", "") or "").strip()
+            robots_status = (getattr(item, "robots_status", "") or "").strip()
+            source_family = (getattr(item, "source_family", "") or "").strip()
+
             try:
                 conn.execute(
                     """INSERT OR IGNORE INTO evidence_items
                        (company_name, source_type, source_url, source_title,
                         evidence_text, evidence_hash, relevance_score,
-                        reliability_score, research_version)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        reliability_score, research_version,
+                        domain, published_at, lang, content_hash,
+                        robots_status, source_family)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+                               ?, ?, ?, ?, ?, ?)""",
                     (company_name, source, url, title, text, ev_hash,
-                     relevance, reliability, version),
+                     relevance, reliability, version,
+                     domain, published_at, lang, content_hash,
+                     robots_status, source_family),
                 )
                 if conn.total_changes > 0:
                     count += 1

@@ -91,6 +91,10 @@ def _init_new_composition_dbs():
     _run_migrations(config.DB_PATH_RESEARCH, ["009_evidence_items.sql",
                                                "010_field_resolution.sql"])
 
+    # 迁移：v3 字段扩列（011 research库 + 012 final库，幂等）
+    _run_migrations(config.DB_PATH_RESEARCH, ["011_v3_fields.sql"])
+    _run_migrations(config.DB_PATH_FINAL, ["012_v3_final_fields.sql"])
+
 
 # 初始化新数据库（幂等，失败不阻塞 import）
 try:
@@ -216,13 +220,15 @@ def get_research_card_markdown(company: str, card_index: int):
     version = request.args.get("version", "standard")
     if version not in ("standard", "business", "spread"):
         return jsonify({"error": f"无效的版本: {version}"}), 400
+    set_key = request.args.get("set", "v1")
     try:
         markdown = markdown_builder.build_card_markdown(
-            config.DB_PATH_RESEARCH, company, card_index, version
+            config.DB_PATH_RESEARCH, company, card_index, version,
+            card_set_key=set_key,
         )
         if not markdown:
             return jsonify({"error": "公司或版本不存在"}), 404
-        return jsonify({"company_name": company, "card_index": card_index, "version": version, "markdown": markdown})
+        return jsonify({"company_name": company, "card_index": card_index, "version": version, "card_set_key": set_key, "markdown": markdown})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -915,6 +921,27 @@ def export_company(company: str):
     try:
         set_key = request.args.get("set", "v1")
         fmt = request.args.get("format", "markdown")
+        if fmt in ("bundle", "pdf", "notion"):
+            from services.export_service import render_export_bundle
+            bundle = render_export_bundle(
+                company,
+                card_set_key=set_key,
+                composition_db=config.DB_PATH_COMPOSITION,
+                final_db=config.DB_PATH_FINAL,
+                research_db=config.DB_PATH_RESEARCH,
+            )
+            if fmt == "pdf":
+                return jsonify({"company_name": company, "card_set_key": set_key, "pdf": bundle["pdf"]})
+            if fmt == "notion":
+                return jsonify({"company_name": company, "card_set_key": set_key, "notion": bundle["notion"], "notion_json": bundle["notion_json"]})
+            return jsonify({
+                "company_name": company,
+                "card_set_key": set_key,
+                "markdown": bundle["markdown"],
+                "pdf": bundle["pdf"],
+                "notion_json": bundle["notion_json"],
+                "page_count": len(bundle["pages"]),
+            })
         if fmt == "json":
             data = database.export_json(config.DB_PATH_FINAL, company, card_set_key=set_key)
             if not data:

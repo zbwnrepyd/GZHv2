@@ -203,7 +203,7 @@ def _search_github(queries: list[str]) -> dict:
 
 
 def _search_youtube(queries: list[str]) -> dict:
-    """Multi-query YouTube search with dedup by video id."""
+    """Multi-query YouTube search with dedup by video id + transcript fetch."""
     if not config.YOUTUBE_API_KEY:
         return {"items": [], "note": "no API key", "errors": []}
 
@@ -235,12 +235,60 @@ def _search_youtube(queries: list[str]) -> dict:
     seen = set()
     deduped = []
     for item in merged:
-        vid = (item.get("id", {}).get("videoId")
-               if isinstance(item.get("id"), dict) else item.get("id"))
+        vid = (_vid_of(item) or "").strip()
         if vid and vid not in seen:
             seen.add(vid)
             deduped.append(item)
+
+    # 抓取视频字幕/转录文本（youtube-transcript-api，无需 API Key）
+    transcripts = _fetch_youtube_transcripts([_vid_of(i) for i in deduped if _vid_of(i)])
+    for item in deduped:
+        t = transcripts.get(_vid_of(item), "")
+        if t:
+            item["_transcript"] = t
+
     return {"items": deduped, "errors": errors}
+
+
+def _vid_of(item: dict) -> str:
+    vid = item.get("id", {})
+    return (vid.get("videoId") or str(vid) or "") if isinstance(vid, dict) else str(vid or "")
+
+
+def _fetch_youtube_transcripts(video_ids: list[str]) -> dict[str, str]:
+    """批量抓取 YouTube 视频字幕，返回 {video_id: transcript_text}。无字幕则静默跳过。"""
+    if not video_ids:
+        return {}
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        _yt_api = YouTubeTranscriptApi()
+    except (ImportError, Exception):
+        return {}
+
+    results = {}
+    for vid in video_ids:
+        if not vid or vid in results:
+            continue
+        try:
+            fetched = _yt_api.fetch(vid, languages=['zh-Hans', 'zh', 'en', 'ja', 'ko'])
+            # FetchedTranscript → .snippets → .text
+            snippets = getattr(fetched, 'snippets', []) or []
+            lines = []
+            total = 0
+            for seg in snippets:
+                text = getattr(seg, 'text', '').strip()
+                if not text or (text.startswith("[") and text.endswith("]")):
+                    continue
+                lines.append(text)
+                total += len(text)
+                if total > 3000:
+                    lines.append("...")
+                    break
+            if lines:
+                results[vid] = " ".join(lines)
+        except Exception:
+            pass
+    return results
 
 
 def _scrape_website(company_url: str):
@@ -548,21 +596,26 @@ def _build_evidence_pool(raw: dict) -> list:
             content=desc, source_score=evidence_source_score(url, "github"),
             final_score=fs))
 
-    # YouTube
+    # YouTube（标题 + 描述 + 转录文本）
     for r in (raw.get("youtube", {}) or {}).get("items", []):
         snippet = r.get("snippet", {})
-        vid = (r.get("id", {}).get("videoId")
-               if isinstance(r.get("id"), dict) else r.get("id", ""))
+        vid = (_vid_of(r) or "").strip()
         url = f"https://www.youtube.com/watch?v={vid}" if vid else ""
         title = snippet.get("title", "")
         desc = snippet.get("description", "") or ""
+        transcript = r.get("_transcript", "") or ""
+        # 优先用转录文本，其次用描述
+        content = transcript if transcript else desc
+        # 保留描述作为补充上下文
+        if transcript and desc:
+            content = f"[Transcript]\n{transcript}\n\n[Description]\n{desc[:500]}"
         fs = evidence_final_score(
-            url, "youtube", title, desc,
+            url, "youtube", title, content[:2000],
             identity_display, identity_host, identity_root)
         items.append(EvidenceItem(
             source="youtube", intent="interview",
             title=title, url=url, normalized_url=url,
-            content=desc, source_score=evidence_source_score(url, "youtube"),
+            content=content, source_score=evidence_source_score(url, "youtube"),
             final_score=fs))
 
     # Website

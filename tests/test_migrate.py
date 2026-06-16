@@ -67,6 +67,34 @@ class MigrationRunnerTests(unittest.TestCase):
             count = conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]
         self.assertEqual(count, 1)
 
+    def test_run_migrations_ignores_duplicate_add_column_but_keeps_indexes(self):
+        migrate = load_migrate_module()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("CREATE TABLE demo_existing (id INTEGER PRIMARY KEY, name TEXT)")
+            conn.commit()
+        with open(os.path.join(self.migrations_dir, "003_duplicate_column.sql"), "w", encoding="utf-8") as f:
+            f.write(textwrap.dedent(
+                """
+                ALTER TABLE demo_existing ADD COLUMN name TEXT;
+                ALTER TABLE demo_existing ADD COLUMN score REAL;
+                CREATE INDEX IF NOT EXISTS idx_demo_existing_score
+                  ON demo_existing(score);
+                """
+            ).strip())
+
+        applied = migrate.run_migrations(
+            self.db_path,
+            self.migrations_dir,
+            names=["003_duplicate_column.sql"],
+        )
+
+        self.assertEqual(applied, ["003_duplicate_column.sql"])
+        with sqlite3.connect(self.db_path) as conn:
+            cols = {row[1]: row[2] for row in conn.execute("PRAGMA table_info(demo_existing)")}
+            indexes = {row[1] for row in conn.execute("PRAGMA index_list(demo_existing)")}
+        self.assertEqual(cols["score"], "REAL")
+        self.assertIn("idx_demo_existing_score", indexes)
+
 
 if __name__ == "__main__":
     unittest.main()

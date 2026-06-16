@@ -52,7 +52,8 @@ INSERT OR IGNORE INTO card_set_registry
     (set_key, display_name, spec_version, card_count, is_system)
 VALUES
     ('v1', '套卡1 · 经典8张', 'v1', 8, 1),
-    ('v2', '套卡2 · 新版7张', 'v2', 7, 1);
+    ('v2', '套卡2 · 新版7张', 'v2', 7, 1),
+    ('v3', '套卡3 · 研究增强版', 'v3', 8, 1);
 
 -- 默认卡片配置（v2: 加 set_key，UNIQUE 约束改为 (set_key, card_id)）
 CREATE TABLE IF NOT EXISTS default_card_configs (
@@ -87,3 +88,14 @@ INSERT OR REPLACE INTO default_card_configs (set_key, card_id, card_index, card_
 ('v2','v2_card_05',5,'核心客户','{"fields":["ideal_customer_profile","customer_segment_primary","customer_segment_secondary","retention_rate","paying_users"],"media":["product_main"],"template_id":"finance_v2"}'),
 ('v2','v2_card_06',6,'GTM与增长','{"fields":["growth_strategy","gtm_motion","growth_flywheel","cac","ltv","ltv_cac_ratio"],"media":["flywheel"],"template_id":"gtm_v2"}'),
 ('v2','v2_card_07',7,'竞争格局','{"fields":["competitors_summary","technical_barrier","switching_cost","score_defensibility","score_incumbent_attention"],"media":["chart_competitive"],"template_id":"competitive_v2"}');
+
+-- v3 套卡的 8 张默认配置（set_key='v3'）
+INSERT OR REPLACE INTO default_card_configs (set_key, card_id, card_index, card_title, config_json) VALUES
+('v3','v3_card_01',1,'封面','{"fields":["company_name","company_type"],"media":["logo"],"template_id":"cover_v3"}'),
+('v3','v3_card_02',2,'公司简介','{"fields":["market_landscape_summary","market_landscape_top_players","market_size_value","market_size_currency","market_size_year","market_cagr","tam_value","tam_currency","tam_year","location","founded_date","core_business","core_competency","funding_info","funding_rounds","company_achievements","industry_positioning"],"media":["website_screenshot"],"template_id":"company_intro_v3"}'),
+('v3','v3_card_03',3,'主产品','{"fields":["main_product_name","product_pain_points","product_core_features","product_usage_playbook","product_tech_stack","regional_market_focus","mau","mau_as_of","retention_definition","retention_rate","pricing_summary","pricing_tiers"],"media":["product_main"],"template_id":"product_v3"}'),
+('v3','v3_card_04',4,'创始团队','{"fields":["founder_name","founder_edu","founder_bg","founder_achievement","team_size","team_highlight"],"media":["founder_photo"],"template_id":"founder_v3"}'),
+('v3','v3_card_05',5,'用户群体','{"fields":["ideal_customer_profile","customer_segment_primary","customer_segment_secondary","customer_names","customer_selection_reasons","customer_choice_evidence"],"media":["customer_logos"],"template_id":"users_v3"}'),
+('v3','v3_card_06',6,'公司能力分析','{"fields":["ecosystem_niche","revenue_model","pricing_strategy","ltv","cac","ltv_cac_ratio","ltv_cac_is_benchmark","ltv_cac_benchmark_source"],"media":["chart_ecosystem"],"template_id":"capability_v3"}'),
+('v3','v3_card_07',7,'增长与GTM','{"fields":["growth_strategy","gtm_motion","cold_start","growth_flywheel","acquisition_channels"],"media":["flywheel"],"template_id":"gtm_growth_v3"}'),
+('v3','v3_card_08',8,'竞争态势','{"fields":["competitors_top3","competitive_position","differentiated_opportunity","competitive_advantages"],"media":["chart_competitive"],"template_id":"competition_v3"}');

@@ -29,6 +29,13 @@ class EvidenceItem:
     final_score: float = 0.0
     query: str = ""
     collected_at: str = ""
+    # v3 新增字段
+    domain: str = ""
+    published_at: str = ""
+    lang: str = ""
+    content_hash: str = ""
+    robots_status: str = ""
+    source_family: str = ""
 
 
 # ── URL 规范化 ──

@@ -118,6 +118,32 @@ TAVILY_QUERY_TEMPLATES: dict[str, list[str]] = {
         "{term} founder CEO interview podcast YouTube video",
         "{term} founder keynote talk conference presentation",
     ],
+    # v3 新增意图
+    "customers": [
+        "{term} customers case study enterprise clients testimonials",
+        "{term} 客户案例 customer success stories",
+        "{term} client list customers logos partners",
+    ],
+    "pricing_details": [
+        "{term} pricing plans tiers detailed breakdown",
+        "site:{host} pricing plans",
+        "{term} pricing comparison free pro enterprise",
+    ],
+    "youtube_transcript": [
+        "{term} founder interview product demo review",
+        "{term} CEO keynote presentation conference talk",
+        "{term} company overview explainer demo",
+    ],
+    "competitive_position": [
+        "{term} competitive advantage differentiation market position",
+        "{term} vs competitors comparison why {term} better",
+        "{term} unique selling proposition competitive moat",
+    ],
+    "differentiated_opportunity": [
+        "{term} market gap opportunity underserved segment",
+        "{term} niche market blue ocean differentiation strategy",
+        "{term} competitive white space expansion opportunity",
+    ],
 }
 
 
@@ -141,7 +167,10 @@ def build_search_plan(display_name: str, root_domain: str,
                     "revenue", "growth_metrics", "regional",
                     "market_size", "revenue_metrics", "user_metrics",
                     "retention_metrics", "unit_economics", "capital_efficiency",
-                    "achievement", "tech_stack"]
+                    "achievement", "tech_stack",
+                    # v3 新增意图
+                    "customers", "pricing_details", "youtube_transcript",
+                    "competitive_position", "differentiated_opportunity"]
     if depth == "deep":
         core_intents.extend(["gtm", "timeline", "community", "interview"])
 

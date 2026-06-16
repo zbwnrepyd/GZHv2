@@ -9,6 +9,48 @@ from repositories.field_repo import (
     confirm_all_fields, set_field_status,
 )
 
+_VALUE_TYPE_BY_CONTRACT_TYPE = {
+    "text": "text",
+    "long_text": "text",
+    "url": "url",
+    "json_text": "json",
+    "number": "number",
+    "enum": "enum",
+}
+
+_V3_PAGE_FIELDS = {
+    1: ["company_name", "company_type"],
+    2: ["market_landscape_summary", "market_landscape_top_players",
+        "market_size_value", "market_size_currency", "market_size_year",
+        "market_cagr", "tam_value", "tam_currency", "tam_year",
+        "location", "founded_date", "core_business", "core_competency",
+        "funding_info", "funding_rounds", "company_achievements",
+        "industry_positioning"],
+    3: ["main_product_name", "product_pain_points", "product_core_features",
+        "product_usage_playbook", "product_tech_stack",
+        "regional_market_focus", "mau", "mau_as_of",
+        "retention_definition", "retention_rate", "pricing_summary",
+        "pricing_tiers"],
+    4: ["founder_name", "founder_edu", "founder_bg",
+        "founder_achievement", "team_size", "team_highlight"],
+    5: ["ideal_customer_profile", "customer_segment_primary",
+        "customer_segment_secondary", "customer_names",
+        "customer_selection_reasons", "customer_choice_evidence"],
+    6: ["ecosystem_niche", "revenue_model", "pricing_strategy",
+        "ltv", "cac", "ltv_cac_ratio", "ltv_cac_is_benchmark",
+        "ltv_cac_benchmark_source"],
+    7: ["growth_strategy", "gtm_motion", "cold_start",
+        "growth_flywheel", "acquisition_channels"],
+    8: ["competitors_top3", "competitive_position",
+        "differentiated_opportunity", "competitive_advantages"],
+}
+
+_FIELD_PAGE_META = {
+    field_key: {"page_no": page_no, "sort_order": sort_order}
+    for page_no, fields in _V3_PAGE_FIELDS.items()
+    for sort_order, field_key in enumerate(fields)
+}
+
 
 def load_field_contract() -> dict:
     """加载 fields.json 契约"""
@@ -37,6 +79,8 @@ def split_research_to_fields(research_row: dict, version: str = "standard") -> l
                 "field_value": str(value) if not isinstance(value, str) else value,
                 "source_type": "llm_extract",
                 "confidence": "medium",
+                "value_type": _VALUE_TYPE_BY_CONTRACT_TYPE.get(field_def.get("type"), "text"),
+                **_FIELD_PAGE_META.get(key, {}),
             })
     return result
 

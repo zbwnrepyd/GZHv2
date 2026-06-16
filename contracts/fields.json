@@ -1,6 +1,6 @@
 {
-  "version": "v2",
-  "description": "字段契约 — 定义系统中所有可用字段的类型、分组和约束。字段不天然属于任何卡片。",
+  "version": "v3",
+  "description": "字段契约 — 定义系统中所有可用字段的类型、分组和约束。字段不天然属于任何卡片。支持 v1/v2/v3 三套卡。",
   "groups": [
     {
       "group_key": "basic",
@@ -64,17 +64,17 @@
         {"field_key": "tam", "field_label": "TAM 总可服务市场", "type": "text", "required": false},
         {"field_key": "sam", "field_label": "SAM 可服务市场", "type": "text", "required": false},
         {"field_key": "som", "field_label": "SOM 可获得市场", "type": "text", "required": false},
-        {"field_key": "market_cagr", "field_label": "市场复合增长率", "type": "text", "required": false},
+        {"field_key": "market_cagr", "field_label": "市场复合增长率", "type": "number", "required": false},
         {"field_key": "arr", "field_label": "ARR", "type": "text", "required": false},
         {"field_key": "mrr", "field_label": "MRR", "type": "text", "required": false},
         {"field_key": "registered_users", "field_label": "注册用户", "type": "text", "required": false},
         {"field_key": "active_users", "field_label": "活跃用户", "type": "text", "required": false},
         {"field_key": "paying_users", "field_label": "付费用户", "type": "text", "required": false},
-        {"field_key": "retention_rate", "field_label": "留存率", "type": "text", "required": false},
+        {"field_key": "retention_rate", "field_label": "留存率", "type": "number", "required": false},
         {"field_key": "churn_rate", "field_label": "流失率", "type": "text", "required": false},
-        {"field_key": "cac", "field_label": "CAC 获客成本", "type": "text", "required": false},
-        {"field_key": "ltv", "field_label": "LTV 生命周期价值", "type": "text", "required": false},
-        {"field_key": "ltv_cac_ratio", "field_label": "LTV/CAC", "type": "text", "required": false},
+        {"field_key": "cac", "field_label": "CAC 获客成本", "type": "number", "required": false},
+        {"field_key": "ltv", "field_label": "LTV 生命周期价值", "type": "number", "required": false},
+        {"field_key": "ltv_cac_ratio", "field_label": "LTV/CAC", "type": "number", "required": false},
         {"field_key": "gross_margin", "field_label": "毛利率", "type": "text", "required": false},
         {"field_key": "burn_rate", "field_label": "Burn rate", "type": "text", "required": false},
         {"field_key": "runway_months", "field_label": "Runway 月数", "type": "text", "required": false},
@@ -125,6 +125,83 @@
         {"field_key": "market_opportunity", "field_label": "赛道机会", "type": "long_text"},
         {"field_key": "data_confidence", "field_label": "数据可信度", "type": "text"},
         {"field_key": "timeline_events", "field_label": "发展时间线", "type": "json_text"}
+      ]
+    },
+    {
+      "group_key": "market",
+      "group_label": "市场规模（v3）",
+      "fields": [
+        {"field_key": "market_landscape_summary", "field_label": "赛道市场格局一句话", "type": "long_text", "required": true},
+        {"field_key": "market_landscape_top_players", "field_label": "Top玩家列表", "type": "json_text", "required": false},
+        {"field_key": "market_size_value", "field_label": "市场规模数值", "type": "number", "required": false},
+        {"field_key": "market_size_currency", "field_label": "市场规模币种", "type": "text", "required": false},
+        {"field_key": "market_size_year", "field_label": "市场规模口径年份", "type": "number", "required": false},
+        {"field_key": "tam_value", "field_label": "TAM 数值", "type": "number", "required": false},
+        {"field_key": "tam_currency", "field_label": "TAM 币种", "type": "text", "required": false},
+        {"field_key": "tam_year", "field_label": "TAM 口径年份", "type": "number", "required": false}
+      ]
+    },
+    {
+      "group_key": "company_profile",
+      "group_label": "公司概况（v3）",
+      "fields": [
+        {"field_key": "founded_date", "field_label": "成立时间", "type": "text", "required": false},
+        {"field_key": "core_business", "field_label": "主营业务", "type": "long_text", "required": true},
+        {"field_key": "core_competency", "field_label": "核心竞争优势", "type": "long_text", "required": false},
+        {"field_key": "funding_rounds", "field_label": "融资轮次（结构化）", "type": "json_text", "required": false},
+        {"field_key": "company_achievements", "field_label": "公司成就里程碑", "type": "long_text", "required": false},
+        {"field_key": "industry_positioning", "field_label": "行业定位语", "type": "text", "required": false}
+      ]
+    },
+    {
+      "group_key": "product_v3",
+      "group_label": "主产品（v3）",
+      "fields": [
+        {"field_key": "product_pain_points", "field_label": "针对痛点", "type": "json_text", "required": false},
+        {"field_key": "product_core_features", "field_label": "核心功能", "type": "json_text", "required": false},
+        {"field_key": "product_usage_playbook", "field_label": "核心用法玩法", "type": "long_text", "required": false},
+        {"field_key": "product_tech_stack", "field_label": "技术栈", "type": "long_text", "required": false},
+        {"field_key": "regional_market_focus", "field_label": "地区市场", "type": "json_text", "required": false},
+        {"field_key": "mau", "field_label": "月活跃用户", "type": "number", "required": false},
+        {"field_key": "mau_as_of", "field_label": "MAU 统计周期", "type": "text", "required": false},
+        {"field_key": "retention_definition", "field_label": "留存率口径说明", "type": "text", "required": false},
+        {"field_key": "pricing_summary", "field_label": "定价摘要", "type": "long_text", "required": false},
+        {"field_key": "pricing_tiers", "field_label": "定价梯度明细", "type": "json_text", "required": false}
+      ]
+    },
+    {
+      "group_key": "customer",
+      "group_label": "客户证据（v3）",
+      "fields": [
+        {"field_key": "customer_names", "field_label": "具体客户名称", "type": "json_text", "required": false},
+        {"field_key": "customer_selection_reasons", "field_label": "客户选择理由", "type": "long_text", "required": false},
+        {"field_key": "customer_choice_evidence", "field_label": "客户选择证据明细", "type": "json_text", "required": false}
+      ]
+    },
+    {
+      "group_key": "capability",
+      "group_label": "公司能力分析（v3）",
+      "fields": [
+        {"field_key": "pricing_strategy", "field_label": "定价策略", "type": "long_text", "required": false},
+        {"field_key": "ltv_cac_is_benchmark", "field_label": "LTV/CAC 是否为行业均值", "type": "number", "required": false},
+        {"field_key": "ltv_cac_benchmark_source", "field_label": "LTV/CAC benchmark 来源", "type": "text", "required": false}
+      ]
+    },
+    {
+      "group_key": "gtm_v3",
+      "group_label": "增长与GTM（v3）",
+      "fields": [
+        {"field_key": "acquisition_channels", "field_label": "获客渠道", "type": "json_text", "required": false}
+      ]
+    },
+    {
+      "group_key": "competition_v3",
+      "group_label": "竞争态势（v3）",
+      "fields": [
+        {"field_key": "competitors_top3", "field_label": "Top3 公司简介（结构化）", "type": "json_text", "required": true},
+        {"field_key": "competitive_position", "field_label": "被研公司在竞争中的位置", "type": "long_text", "required": true},
+        {"field_key": "differentiated_opportunity", "field_label": "错位竞争机会", "type": "long_text", "required": false},
+        {"field_key": "competitive_advantages", "field_label": "竞争优势摘要", "type": "long_text", "required": false}
       ]
     },
     {

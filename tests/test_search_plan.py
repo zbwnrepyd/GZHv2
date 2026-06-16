@@ -49,6 +49,18 @@ class SearchPlanTests(unittest.TestCase):
             f"Missing operating metric intents, got: {intents}",
         )
 
+    def test_plan_includes_v3_deep_research_intents(self):
+        plan = build_search_plan(
+            "Perplexity", "perplexity", "perplexity.ai",
+            ["Perplexity", "perplexity", "perplexity.ai"],
+        )
+        intents = {q.intent for q in plan.tavily_queries}
+        self.assertTrue(
+            {"customers", "pricing_details", "youtube_transcript",
+             "competitive_position", "differentiated_opportunity"}.issubset(intents),
+            f"Missing v3 intents, got: {intents}",
+        )
+
     def test_gap_detector_generates_operating_metric_queries(self):
         gaps = detect_gaps({
             "tam": "暂缺",

@@ -39,6 +39,32 @@ def _migration_files(migrations_dir: str | os.PathLike, names: list[str] | None 
     return files
 
 
+def _execute_migration_sql(conn: sqlite3.Connection, sql: str) -> None:
+    """Execute a migration script.
+
+    Local development databases may already have columns that were added before
+    schema_migrations existed. Treat only duplicate ADD COLUMN as idempotent so
+    the rest of the migration, especially indexes, still runs.
+    """
+    for statement in sql.split(";"):
+        stmt = statement.strip()
+        if not stmt:
+            continue
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            lowered = stmt.lower()
+            is_duplicate_add_column = (
+                "duplicate column name" in message
+                and "alter table" in lowered
+                and "add column" in lowered
+            )
+            if is_duplicate_add_column:
+                continue
+            raise
+
+
 def run_migrations(
     db_path: str,
     migrations_dir: str | os.PathLike = DEFAULT_MIGRATIONS_DIR,
@@ -61,7 +87,7 @@ def run_migrations(
                 if row[0] != checksum:
                     raise RuntimeError(f"Migration checksum changed after apply: {version}")
                 continue
-            conn.executescript(sql)
+            _execute_migration_sql(conn, sql)
             conn.execute(
                 "INSERT INTO schema_migrations (version, checksum) VALUES (?, ?)",
                 (version, checksum),
