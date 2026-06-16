@@ -320,13 +320,14 @@ def _build_card_html(card: dict, items: list[dict]) -> str:
 def _build_markdown_card_html(card: dict, items: list[dict], layout_json: dict) -> str:
     """用 Markdown-first layout 生成导出 HTML。"""
     style = {
-        "fontSize": 30,
-        "lineHeight": 1.45,
-        "paragraphGap": 16,
-        "padding": 64,
+        "fontSize": 32,
+        "lineHeight": 1.6,
+        "paragraphGap": 22,
+        "padding": 74,
         "bgColor": "#FFFFFF",
         "textColor": "#172033",
         "accentColor": "#29B8D4",
+        "imageMaxHeight": 360,
     }
     style.update(layout_json.get("style") or {})
     markdown = str(layout_json.get("markdown") or "")

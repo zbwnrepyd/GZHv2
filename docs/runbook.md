@@ -9,6 +9,8 @@ sqlite3 db/research_db.sqlite < db/init_research_db.sql
 sqlite3 db/final_db.sqlite < db/init_final_db.sql
 sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 python3 db/migrate.py db/research_db.sqlite --only 001_research_fields.sql
+python3 db/migrate.py db/research_db.sqlite --only 009_evidence_items.sql
+python3 db/migrate.py db/research_db.sqlite --only 010_field_resolution.sql
 python3 db/migrate.py db/final_db.sqlite --only 002_final_fields.sql
 ```
 
@@ -105,6 +107,16 @@ for name in ["layer0-cleaner", "layer1-hv-analysis", "layer2-business", "layer3-
 print("ecosystem_niche field split from moat — see prompts/layer3-field-extraction.md")
 PY
 ```
+
+Field-resolution audit:
+
+```bash
+python3 scripts/operating_metrics_audit.py Anthropic
+python3 scripts/card_field_mapping_audit.py Anthropic
+python3 scripts/card_content_coverage_check.py --company Anthropic
+```
+
+`operating_metrics_audit.py` lists TAM/SAM/SOM, ARR/MRR, users, retention/churn, CAC/LTV, gross margin, burn, and runway values with source hints when available. Missing private metrics should stay `unavailable` unless a reliable source explicitly discloses them.
 
 Check duplicate final fields:
 
@@ -301,6 +313,7 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
 
 - Empty or non-JSON request to `/api/research/start` should return 400 with `缺少 company_name 或 company_url`.
 - If Tavily returns a plan usage limit or quota error, put multiple keys in project `.env` as `TAVILY_API_KEYS=key1,key2,key3` and restart Flask. The pipeline tries the next key for Tavily 429/432 quota responses.
+- If Tavily shows `等待 / 0条 / 等待采集` for a long time, confirm the Flask process is restarted on code containing incremental Tavily progress. Deep plans can contain 36 queries; the expected status during collection is `采集中` with `N/total 组查询`.
 - If a research job fails at L3, no partial all-missing record should be written.
 - If hook copy is missing in the finalization desk, open the left-side `传播钩子文案` entry and confirm `hook_paragraph_1/2/3` exist in `GET /api/research/<company>/<version>`.
 - If generated images do not display, confirm `/images/<filename>` returns 200 and `IMAGES_DIR` points to the saved image directory. Asset APIs normalize absolute local image paths to `/images/...`; stale DB rows with raw absolute paths can be fixed by reselecting or reimporting the variant.
@@ -319,9 +332,11 @@ sqlite3 db/research_db.sqlite "SELECT job_id, status, stage FROM research_jobs O
 - If imports fail in a new environment, reinstall with `pip install -r requirements.txt`.
 - If chart preview or PNG export is blank, confirm `npm install` has run and `webapp/static/vendor/echarts.min.js` exists. Chart preview and Playwright rendering use this local runtime inlined via `_echarts_inline_js()`; CDN access should not be required. If chart renders in Playwright but not in the browser iframe, check: (1) Flask server restarted after `.py` changes, (2) browser hard refresh (Cmd+Shift+R), (3) browser console for JS errors (common: missing comma in graphic array, double-brace in splitArea — validate with `node --check`). Chart CSS uses `position:absolute;inset:0` for iframe compatibility — vw/vh units cause srcdoc iframe collapse.
 - If a migration table is missing after schema initialization, run `python3 db/migrate.py <db-path> --only <migration.sql>`. The runner records applied files in `schema_migrations` and skips unchanged migrations on later runs.
+- If field-resolution badges are missing in the database field panel, run migrations `009_evidence_items.sql` and `010_field_resolution.sql`, then rerun research for that company. Old research rows remain readable but may show "暂无分辨率数据".
 - `urllib3` may warn about LibreSSL on the system Python. The warning is noisy but was not a blocker in local verification.
 - If Playwright fails with "找不到 Chromium 可执行文件", run `playwright install chromium` or set `PLAYWRIGHT_CHROMIUM_PATH` to the chromium binary path. In Docker, install `chromium` via apt and add `--no-sandbox` etc. The pipeline auto-detects macOS/Linux Playwright caches and system chromium.
 - If the office map asset fails, confirm outbound access to Nominatim/OpenStreetMap tile hosts and Playwright Chromium. In domestic networks, set `HTTPS_PROXY` in project `.env`; `config.py` does not set proxy automatically.
 - If Google Street View images are missing from the office slot, verify the Google Cloud project has the Street View Static API enabled at https://console.cloud.google.com/apis/library/street-view-image.googleapis.com. The API key is configured as `GOOGLE_MAPS_API_KEY` in `.env`. Street View is only a supplemental candidate after the default map.
 - If images show in image studio but not in the layout center, check with `GET /api/render-data/<company>?set=v2` that media items have non-empty `url`. If `url` is empty but the variant is selected in image studio, the `company_assets.local_path` may be out of sync with `image_variants.is_selected`. Run `select_variant()` for the affected asset to re-sync, or use the all-fields debug endpoint to inspect raw data.
 - Debug: `GET /api/company/<company>/all-fields` returns all research_fields (standard/business/spread) merged with final_fields. Useful for inspecting raw field values, checking which fields are missing per version, and verifying finalization state.
+- If image collection fails with `UNIQUE constraint failed: company_assets.company_name, company_assets.asset_key`, check whether old rows have stale `company_key` values. Current `upsert_asset()` repairs same-name/same-slot rows by `id`; restarting Flask and re-running collection should update the row instead of inserting a duplicate.

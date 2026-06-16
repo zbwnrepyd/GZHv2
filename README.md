@@ -11,6 +11,8 @@ sqlite3 db/research_db.sqlite < db/init_research_db.sql
 sqlite3 db/final_db.sqlite < db/init_final_db.sql
 sqlite3 db/assets_db.sqlite < db/init_assets_db.sql
 python3 db/migrate.py db/research_db.sqlite --only 001_research_fields.sql
+python3 db/migrate.py db/research_db.sqlite --only 009_evidence_items.sql
+python3 db/migrate.py db/research_db.sqlite --only 010_field_resolution.sql
 python3 db/migrate.py db/final_db.sqlite --only 002_final_fields.sql
 cd webapp
 python3 app.py
@@ -99,7 +101,9 @@ http://127.0.0.1:5050/layout?company=Anthropic&set=v2
 
 排版中心同样读取 `/api/render-data/<company>`，用于逐卡选择模板、选择图层、调整位置/尺寸/字体/颜色并保存到 `/api/layout/<company>/<card_id>`。选中文字图层后，画布中的对应区域会高亮；双击高亮区域会打开 Markdown 文本框，可直接编辑原始 Markdown。编辑提交后作为该 region 的 `value` override 保存，模板渲染器会优先使用 override 并按 Markdown 规则渲染。
 
-图片定稿台按 `asset_key` 管理素材需求。`office` 素材默认生成并选中公司位置地图；Google Street View 和 Tavily 办公室/街景图会补充为后续候选。候选变体展示在中间主区域，带来源、尺寸、分数和失败原因，默认按 `final_score` 排序；右侧只放生成、重新评分、当前选定、导入/上传和 SVG 渲染操作。
+研究流水线会把证据池写入 `evidence_items`，并给 `research_fields` 标记字段分辨率状态（confirmed/derived/proxy/unavailable/manual_needed/not_applicable/llm_extracted）。`GET /api/company/<company>/all-fields` 会返回这些状态，数据库字段面板用它判断哪些经营指标是公开确认、估算、不可得或需人工确认。
+
+图片定稿台按 `asset_key` 管理素材需求。`office` 素材默认生成并选中公司位置地图；Google Street View 和 Tavily 办公室/街景图会补充为后续候选。候选变体展示在中间主区域，带来源、尺寸、分数和失败原因，默认按 `final_score` 排序；右侧只放生成、重新评分、当前选定、导入/上传和 SVG 渲染操作。资产写入以 `(company_name, asset_key)` 为唯一键，`company_key` 只作为身份归一化补充，不改变唯一键语义。
 
 批量导出 PNG 需要 Node 依赖：
 

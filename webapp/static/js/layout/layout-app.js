@@ -18,10 +18,10 @@ const LayoutApp = {
   _previewScale: 1,
   _styleAppliedToAllDirty: false,
   _defaultStyle: {
-    fontSize: 30,
-    lineHeight: 1.45,
-    paragraphGap: 16,
-    padding: 64,
+    fontSize: 32,
+    lineHeight: 1.6,
+    paragraphGap: 22,
+    padding: 74,
     bgColor: '#FFFFFF',
     textColor: '#172033',
     accentColor: '#29B8D4',
@@ -105,7 +105,7 @@ const LayoutApp = {
           }
         });
         const layout = card.layout || {};
-        this._markdownByCard[card.card_id] = layout.markdown || this._markdownFromCard(card);
+        this._markdownByCard[card.card_id] = layout.markdown || this._defaultMarkdownForCard(card) || this._markdownFromCard(card);
         this._styleByCard[card.card_id] = {
           ...this._defaultStyle,
           ...(layout.style || this._styleFromTemplate(card.template)),
@@ -206,6 +206,49 @@ const LayoutApp = {
       }
     });
     return lines.join('\n').replace(/\n{4,}/g, '\n\n\n').trim();
+  },
+
+  _defaultMarkdownForCard(card) {
+    if (!card) return '';
+    const fields = {};
+    const media = [];
+    (card.items || []).forEach(item => {
+      if (item.item_type === 'field') fields[item.item_key] = String(item.value || '').trim();
+      if (item.item_type === 'media') media.push(item);
+    });
+    const mediaToken = key => media.some(item => item.item_key === key) ? `{{${key}}}` : '';
+    const present = keys => keys.map(key => fields[key]).filter(Boolean);
+    const heading = title => `<span style="display:block;text-align:left;font-size:50px"># ${title}</span>`;
+
+    if (card.card_id === 'v2_card_01' || Number(card.card_index) === 1) {
+      const name = fields.company_name || this._company || card.card_title || '';
+      const type = fields.company_type || '';
+      return [
+        '<br>',
+        '<span style="display:block;text-align:center;font-size:50px">## 3分钟拆解一家盈利AI初创公司</span>',
+        '<br>',
+        '<br>',
+        '',
+        '<br>',
+        mediaToken('logo'),
+        '<br>',
+        '<br>',
+        '',
+        `<span style="display:block;text-align:center"># ${this._esc(name)}</span>`,
+        '',
+        type ? `<span style="display:block;text-align:center;font-size:34px">${this._esc(type)}</span>` : '',
+      ].filter(line => line !== '').join('\n');
+    }
+
+    const image = media[0] ? `{{${media[0].item_key}}}` : '';
+    const body = present((card.items || [])
+      .filter(item => item.item_type === 'field')
+      .map(item => item.item_key));
+    if (!body.length && !image) return '';
+    return [heading(card.card_title || '内容页'), '', image, '', ...body]
+      .filter(line => line !== '')
+      .join('\n\n')
+      .replace(/\n{5,}/g, '\n\n\n');
   },
 
   _styleFromTemplate(template) {

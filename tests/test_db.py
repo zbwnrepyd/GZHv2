@@ -291,6 +291,32 @@ class AssetVariantTests(unittest.TestCase):
         self.assertEqual(demo_asset["status"], "missing")
         self.assertIsNone(demo_asset["local_path"])
 
+    def test_upsert_with_company_key_updates_legacy_name_row(self):
+        with asset_store._get_db(self.db_path) as conn:
+            conn.execute(
+                "UPDATE company_assets SET company_key='old.example' "
+                "WHERE company_name='DemoCo' AND asset_key='office'"
+            )
+            conn.commit()
+
+        asset_store.upsert_asset(
+            self.db_path,
+            "DemoCo",
+            "office",
+            status="ready",
+            company_key="demo.example",
+        )
+
+        asset = asset_store.get_asset(
+            self.db_path,
+            "DemoCo",
+            "office",
+            company_key="demo.example",
+        )
+
+        self.assertEqual(asset["status"], "ready")
+        self.assertEqual(asset["company_key"], "demo.example")
+
     def test_select_variant_normalizes_absolute_image_path_for_browser(self):
         variant_id = asset_store.insert_variant(
             self.db_path,

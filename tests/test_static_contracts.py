@@ -250,6 +250,8 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn('id="source-status-grid"', index_html)
         self.assertIn("renderSourceStatus", index_js)
         self.assertIn("job.sources", index_js)
+        self.assertIn("collecting: '采集中'", index_js)
+        self.assertIn('{**current_sources, **sources}', app_py)
         self.assertNotIn('on_progress("资产采集"', app_py)
         self.assertNotIn("_refetch_founder_fields", app_py)
 
@@ -327,6 +329,44 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("/api/fields/", text_finalize_js)
         self.assertNotIn('data-card="hook"', editor_html)
         self.assertNotIn('id="hook-render"', editor_html)
+
+    def test_operating_and_card_split_fields_are_in_contract_prompt_and_db(self):
+        with open(os.path.join(ROOT, "contracts", "fields.json"), encoding="utf-8") as f:
+            fields_contract = f.read()
+        with open(os.path.join(ROOT, "prompts", "layer3-field-extraction.md"), encoding="utf-8") as f:
+            layer3_prompt = f.read()
+        with open(os.path.join(ROOT, "webapp", "db.py"), encoding="utf-8") as f:
+            db_py = f.read()
+        with open(os.path.join(ROOT, "db", "migrations", "008_operating_metrics_fields.sql"), encoding="utf-8") as f:
+            migration = f.read()
+
+        expected_fields = [
+            "tam", "sam", "som", "market_cagr", "arr", "mrr",
+            "registered_users", "active_users", "paying_users",
+            "retention_rate", "churn_rate", "cac", "ltv",
+            "ltv_cac_ratio", "gross_margin", "burn_rate",
+            "runway_months", "market_size_source_note",
+            "ecosystem_positioning", "differentiation_strategy",
+            "cost_advantage", "technical_barrier", "switching_cost",
+            "ideal_customer_profile", "customer_segment_primary",
+            "customer_segment_secondary", "growth_strategy", "gtm_motion",
+        ]
+        for field in expected_fields:
+            self.assertIn(f'"field_key": "{field}"', fields_contract)
+            self.assertIn(f'"{field}"', layer3_prompt)
+            self.assertIn(f'"{field}"', db_py)
+            self.assertIn(f"ADD COLUMN {field} TEXT", migration)
+
+    def test_layout_markdown_defaults_are_project_defaults(self):
+        with open(os.path.join(ROOT, "webapp", "static", "js", "layout", "layout-app.js"), encoding="utf-8") as f:
+            layout_js = f.read()
+
+        self.assertIn("fontSize: 32", layout_js)
+        self.assertIn("lineHeight: 1.6", layout_js)
+        self.assertIn("paragraphGap: 22", layout_js)
+        self.assertIn("padding: 74", layout_js)
+        self.assertIn("imageMaxHeight: 360", layout_js)
+        self.assertIn("_defaultMarkdownForCard", layout_js)
 
     def test_image_studio_caches_svg_data_per_asset_key(self):
         with open(os.path.join(ROOT, "image-studio", "js", "studio-app.js"), encoding="utf-8") as f:

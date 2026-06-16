@@ -23,6 +23,7 @@ class EvidenceItem:
     normalized_url: str = ""
     content: str = ""
     raw_content: str = ""
+    metric_snippet: str = ""
     source_score: float = 0.0
     entity_score: float = 0.0
     final_score: float = 0.0
@@ -160,3 +161,23 @@ def dedupe_evidence(items: list[EvidenceItem]) -> list[EvidenceItem]:
 def filter_evidence(items: list[EvidenceItem],
                     min_score: float = 0.35) -> list[EvidenceItem]:
     return [i for i in items if i.final_score >= min_score]
+
+
+_METRIC_KEYWORDS = (
+    "tam", "sam", "som", "market size", "cagr", "arr", "mrr",
+    "revenue", "registered users", "active users", "mau", "dau",
+    "paying users", "retention", "churn", "cac", "ltv",
+    "gross margin", "burn rate", "runway",
+)
+
+
+def metric_snippet(content: str, max_chars: int = 260) -> str:
+    """Return a short snippet around operating-metric keywords, if present."""
+    text = " ".join(str(content or "").split())
+    lower = text.lower()
+    hit = min((lower.find(k) for k in _METRIC_KEYWORDS if lower.find(k) >= 0),
+              default=-1)
+    if hit < 0:
+        return ""
+    start = max(0, hit - max_chars // 3)
+    return text[start:start + max_chars]

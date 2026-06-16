@@ -1,3 +1,9 @@
+const STATUS_LABELS = {
+  confirmed: '已确认', derived: '公式计算', proxy: '代理估算',
+  llm_extracted: 'LLM提取', unavailable: '不可得', manual_needed: '需人工',
+  not_applicable: '不适用',
+};
+
 const DbFieldsPanel = {
   _loaded: false,
   _popup: null,
@@ -19,10 +25,14 @@ const DbFieldsPanel = {
       const data = await resp.json();
 
       const rc = data.research_counts || {};
-      if (countEl) countEl.textContent = `共 ${data.total} 字段 (S:${rc.standard||0} / B:${rc.business||0} / SP:${rc.spread||0} / 定稿:${data.final_count||0})`;
+      const rs = data.resolution_summary || {};
+      const rsBadges = Object.keys(rs).length
+        ? Object.entries(rs).map(([k, v]) => `<span class="res-badge res-${k}">${STATUS_LABELS[k] || k} ${v}</span>`).join(' ')
+        : '<span style="font-size:11px;color:var(--text-muted)">暂无分辨率数据（旧研究需重跑）</span>';
+      if (countEl) countEl.innerHTML = `共 ${data.total} 字段 (S:${rc.standard||0} / B:${rc.business||0} / SP:${rc.spread||0} / 定稿:${data.final_count||0}) &nbsp; ${rsBadges}`;
 
       if (!data.fields.length) {
-        if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-subtle);">暂无数据</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-subtle);">暂无数据</td></tr>';
         return;
       }
 
@@ -30,15 +40,22 @@ const DbFieldsPanel = {
         tbody.innerHTML = data.fields.map(f => {
           const fv = f.final_value;
           const fvDisplay = fv === null ? '<span class="cell-empty">—</span>' : (fv === '' ? '<span class="cell-empty">(已清空)</span>' : this._esc(fv));
-          const statusBadge = f.final_status === 'confirmed' ? '✅' : (f.final_status === 'draft' ? '📝' : '');
+          const finalBadge = f.final_status === 'confirmed' ? '✅' : (f.final_status === 'draft' ? '📝' : '');
+          const resStatus = f.resolution_status || '';
+          const resLabel = STATUS_LABELS[resStatus] || '';
+          const resTitle = f.unavailable_reason ? ` title="${this._esc(f.unavailable_reason)}"` : '';
+          const resCell = resStatus
+            ? `<span class="res-badge res-${resStatus}"${resTitle}>${resLabel}</span>`
+            : '<span class="cell-empty">—</span>';
           return `<tr>
             <td title="${this._esc(f.field_key)}">${this._esc(f.field_key)}</td>
             <td>${this._esc(f.field_label || '')}</td>
+            <td>${resCell}</td>
             <td class="col-ver" data-full="${this._esc(f.value_standard||'')}">${this._esc(f.value_standard||'')}</td>
             <td class="col-ver" data-full="${this._esc(f.value_business||'')}">${this._esc(f.value_business||'')}</td>
             <td class="col-ver" data-full="${this._esc(f.value_spread||'')}">${this._esc(f.value_spread||'')}</td>
             <td>${fvDisplay}</td>
-            <td>${statusBadge} ${this._esc(f.final_status || '')}</td>
+            <td>${finalBadge} ${this._esc(f.final_status || '')}</td>
           </tr>`;
         }).join('');
 

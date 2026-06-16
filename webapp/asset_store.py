@@ -189,6 +189,11 @@ def upsert_asset(db_path: str, company_name: str, asset_key: str,
             f"SELECT * FROM company_assets WHERE {where} AND asset_key=?",
             [*where_params, asset_key],
         ).fetchone()
+        if not row and company_key:
+            row = conn.execute(
+                "SELECT * FROM company_assets WHERE LOWER(company_name)=LOWER(?) AND asset_key=?",
+                [company_name, asset_key],
+            ).fetchone()
 
         if not row:
             card_index = ASSET_TO_CARD.get(asset_key, 0)
@@ -227,14 +232,14 @@ def upsert_asset(db_path: str, company_name: str, asset_key: str,
                 updates["fail_reason"] = fail_reason
             if meta is not None:
                 updates["meta_json"] = json.dumps(meta, ensure_ascii=False)
-            # 如果旧行没有 company_key，补写
-            if company_key and not (row["company_key"] or ""):
+            # 以 company_name+asset_key 命中的旧行可能带旧 company_key，更新为当前规范 key。
+            if company_key and (row["company_key"] or "") != company_key:
                 updates["company_key"] = company_key
             if updates:
                 sets = [f"{k}=?" for k in updates if k != "updated_at"]
-                values = [updates[k] for k in updates if k != "updated_at"] + where_params + [asset_key]
+                values = [updates[k] for k in updates if k != "updated_at"] + [row["id"]]
                 conn.execute(
-                    f"UPDATE company_assets SET {', '.join(sets)}, updated_at=CURRENT_TIMESTAMP WHERE {where} AND asset_key=?",
+                    f"UPDATE company_assets SET {', '.join(sets)}, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                     values,
                 )
         conn.commit()

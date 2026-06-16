@@ -12,7 +12,7 @@ from search_plan import build_search_plan
 from evidence_pool import (
     normalize_url, EvidenceItem, source_score as evidence_source_score,
     entity_score as evidence_entity_score, final_score as evidence_final_score,
-    dedupe_evidence, filter_evidence,
+    dedupe_evidence, filter_evidence, metric_snippet,
 )
 from gap_detector import detect_gaps, build_gap_queries
 
@@ -72,6 +72,7 @@ def _search_tavily(queries, progress_callback=None, job_id: str = None) -> list:
              "intent": "competitors"},
         ]
     batches = []
+    total = len(queries)
     for q in queries:
         query_str = q.query if hasattr(q, "query") else q.get("query", str(q))
         intent = q.intent if hasattr(q, "intent") else q.get("intent", "")
@@ -83,6 +84,14 @@ def _search_tavily(queries, progress_callback=None, job_id: str = None) -> list:
         except Exception as e:
             batches.append({"error": str(e), "_query": query_str,
                            "_intent": intent, "results": []})
+        if progress_callback:
+            summary = _summarize_collection_source("tavily", batches)
+            summary["status"] = "collecting" if len(batches) < total else summary["status"]
+            summary["detail"] = f"{len(batches)}/{total} 组查询，{summary['detail']}"
+            _report(progress_callback, "采集", {
+                "message": f"Tavily 搜索中：{summary['detail']}",
+                "sources": {"tavily": summary},
+            }, job_id=job_id)
     return batches
 
 
@@ -400,6 +409,99 @@ def _collect_all(company_name: str, company_url: str, progress_callback=None, jo
     return raw
 
 
+def _persist_evidence(company_name: str, evidence_items: list):
+    """持久化证据池到 evidence_items 表（失败不阻塞主流程）"""
+    try:
+        from config import config
+        from research.evidence_persister import persist_evidence_pool
+        count = persist_evidence_pool(config.DB_PATH_RESEARCH, company_name, evidence_items)
+        if count:
+            print(f"[evidence] {company_name}: 持久化 {count} 条证据")
+    except Exception as e:
+        print(f"[evidence] persist failed: {e}")
+
+
+def _run_gap_audit(company_name: str, standard_record: dict, raw: dict):
+    """运行缺口审计并持久化结果"""
+    try:
+        from config import config
+        from research.gap_auditor import audit_gaps
+
+        # 推断公司类型（从 company_type 文本中提取）
+        ct = (standard_record.get("company_type") or "").lower()
+        business_type = _classify_business_type(ct)
+        data_avail = _classify_data_availability(raw)
+
+        summary = audit_gaps(config.DB_PATH_RESEARCH, company_name, "standard",
+                             standard_record, business_type, data_avail)
+        print(f"[gap_audit] {company_name}: {summary['total_gap_intents']} 类缺口, "
+              f"{summary['total_missing_fields']} 字段缺失")
+    except Exception as e:
+        print(f"[gap_audit] failed: {e}")
+
+
+def _classify_business_type(company_type_text: str) -> str:
+    """从 company_type 文本推断 business_type"""
+    t = company_type_text.lower()
+    if any(k in t for k in ["b2b", "enterprise", "saas", "platform", "infrastructure", "api", "middleware"]):
+        return "b2b_enterprise" if "enterprise" in t or "platform" in t else "b2b_saas"
+    if any(k in t for k in ["b2c", "consumer", "social", "gaming", "ecommerce", "marketplace"]):
+        return "b2c" if "b2c" in t else "consumer"
+    if any(k in t for k in ["developer", "api", "open source"]):
+        return "developer_api"
+    if "marketplace" in t:
+        return "marketplace"
+    return "unknown"
+
+
+def _classify_data_availability(raw: dict) -> str:
+    """根据采集结果评估数据可得性"""
+    evidence_count = len(raw.get("_evidence_pool", []))
+    has_tavily = bool(raw.get("tavily"))
+    has_github = bool(raw.get("github"))
+    has_youtube = bool(raw.get("youtube"))
+    source_count = sum([has_tavily, has_github, has_youtube])
+    if evidence_count >= 40 and source_count >= 3:
+        return "high"
+    elif evidence_count >= 15 and source_count >= 2:
+        return "medium"
+    else:
+        return "low"
+
+
+def _mark_and_log_fields(db_path: str, company_name: str, version: str,
+                         field_rows: list[dict]):
+    """给 research_fields 行打分辨率标签，写 resolution_logs（失败不阻塞）"""
+    try:
+        from research.field_resolver import resolve_all
+        from research.field_status import _load_manifest
+        from repositories.field_repo import update_field_status_batch
+
+        manifest = _load_manifest()
+
+        # 先用 field_resolver 做完整解析（含公式依赖、市场模型、私有指标）
+        field_map = {r["field_key"]: r.get("field_value", "") for r in field_rows}
+        resolved = resolve_all(field_map, manifest)
+
+        # 转为 update_field_status_batch 需要的格式
+        results = [
+            {
+                "field_key": fk,
+                "field_value": fr.value or field_map.get(fk, ""),
+                "resolution_status": fr.resolution_status,
+                "unavailable_reason": fr.unavailable_reason,
+                "resolution_method": fr.resolution_method,
+            }
+            for fk, fr in resolved.items()
+        ]
+        update_field_status_batch(db_path, company_name, version, results)
+        count = sum(1 for r in results if r.get("resolution_status"))
+        if count:
+            print(f"[field_status] {company_name}/{version}: {count} resolved")
+    except Exception as e:
+        print(f"[field_status] failed: {e}")
+
+
 def _build_evidence_pool(raw: dict) -> list:
     """将采集原始结果转为打分、去重后的 EvidenceItem 列表。"""
     items = []
@@ -423,6 +525,8 @@ def _build_evidence_pool(raw: dict) -> list:
                 source="tavily", intent=batch.get("_intent", ""),
                 title=title, url=url, normalized_url=nurl,
                 content=content, raw_content=r.get("raw_content", ""),
+                metric_snippet=metric_snippet(
+                    f"{title} {content} {r.get('raw_content', '')}"),
                 source_score=evidence_source_score(url, "tavily"),
                 entity_score=evidence_entity_score(
                     title, url, content, identity_display,
@@ -935,6 +1039,7 @@ def run_pipeline(company_name: str, company_url: str,
     # Step 1: 采集
     raw = _collect_all(company_name, company_url, progress_callback, job_id=job_id)
     raw["_evidence_pool"] = _build_evidence_pool(raw)
+    _persist_evidence(company_name, raw["_evidence_pool"])
     t1 = time.time()
     _report(
         progress_callback,
@@ -948,7 +1053,7 @@ def run_pipeline(company_name: str, company_url: str,
     _check_cancel()
 
     # P2: 采集审计 + 缺口预补采（LLM 分析之前，确保证据充分）
-    if config.COLLECTION_ENABLE_GAP_REFETCH:
+    if config.COLLECTION_ENABLE_GAP_REFETCH and "_source_summary" in raw:
         src = raw.get("_source_summary", {})
         tavily_src = src.get("tavily", {})
         unique_urls = tavily_src.get("unique_url_count", 0)
@@ -976,6 +1081,7 @@ def run_pipeline(company_name: str, company_url: str,
                 else:
                     raw["tavily"] = supplement
                 raw["_evidence_pool"] = _build_evidence_pool(raw)
+                _persist_evidence(company_name, raw["_evidence_pool"])
                 raw["_pre_gap_refetch"] = {"extra_queries": len(extra)}
                 _report(progress_callback, "补采", {
                     "message": f"预补采完成，证据池更新为 {len(raw['_evidence_pool'])} 条",
@@ -1004,6 +1110,8 @@ def run_pipeline(company_name: str, company_url: str,
                         if r.get("version") == "standard"), None)
         if standard:
             gaps = detect_gaps(standard)
+            # 持久化缺口审计（包含分类建议）
+            _run_gap_audit(company_name, standard, raw)
             if gaps:
                 _report(progress_callback, "补采", {
                     "message": f"检测到 {len(gaps)} 类缺口: {', '.join(gaps.keys())}",
@@ -1023,6 +1131,7 @@ def run_pipeline(company_name: str, company_url: str,
                     else:
                         raw["tavily"] = supplement
                     raw["_evidence_pool"] = _build_evidence_pool(raw)
+                    _persist_evidence(company_name, raw["_evidence_pool"])
                     raw["_gap_info"] = {
                         "gaps": {k: v for k, v in gaps.items()},
                         "query_count": len(gap_queries),
@@ -1064,6 +1173,9 @@ def run_pipeline(company_name: str, company_url: str,
         field_rows = split_research_to_fields(field_record, version)
         if field_rows:
             insert_research_fields_batch(config.DB_PATH_RESEARCH, field_rows)
+            # 字段分辨率状态标记
+            _mark_and_log_fields(config.DB_PATH_RESEARCH, company_name,
+                                 version, field_rows)
 
     t3 = time.time()
 
