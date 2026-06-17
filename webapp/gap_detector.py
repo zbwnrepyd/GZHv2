@@ -1,6 +1,48 @@
-"""缺口检测 — L0 后检查关键字段缺失，生成定向补采 query。"""
+"""缺口检测 — L0 后检查关键字段缺失，生成定向补采 query。
+
+P0 变更：读取 field_manifest.yaml，只对 A/B/C 类字段生成补采 query。
+D 类（私有指标）和 E 类（B2B 不适配）不再默认补采。
+"""
 from __future__ import annotations
 
+# ── P0: 读取 field_manifest 来判断字段是否可补采 ──
+
+_manifest_cache: dict = {}
+_manifest_loaded = False
+
+
+def _load_manifest() -> dict:
+    global _manifest_cache, _manifest_loaded
+    if _manifest_loaded:
+        return _manifest_cache
+    try:
+        import yaml
+        from pathlib import Path
+        path = Path(__file__).resolve().parent.parent / "references" / "field_manifest.yaml"
+        if path.exists():
+            with open(path, encoding="utf-8") as f:
+                raw = yaml.safe_load(f)
+            _manifest_cache = raw.get("fields", {}) if isinstance(raw, dict) else {}
+    except Exception:
+        _manifest_cache = {}
+    _manifest_loaded = True
+    return _manifest_cache
+
+
+def _field_category(field_key: str) -> str:
+    """返回字段的 A/B/C/D/E 类别，未在 manifest 中定义的默认 A。"""
+    manifest = _load_manifest()
+    entry = manifest.get(field_key, manifest.get("_default", {}))
+    return entry.get("category", "A")
+
+
+def _is_refetchable(field_key: str) -> bool:
+    """字段是否可补采：仅 A/B/C 类。"""
+    return _field_category(field_key) in ("A", "B", "C")
+
+
+# 保留 CRITICAL_GAPS 作为意图→字段映射（现有逻辑兼容）
+# P0: 这些意图中的 D/E 字段在 build_gap_queries 时会被过滤
 CRITICAL_GAPS: dict[str, list[str]] = {
     "founders": ["founder_name", "founder_edu", "founder_bg",
                  "founder_achievement"],
@@ -135,13 +177,32 @@ def detect_gaps(parsed_data: dict) -> dict[str, list[str]]:
 def build_gap_queries(display_name: str, website_host: str,
                       root_domain: str,
                       gaps: dict[str, list[str]]) -> list[dict]:
-    """为缺失意图生成 Tavily 补采 query。"""
+    """为缺失意图生成 Tavily 补采 query。
+
+    P0: 读取 field_manifest，仅对 A/B/C 类字段生成补采 query。
+    D 类（CAC/LTV/gross_margin/burn_rate 等）和 E 类（active_users 等）不补采。
+    """
     queries: list[dict] = []
     for intent in gaps:
+        # P0: 过滤掉 D/E 类字段
+        refetchable_fields = [f for f in gaps[intent] if _is_refetchable(f)]
+        if not refetchable_fields:
+            continue
         templates = GAP_QUERY_TEMPLATES.get(intent, [])
         for tmpl in templates[:2]:
             q = tmpl.format(display_name=display_name,
                             website_host=website_host,
                             root_domain=root_domain)
-            queries.append({"query": q, "intent": intent})
+            queries.append({"query": q, "intent": intent,
+                           "fields": refetchable_fields})
     return queries
+
+
+def get_skipped_gap_fields(gaps: dict[str, list[str]]) -> dict[str, list[str]]:
+    """返回因 D/E 类别被跳过的字段列表（用于日志/审计）。"""
+    skipped: dict[str, list[str]] = {}
+    for intent, fields in gaps.items():
+        non_refetchable = [f for f in fields if not _is_refetchable(f)]
+        if non_refetchable:
+            skipped[intent] = non_refetchable
+    return skipped

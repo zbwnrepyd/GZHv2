@@ -42,7 +42,9 @@ def insert_research_field(db_path: str, company_name: str, version: str,
                           field_key: str, field_label: str = "",
                           field_value: str = "", source_type: str = "",
                           source_url: str = "", confidence: str = "",
-                          raw_payload: str = "") -> int:
+                          raw_payload: str = "",
+                          company_key: str = "") -> int:
+    ckey = (company_key or "").strip() or company_name.lower()
     with _get_db(db_path) as conn:
         existing = _existing_columns(conn, "research_fields")
         base_cols = ["company_name", "version", "field_key", "field_label",
@@ -51,6 +53,10 @@ def insert_research_field(db_path: str, company_name: str, version: str,
         base_vals = [company_name, version, field_key, field_label,
                      field_value, source_type, source_url, confidence,
                      raw_payload]
+        # P0: 增加 company_key
+        if "company_key" in existing:
+            base_cols.append("company_key")
+            base_vals.append(ckey)
         extra_cols = []
         extra_vals = []
         for col, default in _RF_V3_COLS.items():
@@ -66,23 +72,28 @@ def insert_research_field(db_path: str, company_name: str, version: str,
 
 
 def insert_research_fields_batch(db_path: str, rows: list[dict]) -> int:
-    """批量写入 research_fields，返回写入数"""
+    """批量写入 research_fields，返回写入数。P0: 支持 company_key。"""
     with _get_db(db_path) as conn:
         existing = _existing_columns(conn, "research_fields")
         base_cols = ["company_name", "version", "field_key", "field_label",
                      "field_value", "source_type", "source_url", "confidence",
                      "raw_payload"]
+        if "company_key" in existing:
+            base_cols.append("company_key")
         extra_cols = [c for c in _RF_V3_COLS if c in existing]
         all_cols = base_cols + extra_cols + ["updated_at"]
         placeholders = ", ".join("?" for _ in all_cols[:-1]) + ", CURRENT_TIMESTAMP"
         sql = f"INSERT OR REPLACE INTO research_fields ({', '.join(all_cols)}) VALUES ({placeholders})"
         count = 0
         for r in rows:
+            ckey = r.get("company_key", "").strip() or r.get("company_name", "").lower()
             base_vals = [r.get("company_name"), r.get("version", "standard"),
                          r["field_key"], r.get("field_label", ""),
                          r.get("field_value", ""), r.get("source_type", ""),
                          r.get("source_url", ""), r.get("confidence", ""),
                          r.get("raw_payload", "")]
+            if "company_key" in existing:
+                base_vals.append(ckey)
             extra_vals = [r.get(c, _RF_V3_COLS[c]) for c in extra_cols]
             conn.execute(sql, base_vals + extra_vals)
             count += 1
@@ -92,22 +103,43 @@ def insert_research_fields_batch(db_path: str, rows: list[dict]) -> int:
 
 def get_research_fields(db_path: str, company_name: str,
                         version: str = "standard") -> list[dict]:
+    """获取 research_fields，优先用 company_key 查询，缺失回退 company_name。"""
     with _get_db(db_path) as conn:
-        rows = conn.execute(
-            """SELECT * FROM research_fields
-               WHERE company_name=? AND version=?
-               ORDER BY field_key""",
-            (company_name, version)).fetchall()
+        # P0: 优先 company_key，回退 company_name
+        existing = _existing_columns(conn, "research_fields")
+        has_ckey = "company_key" in existing
+        if has_ckey:
+            rows = conn.execute(
+                """SELECT * FROM research_fields
+                   WHERE (company_key=? OR (company_key='' AND company_name=?))
+                   AND version=?
+                   ORDER BY field_key""",
+                (company_name.lower(), company_name, version)).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM research_fields
+                   WHERE company_name=? AND version=?
+                   ORDER BY field_key""",
+                (company_name, version)).fetchall()
         return [dict(r) for r in rows]
 
 
 def get_research_field_value(db_path: str, company_name: str,
                              field_key: str, version: str = "standard") -> Optional[str]:
     with _get_db(db_path) as conn:
-        row = conn.execute(
-            """SELECT field_value FROM research_fields
-               WHERE company_name=? AND version=? AND field_key=?""",
-            (company_name, version, field_key)).fetchone()
+        existing = _existing_columns(conn, "research_fields")
+        has_ckey = "company_key" in existing
+        if has_ckey:
+            row = conn.execute(
+                """SELECT field_value FROM research_fields
+                   WHERE (company_key=? OR (company_key='' AND company_name=?))
+                   AND version=? AND field_key=?""",
+                (company_name.lower(), company_name, version, field_key)).fetchone()
+        else:
+            row = conn.execute(
+                """SELECT field_value FROM research_fields
+                   WHERE company_name=? AND version=? AND field_key=?""",
+                (company_name, version, field_key)).fetchone()
         return row["field_value"] if row else None
 
 
@@ -135,13 +167,18 @@ def upsert_final_field(db_path: str, company_name: str, field_key: str,
                        block_key: str = "",
                        block_type: str = "field",
                        render_json: str = "",
-                       export_targets: str = '["markdown","pdf","notion"]') -> int:
+                       export_targets: str = '["markdown","pdf","notion"]',
+                       company_key: str = "") -> int:
+    ckey = (company_key or "").strip() or company_name.lower()
     with _get_db(db_path) as conn:
         existing = _existing_columns(conn, "final_fields")
         base_cols = ["company_name", "field_key", "field_label", "final_value",
                      "source_version", "status"]
         base_vals = [company_name, field_key, field_label or "", final_value,
                      source_version, status]
+        if "company_key" in existing:
+            base_cols.append("company_key")
+            base_vals.append(ckey)
         extra_cols = [c for c in _FF_V3_COLS if c in existing]
         param_map = {
             "card_set_key": card_set_key, "page_no": page_no,
@@ -152,13 +189,15 @@ def upsert_final_field(db_path: str, company_name: str, field_key: str,
         all_cols = base_cols + extra_cols + ["updated_at"]
         placeholders = ", ".join("?" for _ in all_cols[:-1]) + ", CURRENT_TIMESTAMP"
 
-        # ON CONFLICT DO UPDATE — 基础字段 + 已存在的 v3 字段
+        # ON CONFLICT DO UPDATE
         set_parts = [
             "final_value=excluded.final_value",
             "field_label=excluded.field_label",
             "source_version=excluded.source_version",
             "status=excluded.status",
         ]
+        if "company_key" in existing:
+            set_parts.append("company_key=excluded.company_key")
         for c in extra_cols:
             set_parts.append(f"{c}=excluded.{c}")
         set_parts.append("updated_at=CURRENT_TIMESTAMP")
@@ -173,12 +212,23 @@ def upsert_final_field(db_path: str, company_name: str, field_key: str,
 
 
 def get_final_fields(db_path: str, company_name: str) -> list[dict]:
+    """获取 final_fields，优先用 company_key 查询，缺失回退 company_name。"""
     with _get_db(db_path) as conn:
-        rows = conn.execute(
-            """SELECT * FROM final_fields
-               WHERE company_name=? AND status != 'hidden'
-               ORDER BY field_key""",
-            (company_name,)).fetchall()
+        existing = _existing_columns(conn, "final_fields")
+        has_ckey = "company_key" in existing
+        if has_ckey:
+            rows = conn.execute(
+                """SELECT * FROM final_fields
+                   WHERE (company_key=? OR (company_key='' AND company_name=?))
+                   AND status != 'hidden'
+                   ORDER BY field_key""",
+                (company_name.lower(), company_name)).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM final_fields
+                   WHERE company_name=? AND status != 'hidden'
+                   ORDER BY field_key""",
+                (company_name,)).fetchall()
         return [dict(r) for r in rows]
 
 

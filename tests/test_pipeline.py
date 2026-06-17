@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -168,7 +169,8 @@ class PipelineFailureTests(unittest.TestCase):
         with patch.object(pipeline, "_search_tavily", return_value=[{"results": [{"title": "A"}]}]), \
              patch.object(pipeline, "_search_github", return_value={"items": [{"name": "repo"}]}), \
              patch.object(pipeline, "_search_youtube", return_value={"items": [], "note": "no API key"}), \
-             patch.object(pipeline, "_scrape_website", return_value={"text": "homepage"}):
+             patch.object(pipeline, "_scrape_website", return_value={"text": "homepage"}), \
+             patch.object(pipeline.config, "TAVILY_ADAPTIVE_MODE", False):
             raw = pipeline._collect_all("DemoCo", "https://demo.example", on_progress)
 
         self.assertIn("_source_summary", raw)
@@ -209,7 +211,7 @@ class PipelineFailureTests(unittest.TestCase):
             {"query": "DemoCo TAM", "intent": "market_size"},
         ]
 
-        def fake_query(query):
+        def fake_query(query, **kwargs):
             return {"results": [{"title": query, "url": f"https://example.com/{len(events)}"}]}
 
         with patch.object(pipeline, "_search_tavily_query", side_effect=fake_query):
@@ -228,9 +230,136 @@ class PipelineFailureTests(unittest.TestCase):
         self.assertEqual(progress_events[-1]["sources"]["tavily"]["count"], 3)
         self.assertIn("3/3", progress_events[-1]["sources"]["tavily"]["detail"])
 
+    def test_tavily_query_uses_cache_for_repeated_query(self):
+        calls = []
+
+        def fake_post(url, json, timeout, proxies=None):
+            calls.append(json["query"])
+            return FakeResponse(200, {"results": [{"title": "cached", "url": "https://example.com"}]})
+
+        with patch.object(pipeline.config, "TAVILY_API_KEYS", ["working-key"]), \
+             patch.object(pipeline.config, "TAVILY_CACHE_TTL_SECONDS", 3600), \
+             patch.object(pipeline.requests, "post", side_effect=fake_post):
+            pipeline._TAVILY_QUERY_CACHE.clear()
+            first = pipeline._search_tavily_query("DemoCo market size")
+            second = pipeline._search_tavily_query("DemoCo market size")
+
+        self.assertEqual(first, second)
+        self.assertEqual(calls, ["DemoCo market size"])
+
+    def test_pre_gap_refetch_skips_when_website_content_is_sufficient(self):
+        raw = {
+            "_source_summary": {
+                "tavily": {"unique_url_count": 0, "intent_count": 0},
+                "website": {"count": 1800, "status": "ok"},
+                "github": {"count": 1, "status": "ok"},
+            },
+            "display_name": "DemoCo",
+            "website_host": "demo.example",
+            "aliases": ["DemoCo"],
+        }
+
+        self.assertFalse(pipeline._needs_pre_gap_refetch(raw))
+
+    def test_gap_queries_are_limited_to_top_five_priority_intents(self):
+        # P0: unit_economics (cac/ltv) and user_metrics (registered_users) are
+        # D/E class fields — build_gap_queries now filters them out.
+        # Use refetchable A/C class fields instead with 7 gaps to exceed limit of 5.
+        gaps = {
+            "founders": ["founder_edu"],
+            "market_size": ["tam", "market_cagr"],
+            "pricing_details": ["pricing_summary"],
+            "product": ["main_product_name"],
+            "customers": ["customer_names"],
+            "competitive_position": ["competitive_position"],
+            "differentiated_opportunity": ["differentiated_opportunity"],
+        }
+
+        selected = pipeline._prioritize_gap_queries(gaps, "DemoCo", "demo.example", "demo")
+        intents = {q["intent"] for q in selected}
+
+        self.assertEqual(len(selected), pipeline.config.COLLECTION_GAP_QUERY_LIMIT)
+        self.assertIn("market_size", intents)
+        self.assertIn("founders", intents)
+        # differentiated_opportunity is lowest priority and should be excluded
+        self.assertNotIn("differentiated_opportunity", intents)
+
+    def test_tavily_query_defaults_to_advanced_raw_content(self):
+        bodies = []
+
+        def fake_post(url, json, timeout, proxies=None):
+            bodies.append(json)
+            return FakeResponse(200, {"results": [{"title": "ok"}]})
+
+        with patch.object(pipeline.config, "TAVILY_API_KEYS", ["working-key"]), \
+             patch.object(pipeline.requests, "post", side_effect=fake_post):
+            pipeline._TAVILY_QUERY_CACHE.clear()
+            pipeline._search_tavily_query("DemoCo raw content test")
+
+        self.assertEqual(bodies[0]["search_depth"], "advanced")
+        self.assertTrue(bodies[0]["include_raw_content"])
+
+    def test_adaptive_initial_tavily_queries_use_basic_without_raw_content(self):
+        plan = SimpleNamespace(
+            tavily_queries=[
+                SimpleNamespace(query=f"DemoCo query {i}", intent="overview", term="DemoCo")
+                for i in range(12)
+            ]
+        )
+
+        with patch.object(pipeline.config, "TAVILY_ADAPTIVE_MODE", True), \
+             patch.object(pipeline.config, "TAVILY_INITIAL_QUERY_LIMIT", 10), \
+             patch.object(pipeline.config, "TAVILY_INITIAL_SEARCH_DEPTH", "basic"), \
+             patch.object(pipeline.config, "TAVILY_INITIAL_INCLUDE_RAW_CONTENT", False):
+            selected = pipeline._initial_tavily_queries(plan)
+
+        self.assertEqual(len(selected), 10)
+        self.assertEqual(selected[0]["query"], "DemoCo query 0")
+        self.assertEqual(selected[-1]["query"], "DemoCo query 9")
+        self.assertTrue(all(q["search_depth"] == "basic" for q in selected))
+        self.assertTrue(all(q["include_raw_content"] is False for q in selected))
+
+    def test_adaptive_escalation_uses_advanced_and_raw_content_for_priority_intents(self):
+        plan = SimpleNamespace(
+            tavily_queries=[
+                SimpleNamespace(query="DemoCo TAM", intent="market_size", term="DemoCo"),
+                SimpleNamespace(query="DemoCo pricing", intent="pricing_details", term="DemoCo"),
+                SimpleNamespace(query="DemoCo competitors", intent="competitive_position", term="DemoCo"),
+            ]
+        )
+        quality = {
+            "missing_key_intents": [
+                "market_size",
+                "pricing_details",
+                "competitive_position",
+            ]
+        }
+
+        with patch.object(pipeline.config, "TAVILY_ADAPTIVE_MODE", True), \
+             patch.object(pipeline.config, "TAVILY_ESCALATE_SEARCH_DEPTH", "advanced"), \
+             patch.object(pipeline.config, "TAVILY_ESCALATE_INCLUDE_RAW_CONTENT", False), \
+             patch.object(pipeline.config, "TAVILY_ESCALATE_RAW_CONTENT_INTENTS", ["market_size", "pricing_details"]), \
+             patch.object(pipeline.config, "COLLECTION_GAP_QUERY_LIMIT", 5):
+            selected = pipeline._build_escalation_queries(plan, quality)
+
+        by_intent = {q["intent"]: q for q in selected}
+        self.assertEqual(len(selected), 3)
+        self.assertTrue(all(q["search_depth"] == "advanced" for q in selected))
+        self.assertTrue(by_intent["market_size"]["include_raw_content"])
+        self.assertTrue(by_intent["pricing_details"]["include_raw_content"])
+        self.assertFalse(by_intent["competitive_position"]["include_raw_content"])
+
     def test_prepare_raw_data_for_llm_trims_tavily_raw_content(self):
         raw = {
             "company_name": "DemoCo",
+            "company_key": "democo",
+            "display_name": "DemoCo",
+            "website_host": "demo.example",
+            "company_url": "https://demo.example",
+            "aliases": ["DemoCo"],
+            "_source_summary": {"tavily": {"unique_url_count": 5}},
+            "_source_warnings": [],
+            "_evidence_pool": [],
             "tavily": [
                 {
                     "answer": "answer",
@@ -247,11 +376,19 @@ class PipelineFailureTests(unittest.TestCase):
                 }
             ],
             "website": {"text": "homepage"},
+            "github": {},
+            "youtube": {},
         }
 
         prepared = pipeline._prepare_raw_data_for_llm(raw)
 
-        result = prepared["tavily"][0]["results"][0]
+        # P0: new structured format — tavily now under raw_sources
+        self.assertIn("company_identity", prepared)
+        self.assertIn("source_audit", prepared)
+        self.assertIn("evidence_pool", prepared)
+        self.assertIn("raw_sources", prepared)
+
+        result = prepared["raw_sources"]["tavily"][0]["results"][0]
         self.assertEqual(result["title"], "Useful result")
         self.assertEqual(result["url"], "https://example.com/useful")
         self.assertEqual(result["content"], "short summary")

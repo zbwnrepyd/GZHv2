@@ -1,6 +1,6 @@
 # 卡片与图片资产规范
 
-当前规范版本：`card_spec_version = v2`
+当前规范版本：`card_spec_version = v3`（`/api/assets/resolved` 的稳定资产合同仍返回 `card_spec_version = v2`，只覆盖 v1/v2 的卡片资产映射）
 
 ## 套卡系统
 
@@ -10,7 +10,8 @@
 | --- | --- | --- | --- |
 | 套卡1 · 经典8张 | `v1` | 8 | 内置，不可删除 |
 | 套卡2 · 新版7张 | `v2` | 7 | 内置，不可删除 |
-| 用户自定义 | `user_{timestamp}` | 7 或 8 | 基于 v1 或 v2 规格创建 |
+| 套卡3 · 研究增强版 | `v3` | 8 | 内置，不可删除；面向研究报告导出 |
+| 用户自定义 | `user_{timestamp}` | 7 或 8 | 基于内置规格创建 |
 
 每家公司在每个套卡中独立维护卡片编排（`card_compositions` / `card_items`，由 `card_set_key` 区分）；文字定稿仍按字段写入 `final_fields`，不绑定卡片索引。旧 `final_content` 仅保留兼容读取。
 
@@ -26,7 +27,20 @@
 | `card_6` | GTM 与增长 | 增长策略、GTM motion、增长飞轮、CAC/LTV/获客效率 |
 | `card_7` | 竞争格局 | 竞争格局图、竞品摘要、技术壁垒、迁移成本、巨头压力/壁垒评分 |
 
-## 图片资产槽位（v2）
+## 卡片规范 v3（套卡3）
+
+| 卡片 | 主题 | 主要内容 |
+| --- | --- | --- |
+| `v3_card_01` | 封面 | 公司名、公司类型、Logo |
+| `v3_card_02` | 公司简介 | 市场格局、市场规模、地点、成立时间、融资、核心业务、公司能力 |
+| `v3_card_03` | 主产品 | 主产品、痛点、核心功能、使用方法、技术栈、区域市场、MAU/留存/定价 |
+| `v3_card_04` | 创始团队 | 创始人照片、姓名、工作/学历背景、团队规模 |
+| `v3_card_05` | 用户群体 | 理想客户画像、主/次客户、客户名单、选择理由、客户证据 |
+| `v3_card_06` | 公司能力分析 | 生态位、收入模型、定价策略、LTV/CAC 与基准说明 |
+| `v3_card_07` | 增长与GTM | 增长策略、GTM motion、冷启动、增长飞轮、获客渠道 |
+| `v3_card_08` | 竞争态势 | Top 竞品、竞争位置、错位机会、竞争优势 |
+
+## 图片资产槽位（活跃）
 
 | asset_key | 用途 | 默认归属 | 生成方式 |
 | --- | --- | --- | --- |
@@ -40,13 +54,17 @@
 | `competitors` | 竞品截图 | `card_7` | collected |
 | `competitors_logo_strip` | 竞品 Logo 横排拼图 | `card_7` | generated / composite |
 
-### 废弃资产槽位（DB 行保留，停止在 v2 渲染）
+### 兼容资产槽位（DB 行保留，停止在 v2/v3 主渲染）
 
 | asset_key | 原归属 | 废弃版本 |
 | --- | --- | --- |
 | `office` | card_2 | v2 |
 | `timeline` | card_3 | v2 |
 | `products_other` | card_5 | v2 |
+
+### v3 已知媒体边界
+
+`db/init_composition_db.sql` 中 `v3_card_05` 目前引用 `customer_logos` 作为媒体项，但 `asset_store.ASSET_KEYS` 和 `contracts/media.json` 尚未注册这个槽位。渲染路径会把它作为空 URL 处理；在正式使用客户 Logo 资产前，需要先补齐媒体契约、资产行初始化和采集/上传入口。
 
 ## 自动图表触发规则
 
@@ -61,9 +79,9 @@
 
 ## 资产交付接口
 
-排版中心读取：`GET /api/assets/resolved?company=<company_name>&spec=v1|v2`
+排版中心旧资产合同读取：`GET /api/assets/resolved?company=<company_name>&spec=v1|v2`
 
-返回 `card_spec_version = "v2"`，`card_assets` 结构以 `card_N` 为 key。
+返回 `card_spec_version = "v2"`，`card_assets` 结构以 `card_N` 为 key。新版排版和导出优先使用 `/api/render-data/<company>?set=v1|v2|v3`，由 card items 直接解析字段和媒体 URL。
 
 ## 套卡 API
 

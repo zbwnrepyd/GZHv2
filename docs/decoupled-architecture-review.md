@@ -38,7 +38,7 @@ chart_competitive / chart_ecosystem 使用独立 WorkspaceChart 控制器，HTML
 `canvas/js/template-renderer.js` 会优先用 region `bind` 精确匹配 `item_key`，同一 role 下的多个 chart/image region 不再重复取第一张 media item。
 
 ### 7. 导出改成弹窗（P2）✅ 已完成
-排版中心已提供导出弹窗，可选择范围、格式和倍率并通过 `/api/export/<company>` 启动异步导出。命令行 `node canvas/screenshot.js --company <公司> --set v1|v2` 仍保留为批量截图和自动化验证路径。
+排版中心已提供导出弹窗，可选择范围、格式和倍率并通过 `/api/export/<company>` 启动异步导出。命令行 `node canvas/screenshot.js --company <公司> --set v1|v2|v3` 仍保留为批量截图和自动化验证路径。
 
 ## 已完成的部分
 

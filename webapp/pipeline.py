@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json, os, re, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
 from urllib.parse import urlparse
 
 import requests
@@ -34,6 +35,22 @@ _SOURCE_LABELS = {
 
 _TAVILY_RESULT_FIELDS = ("title", "url", "content", "score", "raw_content")
 _TAVILY_RAW_CONTENT_LIMIT = 2400
+_TAVILY_QUERY_CACHE: dict[tuple, tuple[float, dict]] = {}
+_GAP_INTENT_PRIORITY = [
+    "market_size",
+    "unit_economics",
+    "revenue_metrics",
+    "user_metrics",
+    "retention_metrics",
+    "pricing_details",
+    "customers",
+    "competitive_position",
+    "founders",
+    "funding",
+    "product_v3",
+    "company_profile_v3",
+    "differentiated_opportunity",
+]
 
 
 class PipelineCancelledError(RuntimeError):
@@ -60,6 +77,14 @@ def _detail_text(detail) -> str:
 
 # ── Step 1: 4路并行采集 ──────────────────────────
 
+def _query_attr(q, name: str, default=None):
+    if hasattr(q, name):
+        return getattr(q, name)
+    if isinstance(q, dict):
+        return q.get(name, default)
+    return default
+
+
 def _search_tavily(queries, progress_callback=None, job_id: str = None) -> list:
     """Multi-query Tavily search. Each query is a TavilyQuery or dict with query/intent.
     Backward-compatible: if a string is passed, wraps it as a single query."""
@@ -74,10 +99,16 @@ def _search_tavily(queries, progress_callback=None, job_id: str = None) -> list:
     batches = []
     total = len(queries)
     for q in queries:
-        query_str = q.query if hasattr(q, "query") else q.get("query", str(q))
-        intent = q.intent if hasattr(q, "intent") else q.get("intent", "")
+        query_str = _query_attr(q, "query", str(q))
+        intent = _query_attr(q, "intent", "")
+        search_depth = _query_attr(q, "search_depth")
+        include_raw_content = _query_attr(q, "include_raw_content")
         try:
-            result = _search_tavily_query(query_str)
+            result = _search_tavily_query(
+                query_str,
+                search_depth=search_depth,
+                include_raw_content=include_raw_content,
+            )
             result["_query"] = query_str
             result["_intent"] = intent
             batches.append(result)
@@ -129,10 +160,26 @@ def _tavily_proxy() -> dict | None:
     return None
 
 
-def _search_tavily_query(query: str, include_images: bool = False):
+def _search_tavily_query(query: str, include_images: bool = False,
+                         search_depth: Optional[str] = None,
+                         include_raw_content: Optional[bool] = None):
     keys = _tavily_keys()
     if not keys:
         return {"error": "TAVILY_API_KEYS not configured", "results": []}
+
+    depth = search_depth or getattr(config, "TAVILY_SEARCH_DEPTH", "basic")
+    include_raw = (
+        bool(include_raw_content)
+        if include_raw_content is not None
+        else bool(getattr(config, "TAVILY_INCLUDE_RAW_CONTENT", False))
+    )
+    max_results = int(getattr(config, "TAVILY_RESULTS_PER_QUERY", 5))
+    cache_ttl = int(getattr(config, "TAVILY_CACHE_TTL_SECONDS", 0) or 0)
+    cache_key = (query, bool(include_images), depth, include_raw, max_results)
+    if cache_ttl > 0:
+        cached = _TAVILY_QUERY_CACHE.get(cache_key)
+        if cached and time.time() - cached[0] < cache_ttl:
+            return copy.deepcopy(cached[1])
 
     last_error = ""
     for index, api_key in enumerate(keys):
@@ -140,14 +187,14 @@ def _search_tavily_query(query: str, include_images: bool = False):
             body = {
                 "api_key": api_key,
                 "query": query,
-                "search_depth": "advanced",
+                "search_depth": depth,
                 "include_answer": True,
-                "include_raw_content": True,
-                "max_results": config.TAVILY_RESULTS_PER_QUERY,
+                "include_raw_content": include_raw,
+                "max_results": max_results,
             }
             if include_images:
                 body["include_images"] = True
-                body["max_results"] = config.TAVILY_RESULTS_PER_QUERY
+                body["max_results"] = max_results
             resp = requests.post(
                 "https://api.tavily.com/search",
                 json=body,
@@ -159,13 +206,149 @@ def _search_tavily_query(query: str, include_images: bool = False):
                 if _is_tavily_quota_response(resp) and index < len(keys) - 1:
                     continue
                 return {"error": last_error, "results": []}
-            return resp.json()
+            data = resp.json()
+            if cache_ttl > 0:
+                _TAVILY_QUERY_CACHE[cache_key] = (time.time(), copy.deepcopy(data))
+            return data
         except Exception as e:
             last_error = str(e)
             # 超时也尝试下一个 key
             if index < len(keys) - 1:
                 continue
     return {"error": last_error or "Tavily request failed", "results": []}
+
+
+def _merge_tavily_results(raw: dict, supplement: list) -> None:
+    """合并 Tavily 补充结果到 raw['tavily'] 列表。"""
+    existing = raw.get("tavily", [])
+    raw["tavily"] = existing + supplement if isinstance(existing, list) else supplement
+
+
+def _needs_pre_gap_refetch(raw: dict) -> bool:
+    src = raw.get("_source_summary", {}) if isinstance(raw, dict) else {}
+    tavily_src = src.get("tavily", {}) or {}
+    website_src = src.get("website", {}) or {}
+    github_src = src.get("github", {}) or {}
+    youtube_src = src.get("youtube", {}) or {}
+    website_chars = int(website_src.get("count", 0) or 0)
+    website_enough = website_src.get("status") == "ok" and website_chars >= getattr(config, "COLLECTION_WEBSITE_SUFFICIENT_CHARS", 1500)
+    secondary_enough = int(github_src.get("count", 0) or 0) > 0 or int(youtube_src.get("count", 0) or 0) > 0
+    if website_enough and secondary_enough:
+        return False
+    unique_urls = int(tavily_src.get("unique_url_count", 0) or 0)
+    intents_found = int(tavily_src.get("intent_count", 0) or 0)
+    return unique_urls < int(getattr(config, "COLLECTION_MIN_UNIQUE_URLS", 18)) or intents_found < 4
+
+
+def _prioritize_gap_queries(gaps: dict[str, list[str]], display_name: str,
+                            website_host: str, root_domain: str) -> list[dict]:
+    ordered_intents = [intent for intent in _GAP_INTENT_PRIORITY if intent in gaps]
+    ordered_intents.extend(intent for intent in gaps if intent not in ordered_intents)
+    selected_gaps = {intent: gaps[intent] for intent in ordered_intents}
+    queries = build_gap_queries(display_name, website_host, root_domain, selected_gaps)
+    limit = int(getattr(config, "COLLECTION_GAP_QUERY_LIMIT", 5) or 5)
+    result = []
+    # First pass: one query per high-priority intent.
+    for intent in ordered_intents:
+        for query in queries:
+            if query.get("intent") == intent:
+                result.append(query)
+                break
+        if len(result) >= limit:
+            return result
+    # Second pass: fill remaining slots if limit allows.
+    for query in queries:
+        if len(result) >= limit:
+            break
+        if query not in result:
+            result.append(query)
+    return result
+
+
+def _initial_tavily_queries(plan) -> list:
+    if not getattr(config, "TAVILY_ADAPTIVE_MODE", True):
+        return list(plan.tavily_queries)
+    limit = int(getattr(config, "TAVILY_INITIAL_QUERY_LIMIT", 10) or 10)
+    depth = getattr(config, "TAVILY_INITIAL_SEARCH_DEPTH", "basic")
+    include_raw = bool(getattr(config, "TAVILY_INITIAL_INCLUDE_RAW_CONTENT", False))
+    initial = []
+    for q in list(plan.tavily_queries)[:limit]:
+        initial.append({
+            "query": q.query,
+            "intent": q.intent,
+            "term": q.term,
+            "search_depth": depth,
+            "include_raw_content": include_raw,
+        })
+    return initial
+
+
+def _evaluate_collection_quality(raw: dict, evidence_items: Optional[list] = None) -> dict:
+    src = raw.get("_source_summary", {}) if isinstance(raw, dict) else {}
+    tavily_src = src.get("tavily", {}) or {}
+    website_src = src.get("website", {}) or {}
+    evidence_items = evidence_items or []
+    intent_counts: dict[str, int] = {}
+    for item in evidence_items:
+        for intent in str(_query_attr(item, "intent", "") or "").split(","):
+            intent = intent.strip()
+            if intent:
+                intent_counts[intent] = intent_counts.get(intent, 0) + 1
+    key_intents = [
+        "market_size", "pricing_details", "customers",
+        "unit_economics", "competitive_position",
+    ]
+    missing_key_intents = [
+        intent for intent in key_intents
+        if intent_counts.get(intent, 0) == 0
+    ]
+    website_chars = int(website_src.get("count", 0) or 0)
+    unique_urls = int(tavily_src.get("unique_url_count", 0) or 0)
+    min_urls = max(8, int(getattr(config, "COLLECTION_MIN_UNIQUE_URLS", 18) or 18))
+    enough = (
+        unique_urls >= min_urls
+        and len(missing_key_intents) <= 2
+    ) or (
+        website_chars >= int(getattr(config, "COLLECTION_WEBSITE_SUFFICIENT_CHARS", 1500) or 1500)
+        and len(missing_key_intents) <= 2
+    )
+    return {
+        "enough": bool(enough),
+        "unique_url_count": unique_urls,
+        "website_chars": website_chars,
+        "intent_counts": intent_counts,
+        "missing_key_intents": missing_key_intents,
+    }
+
+
+def _build_escalation_queries(plan, quality_report: dict) -> list[dict]:
+    if not getattr(config, "TAVILY_ADAPTIVE_MODE", True):
+        return []
+    missing = quality_report.get("missing_key_intents") or []
+    if not missing:
+        return []
+    raw_intents = set(getattr(config, "TAVILY_ESCALATE_RAW_CONTENT_INTENTS", []) or [])
+    depth = getattr(config, "TAVILY_ESCALATE_SEARCH_DEPTH", "advanced")
+    default_raw = bool(getattr(config, "TAVILY_ESCALATE_INCLUDE_RAW_CONTENT", False))
+    limit = int(getattr(config, "COLLECTION_GAP_QUERY_LIMIT", 5) or 5)
+    rows = []
+    seen = set()
+    for intent in missing:
+        for q in plan.tavily_queries:
+            if q.intent != intent or q.query in seen:
+                continue
+            seen.add(q.query)
+            rows.append({
+                "query": q.query,
+                "intent": q.intent,
+                "term": q.term,
+                "search_depth": depth,
+                "include_raw_content": True if intent in raw_intents else default_raw,
+            })
+            break
+        if len(rows) >= limit:
+            break
+    return rows
 
 
 def _search_github(queries: list[str]) -> dict:
@@ -301,6 +484,117 @@ def _scrape_website(company_url: str):
     return result
 
 
+def _crawl_official_site(company_url: str, company_key: str,
+                         job_id: str = None) -> dict:
+    """P1: 官网深爬 — 抓取 16 个关键路径并写入 source_documents。
+
+    失败不阻塞主流程，返回抓取统计。
+    """
+    if not company_url:
+        return {"pages": [], "count": 0, "error": "no URL"}
+    try:
+        from research_agents.agents.official_agent import crawl_and_store
+        count = crawl_and_store(
+            db_path=config.DB_PATH_RESEARCH,
+            company_url=company_url,
+            company_key=company_key,
+            run_id=job_id or "",
+            timeout=15,
+        )
+        return {"pages_crawled": count, "status": "ok" if count > 0 else "empty"}
+    except Exception as e:
+        return {"pages_crawled": 0, "status": "failed", "error": str(e)[:200]}
+
+
+def _run_orchestrator_agents(company_name: str, raw: dict,
+                             progress_callback=None, job_id: str = None):
+    """P2: 用 Orchestrator 并行运行 Agent，将 field_candidates 合并到 evidence_pool。
+
+    在初始采集完成后调用，利用已获取的数据通过 Agent 提取更多结构化信号。
+    失败不阻塞主流程。
+    """
+    try:
+        from research_agents.orchestrator import create_default_orchestrator
+        from config import config
+
+        company_key = raw.get("company_key", company_name.lower())
+        context = {
+            "display_name": raw.get("display_name", company_name),
+            "website_host": raw.get("website_host", ""),
+            "website_url": raw.get("company_url", ""),
+            "company_name": company_name,
+            "aliases": raw.get("aliases", []),
+        }
+
+        orch = create_default_orchestrator(
+            config.DB_PATH_RESEARCH,
+            progress_callback=progress_callback,
+        )
+
+        _report(progress_callback, "Agent并行", "启动 Agent 并行采集...", job_id=job_id)
+        state = orch.run(company_key, context)
+
+        if state.status == "completed":
+            # 收集 Agent 产出的 candidates
+            candidates = orch.collect_field_candidates(state)
+            docs = orch.collect_documents(state)
+
+            # 将 Agent 产出的文档追加到 evidence pool
+            if docs:
+                from evidence_pool import EvidenceItem, normalize_url
+                extra_evidence = []
+                for doc in docs:
+                    url = doc.get("source_url", "")
+                    extra_evidence.append(EvidenceItem(
+                        source=doc.get("source_type", "agent"),
+                        intent=doc.get("intent", "agent_collected"),
+                        title=doc.get("title", ""),
+                        url=url,
+                        normalized_url=normalize_url(url),
+                        content=doc.get("raw_text", "")[:2000],
+                        source_score=0.5,
+                        entity_score=0.6,
+                        final_score=0.4,
+                    ))
+                existing = raw.get("_evidence_pool", []) or []
+                raw["_evidence_pool"] = list(existing) + extra_evidence
+
+            _report(progress_callback, "Agent并行", {
+                "message": (f"Agent采集完成: {len(candidates)} candidates, "
+                           f"{len(docs)} docs"),
+            }, job_id=job_id)
+
+            # 持久化 Agent candidates 到 field_candidates 表
+            if candidates:
+                try:
+                    from research_agents.storage.candidate_store import insert_candidate
+                    inserted = 0
+                    for c in candidates[:50]:  # 限制写入数量
+                        cid = insert_candidate(
+                            config.DB_PATH_RESEARCH,
+                            company_key=company_key,
+                            field_key=c.get("field_key", ""),
+                            candidate_value=c.get("candidate_value", ""),
+                            agent_name=c.get("agent_name", "orchestrator"),
+                            evidence_span_ids=c.get("evidence_span_ids"),
+                            confidence=c.get("confidence", 0.5),
+                            run_id=job_id or "",
+                        )
+                        if cid > 0:
+                            inserted += 1
+                    if inserted:
+                        print(f"[orchestrator] {company_name}: "
+                              f"{inserted} candidates persisted")
+                except Exception:
+                    pass
+        else:
+            _report(progress_callback, "Agent并行", {
+                "message": f"Agent采集异常: {state.errors}",
+            }, job_id=job_id)
+    except Exception as e:
+        print(f"[orchestrator] failed: {e}")
+
+
 def _summarize_collection_source(name: str, data) -> dict:
     label = _SOURCE_LABELS.get(name, name)
     summary = {
@@ -399,16 +693,19 @@ def _collect_all(company_name: str, company_url: str, progress_callback=None, jo
     )
 
     source_summary = {}
+    initial_queries = _initial_tavily_queries(plan)
     _report(progress_callback, "采集", {
-        "message": f"多源并行采集中... ({plan.query_count} Tavily, {len(plan.github_queries)} GitHub, {len(plan.youtube_queries)} YouTube)",
+        "message": f"多源并行采集中... ({len(initial_queries)}/{plan.query_count} Tavily, {len(plan.github_queries)} GitHub, {len(plan.youtube_queries)} YouTube)",
         "sources": source_summary,
     }, job_id=job_id)
 
     tasks = {
-        "tavily": lambda: _search_tavily(plan.tavily_queries, progress_callback, job_id),
+        "tavily": lambda: _search_tavily(initial_queries, progress_callback, job_id),
         "github": lambda: _search_github(plan.github_queries),
         "youtube": lambda: _search_youtube(plan.youtube_queries),
         "website": lambda: _scrape_website(identity.website_url),
+        "official_crawl": lambda: _crawl_official_site(
+            identity.website_url, identity.company_key, job_id),
     }
 
     raw = {
@@ -438,6 +735,34 @@ def _collect_all(company_name: str, company_url: str, progress_callback=None, jo
                 "sources": dict(source_summary),
             }, job_id=job_id)
     raw["_source_summary"] = source_summary
+
+    if getattr(config, "TAVILY_ADAPTIVE_MODE", True):
+        initial_pool = _build_evidence_pool(raw)
+        quality = _evaluate_collection_quality(raw, initial_pool)
+        raw["_collection_quality"] = quality
+        if not quality.get("enough"):
+            extra = _build_escalation_queries(plan, quality)
+            if extra:
+                _report(progress_callback, "采集", {
+                    "message": f"Tavily 证据不足，升级 {len(extra)} 组 advanced 查询",
+                    "sources": dict(source_summary),
+                }, job_id=job_id)
+                supplement = _search_tavily(extra, progress_callback, job_id)
+                _merge_tavily_results(raw, supplement)
+                source_summary["tavily"] = _summarize_collection_source("tavily", raw["tavily"])
+                raw["_source_summary"] = source_summary
+                raw["_tavily_escalation"] = {
+                    "query_count": len(extra),
+                    "intents": [q.get("intent", "") for q in extra],
+                    "raw_content_intents": [
+                        q.get("intent", "") for q in extra
+                        if q.get("include_raw_content")
+                    ],
+                }
+            else:
+                raw["_tavily_escalation"] = {"query_count": 0, "reason": "no_missing_key_intents"}
+        else:
+            raw["_tavily_escalation"] = {"query_count": 0, "reason": "initial_collection_sufficient"}
 
     # 构建顶层 warnings
     warnings = []
@@ -550,6 +875,196 @@ def _mark_and_log_fields(db_path: str, company_name: str, version: str,
         print(f"[field_status] failed: {e}")
 
 
+def _bind_evidence_spans(db_path: str, company_key: str, company_name: str,
+                         field_rows: list[dict], evidence_pool: list,
+                         run_id: str = ""):
+    """将 evidence_pool 镜像到 source_documents 并绑定字段级 evidence_spans。
+
+    P1: 解决字段可追溯问题。
+    1. 将证据池条目写入 source_documents（如尚不存在）
+    2. 对每个有值的字段，基于关键词匹配找最相关证据
+    3. 创建 evidence_spans 绑定
+    失败不阻塞主流程。
+    """
+    try:
+        from research.document_store import insert_document
+        from research.evidence_extractor import extract_field_evidence
+
+        # 按 content hash 去重，避免重复插入
+        doc_map = {}  # content_hash -> document_id
+        source_score_map = {"website": "official", "official_blog": "official",
+                            "github": "developer", "youtube": "media",
+                            "media_article": "trusted_media", "press_release": "official",
+                            "case_study": "official", "pricing_page": "official",
+                            "search": "search"}
+
+        for e in (evidence_pool or [])[:80]:  # 最多处理 80 条
+            title = getattr(e, "title", "") or ""
+            url = getattr(e, "url", "")
+            content = getattr(e, "content", "") or ""
+            source = getattr(e, "source", "search")
+            intent = getattr(e, "intent", "")
+
+            # 跳过无内容或低分条目
+            final_score = getattr(e, "final_score", 0)
+            if not content.strip() or final_score < 0.3:
+                continue
+
+            trust_tier = source_score_map.get(source, "search")
+
+            doc_id = insert_document(
+                db_path, company_key=company_key,
+                source_type=source,
+                source_url=url,
+                title=title,
+                raw_text=content,
+                trust_tier=trust_tier,
+                intent=intent,
+                run_id=run_id,
+            )
+            if doc_id > 0:
+                doc_map[url or title] = doc_id
+
+        if not doc_map:
+            return
+
+        # 构建证据索引：每个 doc 的词集
+        doc_tokens = {}
+        for e in (evidence_pool or [])[:80]:
+            url = getattr(e, "url", "")
+            title = getattr(e, "title", "")
+            content = getattr(e, "content", "") or ""
+            doc_id = doc_map.get(url) or doc_map.get(title)
+            if not doc_id or not content.strip():
+                continue
+            tokens = set(content.lower().split())
+            doc_tokens[doc_id] = tokens
+
+        # 为每个有值的字段找最佳匹配证据
+        bound_count = 0
+        for row in field_rows:
+            field_key = row.get("field_key", "")
+            field_value = str(row.get("field_value", "")).strip()
+            if not field_value or len(field_value) < 3:
+                continue
+            # 跳过占位符值
+            if field_value in ("暂缺", "N/A", "TBD", ""):
+                continue
+
+            # 关键词匹配：字段值中的词与证据内容的交集
+            value_words = set(field_value.lower().split())
+            if len(value_words) < 2:
+                continue
+
+            best_doc_id = 0
+            best_overlap = 0
+            for doc_id, tokens in doc_tokens.items():
+                overlap = len(value_words & tokens)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_doc_id = doc_id
+
+            # 至少需要 3 个词匹配才算绑定
+            if best_doc_id and best_overlap >= 3:
+                span_id = extract_field_evidence(
+                    db_path,
+                    document_id=best_doc_id,
+                    company_key=company_key,
+                    field_key=field_key,
+                    quote_text=field_value[:500],
+                    normalized_fact=field_value[:200],
+                    confidence=min(0.3 + best_overlap * 0.05, 0.85),
+                    created_by_agent="pipeline_matcher",
+                )
+                if span_id > 0:
+                    bound_count += 1
+
+        if bound_count:
+            print(f"[evidence_spans] {company_name}: {len(doc_map)} docs, "
+                  f"{bound_count} field-bindings created")
+    except Exception as e:
+        print(f"[evidence_spans] bind failed: {e}")
+
+
+def _run_forum_moderation(db_path: str, company_name: str, version: str,
+                          field_rows: list[dict]):
+    """ForumModerator 字段质量检查 — 在字段定稿前进行冲突/弱证据/误标检查。
+
+    P2: 集成到主流程。失败不阻塞。
+    将结果打印到日志，严重问题写入 resolution_logs。
+    """
+    try:
+        from research_agents.forum.moderator import ForumModerator
+        from research.field_status import _load_manifest
+        from research.evidence_extractor import build_evidence_map
+
+        manifest = _load_manifest()
+        moderator = ForumModerator(manifest=manifest)
+
+        # 构建字段审计输入
+        fields_meta = {}
+        for row in field_rows:
+            fk = row.get("field_key", "")
+            fv = str(row.get("field_value", "")).strip()
+            status = row.get("resolution_status", "draft")
+            fields_meta[fk] = {
+                "status": status,
+                "evidence_ids": [],  # 后续从 evidence_spans 获取
+                "candidate_count": 1,
+                "has_context": bool(fv and len(fv) > 10),
+            }
+
+        # 尝试获取 evidence 绑定
+        company_key = ""
+        # 从 field_rows 中提取可能存在的 company_key
+        for row in field_rows:
+            ck = row.get("company_key", "")
+            if ck:
+                company_key = ck
+                break
+        if not company_key:
+            company_key = company_name.lower()
+
+        try:
+            field_keys = list(fields_meta.keys())
+            evidence_map = build_evidence_map(db_path, company_key, field_keys)
+            for fk, span_ids in evidence_map.items():
+                if fk in fields_meta:
+                    fields_meta[fk]["evidence_ids"] = span_ids
+        except Exception:
+            pass
+
+        # 运行 ForumModerator
+        report = moderator.audit_batch(fields_meta)
+
+        # 打印结果
+        if report.findings:
+            errors = [f for f in report.findings if f.severity == "error"]
+            warnings = [f for f in report.findings if f.severity == "warning"]
+            if errors:
+                print(f"[forum] {company_name}/{version}: {len(errors)} errors, "
+                      f"{len(warnings)} warnings — PASSED={report.passed}")
+                for f in errors[:5]:
+                    print(f"  [forum:error] {f.field_key}: {f.detail}")
+            elif warnings:
+                print(f"[forum] {company_name}/{version}: {len(warnings)} warnings — no errors")
+            else:
+                print(f"[forum] {company_name}/{version}: {len(report.findings)} findings — "
+                      f"no blocking issues")
+
+            # 记录弱证据字段和冲突
+            if report.weak_evidence_fields:
+                print(f"  weak_evidence: {', '.join(report.weak_evidence_fields[:5])}")
+            if report.conflict_fields:
+                print(f"  conflicts: {', '.join(report.conflict_fields[:5])}")
+            if report.refetch_tasks:
+                print(f"  refetch_tasks: {len(report.refetch_tasks)} generated")
+        else:
+            print(f"[forum] {company_name}/{version}: all checks passed")
+    except Exception as e:
+        print(f"[forum] moderation failed: {e}")
+
+
 def _build_evidence_pool(raw: dict) -> list:
     """将采集原始结果转为打分、去重后的 EvidenceItem 列表。"""
     items = []
@@ -641,45 +1156,84 @@ def _trim_text(value, limit: int) -> str:
 
 
 def _prepare_raw_data_for_llm(raw_data: dict) -> dict:
-    """Reduce noisy crawler payloads before Layer 0 while preserving evidence fields."""
-    prepared = copy.deepcopy(raw_data)
-    # 移除 pipeline 内部元数据（非 JSON 可序列化对象）
-    for key in list(prepared.keys()):
-        if key.startswith("_"):
-            del prepared[key]
-    tavily_batches = prepared.get("tavily")
-    if not isinstance(tavily_batches, list):
-        return prepared
+    """构建 L0 LLM 的结构化输入，显式保留 evidence_pool、source_audit、company_identity。
 
-    cleaned_batches = []
-    for batch in tavily_batches:
-        if not isinstance(batch, dict):
-            cleaned_batches.append(batch)
-            continue
+    P0 修复：不再删除 _evidence_pool、_source_summary、_source_warnings。
+    改为显式提取证据层字段，让 L0 能看到采集质量和证据摘要。
+    """
+    # ── company_identity ──
+    company_identity = {
+        "company_key": raw_data.get("company_key", raw_data.get("company_name", "")),
+        "display_name": raw_data.get("display_name", raw_data.get("company_name", "")),
+        "website_host": raw_data.get("website_host", ""),
+        "website_url": raw_data.get("company_url", ""),
+        "aliases": raw_data.get("aliases", []),
+    }
 
-        cleaned_batch = {}
-        for key in ("answer", "error"):
-            if key in batch:
-                cleaned_batch[key] = _trim_text(batch.get(key), 2000)
+    # ── source_audit ──
+    source_audit = raw_data.get("_source_summary", {})
 
-        results = []
-        for result in batch.get("results", []):
-            if not isinstance(result, dict):
+    # ── source_warnings ──
+    source_warnings = raw_data.get("_source_warnings", [])
+
+    # ── evidence_pool（截断后保留前 80 条）──
+    evidence_pool = []
+    for e in (raw_data.get("_evidence_pool") or [])[:80]:
+        evidence_pool.append({
+            "source": getattr(e, "source", ""),
+            "intent": getattr(e, "intent", ""),
+            "title": getattr(e, "title", ""),
+            "url": getattr(e, "url", ""),
+            "normalized_url": getattr(e, "normalized_url", ""),
+            "content": _trim_text(getattr(e, "content", ""), 1200),
+            "metric_snippet": getattr(e, "metric_snippet", ""),
+            "source_score": getattr(e, "source_score", 0),
+            "entity_score": getattr(e, "entity_score", 0),
+            "final_score": getattr(e, "final_score", 0),
+        })
+
+    # ── raw_sources（清洗后的 Tavily/GitHub/YouTube/Website）──
+    tavily_batches = raw_data.get("tavily")
+    cleaned_tavily = []
+    if isinstance(tavily_batches, list):
+        for batch in tavily_batches:
+            if not isinstance(batch, dict):
+                cleaned_tavily.append(batch)
                 continue
-            cleaned_result = {key: result.get(key) for key in _TAVILY_RESULT_FIELDS if key in result}
-            if "content" in cleaned_result:
-                cleaned_result["content"] = _trim_text(cleaned_result["content"], 1200)
-            if "raw_content" in cleaned_result:
-                cleaned_result["raw_content"] = _trim_text(
-                    cleaned_result["raw_content"],
-                    _TAVILY_RAW_CONTENT_LIMIT,
-                )
-            results.append(cleaned_result)
-        cleaned_batch["results"] = results
-        cleaned_batches.append(cleaned_batch)
+            cleaned_batch = {}
+            for key in ("answer", "error"):
+                if key in batch:
+                    cleaned_batch[key] = _trim_text(batch.get(key), 2000)
+            results = []
+            for result in batch.get("results", []):
+                if not isinstance(result, dict):
+                    continue
+                cleaned_result = {key: result.get(key) for key in _TAVILY_RESULT_FIELDS if key in result}
+                if "content" in cleaned_result:
+                    cleaned_result["content"] = _trim_text(cleaned_result["content"], 1200)
+                if "raw_content" in cleaned_result:
+                    cleaned_result["raw_content"] = _trim_text(
+                        cleaned_result["raw_content"],
+                        _TAVILY_RAW_CONTENT_LIMIT,
+                    )
+                results.append(cleaned_result)
+            cleaned_batch["results"] = results
+            cleaned_tavily.append(cleaned_batch)
 
-    prepared["tavily"] = cleaned_batches
-    return prepared
+    raw_sources = {
+        "tavily": cleaned_tavily,
+        "github": raw_data.get("github"),
+        "youtube": raw_data.get("youtube"),
+        "website": raw_data.get("website"),
+    }
+
+    return {
+        "company_identity": company_identity,
+        "source_audit": source_audit,
+        "source_warnings": source_warnings,
+        "evidence_pool": evidence_pool,
+        "raw_sources": raw_sources,
+    }
 
 def _load_prompt_text(name: str) -> str:
     return load_prompt(name)
@@ -1093,6 +1647,11 @@ def run_pipeline(company_name: str, company_url: str,
     raw = _collect_all(company_name, company_url, progress_callback, job_id=job_id)
     raw["_evidence_pool"] = _build_evidence_pool(raw)
     _persist_evidence(company_name, raw["_evidence_pool"])
+
+    # P2: Orchestrator — 并行 Agent 采集扩展信号
+    if config.ORCHESTRATOR_ENABLED:
+        _run_orchestrator_agents(company_name, raw, progress_callback, job_id)
+
     t1 = time.time()
     _report(
         progress_callback,
@@ -1111,8 +1670,7 @@ def run_pipeline(company_name: str, company_url: str,
         tavily_src = src.get("tavily", {})
         unique_urls = tavily_src.get("unique_url_count", 0)
         intents_found = tavily_src.get("intent_count", 0)
-        min_urls = config.COLLECTION_MIN_UNIQUE_URLS
-        if unique_urls < min_urls or intents_found < 4:
+        if _needs_pre_gap_refetch(raw):
             identity_display = raw.get("display_name", company_name)
             identity_host = raw.get("website_host", "")
             identity_root = identity_host.split(".")[0] if identity_host else ""
@@ -1128,17 +1686,15 @@ def run_pipeline(company_name: str, company_url: str,
                     "message": f"采集不足({unique_urls}URL/{intents_found}意图)，预补采 {len(extra)} 组",
                 }, job_id=job_id)
                 supplement = _search_tavily(extra, progress_callback, job_id)
-                existing = raw.get("tavily", [])
-                if isinstance(existing, list):
-                    raw["tavily"] = existing + supplement
-                else:
-                    raw["tavily"] = supplement
+                _merge_tavily_results(raw, supplement)
                 raw["_evidence_pool"] = _build_evidence_pool(raw)
                 _persist_evidence(company_name, raw["_evidence_pool"])
-                raw["_pre_gap_refetch"] = {"extra_queries": len(extra)}
+                raw["_pre_gap_refetch"] = {"extra_queries": len(extra), "reason": "low_initial_recall"}
                 _report(progress_callback, "补采", {
                     "message": f"预补采完成，证据池更新为 {len(raw['_evidence_pool'])} 条",
                 }, job_id=job_id)
+        else:
+            raw["_pre_gap_refetch"] = {"extra_queries": 0, "reason": "website_or_secondary_sources_sufficient"}
 
     # Step 2: AI 分析
     _report(progress_callback, "分析", "开始 4 层 LLM 分析...", job_id=job_id)
@@ -1172,17 +1728,13 @@ def run_pipeline(company_name: str, company_url: str,
                 identity_display = raw.get("display_name", company_name)
                 identity_host = raw.get("website_host", "")
                 identity_root = identity_host.split(".")[0] if identity_host else ""
-                gap_queries = build_gap_queries(
-                    identity_display, identity_host, identity_root, gaps)
+                gap_queries = _prioritize_gap_queries(
+                    gaps, identity_display, identity_host, identity_root)
                 if gap_queries:
                     supplement = _search_tavily(gap_queries,
                                                progress_callback, job_id)
                     # 合并补采结果到 tavily batches，重建证据池
-                    existing_tavily = raw.get("tavily", [])
-                    if isinstance(existing_tavily, list):
-                        raw["tavily"] = existing_tavily + supplement
-                    else:
-                        raw["tavily"] = supplement
+                    _merge_tavily_results(raw, supplement)
                     raw["_evidence_pool"] = _build_evidence_pool(raw)
                     _persist_evidence(company_name, raw["_evidence_pool"])
                     raw["_gap_info"] = {
@@ -1229,6 +1781,19 @@ def run_pipeline(company_name: str, company_url: str,
             # 字段分辨率状态标记
             _mark_and_log_fields(config.DB_PATH_RESEARCH, company_name,
                                  version, field_rows)
+            # P1: 绑定字段级证据片段（source_documents → evidence_spans）
+            if config.EVIDENCE_SPAN_BINDING_ENABLED:
+                _bind_evidence_spans(
+                    config.DB_PATH_RESEARCH,
+                    raw.get("company_key", ""),
+                    company_name,
+                    field_rows,
+                    raw.get("_evidence_pool", []),
+                    run_id=job_id or "",
+                )
+            # P2: ForumModerator 字段质量检查
+            _run_forum_moderation(
+                config.DB_PATH_RESEARCH, company_name, version, field_rows)
 
     t3 = time.time()
 

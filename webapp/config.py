@@ -87,11 +87,29 @@ class Config:
 
     # 研究深度与预算
     RESEARCH_DEPTH: str = os.environ.get("RESEARCH_DEPTH", "deep")
-    TAVILY_QUERY_BUDGET_STANDARD: int = int(os.environ.get("TAVILY_QUERY_BUDGET_STANDARD", "20"))
-    TAVILY_QUERY_BUDGET_DEEP: int = int(os.environ.get("TAVILY_QUERY_BUDGET_DEEP", "36"))
-    TAVILY_RESULTS_PER_QUERY: int = int(os.environ.get("TAVILY_RESULTS_PER_QUERY", "8"))
+    TAVILY_QUERY_BUDGET_STANDARD: int = int(os.environ.get("TAVILY_QUERY_BUDGET_STANDARD", "14"))
+    TAVILY_QUERY_BUDGET_DEEP: int = int(os.environ.get("TAVILY_QUERY_BUDGET_DEEP", "24"))
+    TAVILY_RESULTS_PER_QUERY: int = int(os.environ.get("TAVILY_RESULTS_PER_QUERY", "5"))
+    TAVILY_ADAPTIVE_MODE: bool = os.environ.get("TAVILY_ADAPTIVE_MODE", "1") == "1"
+    TAVILY_INITIAL_QUERY_LIMIT: int = int(os.environ.get("TAVILY_INITIAL_QUERY_LIMIT", "10"))
+    TAVILY_INITIAL_SEARCH_DEPTH: str = os.environ.get("TAVILY_INITIAL_SEARCH_DEPTH", "basic")
+    TAVILY_INITIAL_INCLUDE_RAW_CONTENT: bool = os.environ.get("TAVILY_INITIAL_INCLUDE_RAW_CONTENT", "0") == "1"
+    TAVILY_ESCALATE_SEARCH_DEPTH: str = os.environ.get("TAVILY_ESCALATE_SEARCH_DEPTH", "advanced")
+    TAVILY_ESCALATE_INCLUDE_RAW_CONTENT: bool = os.environ.get("TAVILY_ESCALATE_INCLUDE_RAW_CONTENT", "0") == "1"
+    TAVILY_ESCALATE_RAW_CONTENT_INTENTS: list[str] = field(
+        default_factory=lambda: _env_list(
+            "TAVILY_ESCALATE_RAW_CONTENT_INTENTS"
+        ) or ["market_size", "pricing_details", "customers", "unit_economics"]
+    )
+    TAVILY_SEARCH_DEPTH: str = os.environ.get("TAVILY_SEARCH_DEPTH", "advanced")
+    TAVILY_INCLUDE_RAW_CONTENT: bool = os.environ.get("TAVILY_INCLUDE_RAW_CONTENT", "1") == "1"
+    TAVILY_CACHE_TTL_SECONDS: int = int(os.environ.get("TAVILY_CACHE_TTL_SECONDS", "86400"))
     COLLECTION_MIN_UNIQUE_URLS: int = int(os.environ.get("COLLECTION_MIN_UNIQUE_URLS", "18"))
     COLLECTION_ENABLE_GAP_REFETCH: bool = os.environ.get("COLLECTION_ENABLE_GAP_REFETCH", "1") == "1"
+    EVIDENCE_SPAN_BINDING_ENABLED: bool = os.environ.get("EVIDENCE_SPAN_BINDING_ENABLED", "1") == "1"
+    ORCHESTRATOR_ENABLED: bool = os.environ.get("ORCHESTRATOR_ENABLED", "0") == "1"
+    COLLECTION_WEBSITE_SUFFICIENT_CHARS: int = int(os.environ.get("COLLECTION_WEBSITE_SUFFICIENT_CHARS", "1500"))
+    COLLECTION_GAP_QUERY_LIMIT: int = int(os.environ.get("COLLECTION_GAP_QUERY_LIMIT", "5"))
 
 
 config = Config()
