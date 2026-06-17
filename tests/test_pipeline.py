@@ -382,19 +382,17 @@ class PipelineFailureTests(unittest.TestCase):
 
         prepared = pipeline._prepare_raw_data_for_llm(raw)
 
-        # P0: new structured format — tavily now under raw_sources
+        # P0: 噪音与上下文治理 — 使用 packed_context / evidence_summary，不再传 raw_sources
         self.assertIn("company_identity", prepared)
         self.assertIn("source_audit", prepared)
-        self.assertIn("evidence_pool", prepared)
-        self.assertIn("raw_sources", prepared)
+        # raw_sources 不再进入 L0
+        self.assertNotIn("raw_sources", prepared)
+        # evidence_pool 不再直接进入 L0（改用 evidence_summary 或 packed_context）
+        self.assertNotIn("evidence_pool", prepared)
+        # 回退模式应包含 evidence_summary
+        self.assertIn("evidence_summary", prepared)
 
-        result = prepared["raw_sources"]["tavily"][0]["results"][0]
-        self.assertEqual(result["title"], "Useful result")
-        self.assertEqual(result["url"], "https://example.com/useful")
-        self.assertEqual(result["content"], "short summary")
-        self.assertEqual(result["score"], 0.91)
-        self.assertLess(len(result["raw_content"]), 3000)
-        self.assertNotIn("extra", result)
+        # 验证原始数据未被修改
         self.assertEqual(raw["tavily"][0]["results"][0]["raw_content"], "x" * 20000)
 
     def test_enum_group_ignores_non_object_llm_json(self):

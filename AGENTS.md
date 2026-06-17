@@ -12,6 +12,7 @@
 prompts/        — LLM Prompt文件（layer0-3 + layer3-group-a/b/c 三组枚举提取）
 webapp/         — Flask编辑后台 + 研究流水线（app.py入口）
   research/       — 证据层：document_store, evidence_extractor, field_resolver, field_status
+    context/      — 噪音与上下文治理：document_cleaner, document_chunker, evidence_ranker, context_packer, token_budget
   research_agents/ — 多Agent系统：11 Agent + forum/ + resolvers/ + storage/ + orchestrator
   repositories/  — 数据访问：field_repo, entity_repo（10张规范化实体表CRUD）
   routes/        — API路由：field, card_config, render, media, evidence
@@ -75,7 +76,7 @@ sqlite3 db/template_db.sqlite < db/init_template_db.sql
 - 数据库用sqlite3标准库，不用ORM
 - SQLite 迁移使用 `db/migrate.py`，通过 `schema_migrations` 幂等记录已执行 SQL；不要在启动路径手工重复 `executescript` 迁移文件
 - 规范化实体表（companies/products/metrics/sectors/founders/funding_rounds/customers/competitors/company_analysis/research_runs）通过迁移 020-030 创建，CRUD 统一走 `webapp/repositories/entity_repo.py`；不要直接写 SQL 操作这些表
-- 证据层：采集结果先入 `source_documents`（document_store），再由 `_bind_evidence_spans` 抽取字段级 `evidence_spans`（gated by `EVIDENCE_SPAN_BINDING_ENABLED=1`）；字段定稿前 `_run_forum_moderation` 自动检查弱证据/冲突/私有指标误标
+- 证据层：采集结果先入 `source_documents`（document_store），经 `document_cleaner` 清洗 → `document_chunker` 切块 → `evidence_ranker` 五维打分 → `_extract_evidence_spans_from_chunks` 预抽取 evidence_spans（必须在 LLM 前）→ `context_packer` 按 token 预算打包（L0 <= 18,000）→ 仅 packed_context 进入 LLM；`_bind_posthoc_weak_evidence` 仅做事后弱绑定（confidence <= 0.45，created_by_agent="posthoc_weak_matcher"，不得让字段 confirmed）
 - 字段状态枚举：confirmed | derived | proxy | industry_avg | llm_extracted | manual_needed | unavailable | not_applicable | conflict | draft | hidden。LTV/CAC 四级降级：confirmed → proxy → industry_avg（标注"不代表公司披露"）→ unavailable
 - 网页抓取用本地 trafilatura（`webapp/firecrawl_local.py`），不依赖外部 API
 - 环境变量只读取系统环境变量和项目根目录 `.env`；不要读取或恢复用户目录 `~/.env`
@@ -109,7 +110,7 @@ sqlite3 db/template_db.sqlite < db/init_template_db.sql
 - 定稿台左侧结构：卡片设置、文字定稿、图片定稿、进入排版。前三个面板点击后占据右侧主区域，互斥切换；「进入排版」是左侧底部固定按钮。旧版内容定稿/钩子文案/数据库字段面板已删除
 - 研究台公司库定稿进度优先读取 `final_fields` 的 confirmed/total 字段数；旧 `final_content` 卡片数仅作兼容回退
 - 研究台要展示 Tavily/GitHub/YouTube/官网抓取的链路状态与数量；公司库点击一条只展开该公司研究信息，点另一条时其他行折叠
-- `EVIDENCE_SPAN_BINDING_ENABLED=1`（默认）控制证据池→source_documents+evidence_spans 自动绑定；`ORCHESTRATOR_ENABLED=0`（默认）控制多Agent并行采集
+- `EVIDENCE_SPAN_BINDING_ENABLED=1`（默认）控制 posthoc 弱证据绑定；`DOCUMENT_CHUNKING_ENABLED=1`（默认）控制文档清洗+切块+打分；`CONTEXT_PACKER_ENABLED=1`（默认）控制 packed_context 打包；`L0_CONTEXT_BUDGET_TOKENS=18000` 控制 L0 输入 token 上限；`POSTHOC_EVIDENCE_WEAK_ONLY=1`（默认）确保事后绑定不得 confirmed；`ORCHESTRATOR_ENABLED=0`（默认）控制多Agent并行采集
 - `/api/evidence/<company_key>/<field_key>` 返回字段证据链（含来源URL/标题/引用片段/可信度）；前端暂未接入，但API可用
 
 ## 参考

@@ -61,10 +61,15 @@ def load_field_contract() -> dict:
 
 
 def split_research_to_fields(research_row: dict, version: str = "standard") -> list[dict]:
-    """将 research 宽表一行拆分为 research_fields 列表（按 fields.json 契约）"""
+    """将 research 宽表一行拆分为 research_fields 列表（按 fields.json 契约）
+
+    P0: 输出必须包含 company_key 和 display_name，防止 Limitless/limitless/limitless.ai 分裂。
+    """
     contract = load_field_contract()
     result = []
     company_name = research_row.get("company_name", "")
+    company_key = research_row.get("company_key", "") or company_name.lower()
+    display_name = research_row.get("display_name", company_name)
     for group in contract.get("groups", []):
         for field_def in group.get("fields", []):
             key = field_def["field_key"]
@@ -73,6 +78,8 @@ def split_research_to_fields(research_row: dict, version: str = "standard") -> l
                 continue
             result.append({
                 "company_name": company_name,
+                "company_key": company_key,
+                "display_name": display_name,
                 "version": version,
                 "field_key": key,
                 "field_label": field_def.get("field_label", key),

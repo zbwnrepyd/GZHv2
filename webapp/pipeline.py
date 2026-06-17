@@ -24,6 +24,13 @@ from field_rules import run_rule_layer
 from field_validator import validate_enum_fields
 import db as database
 
+# ── 噪音与上下文治理 ──
+from research.context import (
+    clean_document_text, chunk_document,
+    score_chunks_batch, pack_context,
+    TokenBudget, BUDGET_PRESETS, estimate_tokens,
+)
+
 _REQUIRED_FIELDS = database.REQUIRED_RESEARCH_FIELDS
 
 _SOURCE_LABELS = {
@@ -844,17 +851,33 @@ def _classify_data_availability(raw: dict) -> str:
 
 def _mark_and_log_fields(db_path: str, company_name: str, version: str,
                          field_rows: list[dict]):
-    """给 research_fields 行打分辨率标签，写 resolution_logs（失败不阻塞）"""
+    """给 research_fields 行打分辨率标签，写 resolution_logs（失败不阻塞）
+
+    P0: 传入 evidence_map，确保 confirmed 只能引用 packed_context 内的 evidence。
+    """
     try:
         from research.field_resolver import resolve_all
         from research.field_status import _load_manifest
+        from research.evidence_extractor import build_evidence_map
         from repositories.field_repo import update_field_status_batch
 
         manifest = _load_manifest()
+        company_key = ""
+        for row in field_rows:
+            ck = row.get("company_key", "")
+            if ck:
+                company_key = ck
+                break
+        if not company_key:
+            company_key = company_name.lower()
 
-        # 先用 field_resolver 做完整解析（含公式依赖、市场模型、私有指标）
+        # P0: 先构建 evidence_map（必须在 LLM 后的字段解析前完成）
+        field_keys = [r["field_key"] for r in field_rows]
+        evidence_map = build_evidence_map(db_path, company_key, field_keys)
+
+        # 用 field_resolver 做完整解析（含 evidence_map）
         field_map = {r["field_key"]: r.get("field_value", "") for r in field_rows}
-        resolved = resolve_all(field_map, manifest)
+        resolved = resolve_all(field_map, manifest, evidence_map=evidence_map)
 
         # 转为 update_field_status_batch 需要的格式
         results = [
@@ -864,50 +887,58 @@ def _mark_and_log_fields(db_path: str, company_name: str, version: str,
                 "resolution_status": fr.resolution_status,
                 "unavailable_reason": fr.unavailable_reason,
                 "resolution_method": fr.resolution_method,
+                "company_key": company_key,
             }
             for fk, fr in resolved.items()
         ]
         update_field_status_batch(db_path, company_name, version, results)
         count = sum(1 for r in results if r.get("resolution_status"))
+        confirmed_count = sum(1 for r in results if r.get("resolution_status") == "confirmed")
         if count:
-            print(f"[field_status] {company_name}/{version}: {count} resolved")
+            print(f"[field_status] {company_name}/{version}: {count} resolved "
+                  f"({confirmed_count} confirmed, evidence-bound)")
     except Exception as e:
         print(f"[field_status] failed: {e}")
 
 
-def _bind_evidence_spans(db_path: str, company_key: str, company_name: str,
-                         field_rows: list[dict], evidence_pool: list,
-                         run_id: str = ""):
-    """将 evidence_pool 镜像到 source_documents 并绑定字段级 evidence_spans。
+def _bind_posthoc_weak_evidence(db_path: str, company_key: str, company_name: str,
+                               field_rows: list[dict], evidence_pool: list,
+                               run_id: str = ""):
+    """事后弱绑定 — LLM 后反向匹配证据（仅弱引用，不得让字段 confirmed）。
 
-    P1: 解决字段可追溯问题。
-    1. 将证据池条目写入 source_documents（如尚不存在）
-    2. 对每个有值的字段，基于关键词匹配找最相关证据
-    3. 创建 evidence_spans 绑定
-    失败不阻塞主流程。
+    噪音与上下文治理:
+    - created_by_agent = "posthoc_weak_matcher"
+    - confidence <= 0.45
+    - 此类证据不得让字段变成 confirmed
+    - 只允许 llm_extracted / manual_needed 状态
+
+    与旧版 _bind_evidence_spans 的区别:
+    - 不再作为 confirmed 依据
+    - 明确标注为 posthoc（事后）
     """
     try:
         from research.document_store import insert_document
         from research.evidence_extractor import extract_field_evidence
 
-        # 按 content hash 去重，避免重复插入
-        doc_map = {}  # content_hash -> document_id
+        if not config.POSTHOC_EVIDENCE_WEAK_ONLY:
+            return
+
+        doc_map = {}
         source_score_map = {"website": "official", "official_blog": "official",
                             "github": "developer", "youtube": "media",
                             "media_article": "trusted_media", "press_release": "official",
                             "case_study": "official", "pricing_page": "official",
                             "search": "search"}
 
-        for e in (evidence_pool or [])[:80]:  # 最多处理 80 条
+        for e in (evidence_pool or [])[:40]:  # 减半到 40 条
             title = getattr(e, "title", "") or ""
             url = getattr(e, "url", "")
             content = getattr(e, "content", "") or ""
             source = getattr(e, "source", "search")
             intent = getattr(e, "intent", "")
 
-            # 跳过无内容或低分条目
             final_score = getattr(e, "final_score", 0)
-            if not content.strip() or final_score < 0.3:
+            if not content.strip() or final_score < 0.35:
                 continue
 
             trust_tier = source_score_map.get(source, "search")
@@ -928,9 +959,9 @@ def _bind_evidence_spans(db_path: str, company_key: str, company_name: str,
         if not doc_map:
             return
 
-        # 构建证据索引：每个 doc 的词集
+        # 构建词集索引
         doc_tokens = {}
-        for e in (evidence_pool or [])[:80]:
+        for e in (evidence_pool or [])[:40]:
             url = getattr(e, "url", "")
             title = getattr(e, "title", "")
             content = getattr(e, "content", "") or ""
@@ -940,18 +971,15 @@ def _bind_evidence_spans(db_path: str, company_key: str, company_name: str,
             tokens = set(content.lower().split())
             doc_tokens[doc_id] = tokens
 
-        # 为每个有值的字段找最佳匹配证据
         bound_count = 0
         for row in field_rows:
             field_key = row.get("field_key", "")
             field_value = str(row.get("field_value", "")).strip()
             if not field_value or len(field_value) < 3:
                 continue
-            # 跳过占位符值
             if field_value in ("暂缺", "N/A", "TBD", ""):
                 continue
 
-            # 关键词匹配：字段值中的词与证据内容的交集
             value_words = set(field_value.lower().split())
             if len(value_words) < 2:
                 continue
@@ -964,7 +992,7 @@ def _bind_evidence_spans(db_path: str, company_key: str, company_name: str,
                     best_overlap = overlap
                     best_doc_id = doc_id
 
-            # 至少需要 3 个词匹配才算绑定
+            # 至少需要 3 个词匹配
             if best_doc_id and best_overlap >= 3:
                 span_id = extract_field_evidence(
                     db_path,
@@ -973,17 +1001,17 @@ def _bind_evidence_spans(db_path: str, company_key: str, company_name: str,
                     field_key=field_key,
                     quote_text=field_value[:500],
                     normalized_fact=field_value[:200],
-                    confidence=min(0.3 + best_overlap * 0.05, 0.85),
-                    created_by_agent="pipeline_matcher",
+                    confidence=min(0.2 + best_overlap * 0.03, 0.45),  # P0: 上限 0.45
+                    created_by_agent="posthoc_weak_matcher",           # P0: 明确标注
                 )
                 if span_id > 0:
                     bound_count += 1
 
         if bound_count:
-            print(f"[evidence_spans] {company_name}: {len(doc_map)} docs, "
-                  f"{bound_count} field-bindings created")
+            print(f"[posthoc_evidence] {company_name}: {len(doc_map)} docs, "
+                  f"{bound_count} weak-bindings created (NOT confirmed)")
     except Exception as e:
-        print(f"[evidence_spans] bind failed: {e}")
+        print(f"[posthoc_evidence] bind failed: {e}")
 
 
 def _run_forum_moderation(db_path: str, company_name: str, version: str,
@@ -1156,12 +1184,17 @@ def _trim_text(value, limit: int) -> str:
 
 
 def _prepare_raw_data_for_llm(raw_data: dict) -> dict:
-    """构建 L0 LLM 的结构化输入，显式保留 evidence_pool、source_audit、company_identity。
+    """构建 L0 LLM 的结构化输入。
 
-    P0 修复：不再删除 _evidence_pool、_source_summary、_source_warnings。
-    改为显式提取证据层字段，让 L0 能看到采集质量和证据摘要。
+    噪音与上下文治理: 不再传递 raw_sources.website 全文、Tavily raw_content 全量、
+    evidence_pool 前 80 条。只传 company_identity、source_audit、source_warnings、
+    packed_context（chunks + evidence_spans）。
+
+    禁止:
+    - raw_sources.website 全文进入 L0
+    - Tavily raw_content 全量进入 L0
+    - evidence_pool 前 80 条直接进入 L0
     """
-    # ── company_identity ──
     company_identity = {
         "company_key": raw_data.get("company_key", raw_data.get("company_name", "")),
         "display_name": raw_data.get("display_name", raw_data.get("company_name", "")),
@@ -1170,69 +1203,48 @@ def _prepare_raw_data_for_llm(raw_data: dict) -> dict:
         "aliases": raw_data.get("aliases", []),
     }
 
-    # ── source_audit ──
     source_audit = raw_data.get("_source_summary", {})
-
-    # ── source_warnings ──
     source_warnings = raw_data.get("_source_warnings", [])
 
-    # ── evidence_pool（截断后保留前 80 条）──
-    evidence_pool = []
-    for e in (raw_data.get("_evidence_pool") or [])[:80]:
-        evidence_pool.append({
+    # ── 使用 packed_context 替代 evidence_pool + raw_sources ──
+    packed = raw_data.get("_packed_context", {})
+    context_budget_info = {
+        "target_type": "l0",
+        "budget_tokens": config.L0_CONTEXT_BUDGET_TOKENS,
+        "used_tokens": packed.get("used_tokens", 0) if packed else 0,
+    }
+
+    # 如果 packed_context 可用，只用它
+    if packed and packed.get("chunks"):
+        result = {
+            "company_identity": company_identity,
+            "source_audit": source_audit,
+            "source_warnings": source_warnings,
+            "context_budget": context_budget_info,
+            "packed_context": packed["chunks"],
+            "evidence_spans": packed.get("evidence_spans", []),
+            "dropped_context_count": packed.get("dropped_count", 0),
+        }
+        return result
+
+    # ── 回退模式：无 packed_context 时使用轻量 evidence_pool 摘要 ──
+    # 注意：此模式下不传 raw_text，仅传标题 + URL + 来源类型
+    evidence_summary = []
+    for e in (raw_data.get("_evidence_pool") or [])[:40]:
+        evidence_summary.append({
             "source": getattr(e, "source", ""),
             "intent": getattr(e, "intent", ""),
             "title": getattr(e, "title", ""),
             "url": getattr(e, "url", ""),
-            "normalized_url": getattr(e, "normalized_url", ""),
-            "content": _trim_text(getattr(e, "content", ""), 1200),
-            "metric_snippet": getattr(e, "metric_snippet", ""),
-            "source_score": getattr(e, "source_score", 0),
-            "entity_score": getattr(e, "entity_score", 0),
             "final_score": getattr(e, "final_score", 0),
         })
-
-    # ── raw_sources（清洗后的 Tavily/GitHub/YouTube/Website）──
-    tavily_batches = raw_data.get("tavily")
-    cleaned_tavily = []
-    if isinstance(tavily_batches, list):
-        for batch in tavily_batches:
-            if not isinstance(batch, dict):
-                cleaned_tavily.append(batch)
-                continue
-            cleaned_batch = {}
-            for key in ("answer", "error"):
-                if key in batch:
-                    cleaned_batch[key] = _trim_text(batch.get(key), 2000)
-            results = []
-            for result in batch.get("results", []):
-                if not isinstance(result, dict):
-                    continue
-                cleaned_result = {key: result.get(key) for key in _TAVILY_RESULT_FIELDS if key in result}
-                if "content" in cleaned_result:
-                    cleaned_result["content"] = _trim_text(cleaned_result["content"], 1200)
-                if "raw_content" in cleaned_result:
-                    cleaned_result["raw_content"] = _trim_text(
-                        cleaned_result["raw_content"],
-                        _TAVILY_RAW_CONTENT_LIMIT,
-                    )
-                results.append(cleaned_result)
-            cleaned_batch["results"] = results
-            cleaned_tavily.append(cleaned_batch)
-
-    raw_sources = {
-        "tavily": cleaned_tavily,
-        "github": raw_data.get("github"),
-        "youtube": raw_data.get("youtube"),
-        "website": raw_data.get("website"),
-    }
 
     return {
         "company_identity": company_identity,
         "source_audit": source_audit,
         "source_warnings": source_warnings,
-        "evidence_pool": evidence_pool,
-        "raw_sources": raw_sources,
+        "context_budget": context_budget_info,
+        "evidence_summary": evidence_summary,
     }
 
 def _load_prompt_text(name: str) -> str:
@@ -1631,6 +1643,258 @@ def _validate_record_identity(records: list[dict], company_url: str):
         )
 
 
+# ── 文档治理：source_documents → clean → chunk → rank → evidence_spans ──
+
+def _persist_source_documents_from_raw(raw: dict, run_id: str = "") -> list[int]:
+    """将 evidence_pool 条目写入 source_documents（如果尚未存在）。
+
+    噪音与上下文治理: source_documents 是仓库，不是 prompt。
+    返回 doc_id 列表。
+    """
+    try:
+        from research.document_store import insert_document
+
+        doc_ids = []
+        evidence_pool = raw.get("_evidence_pool", [])
+        company_key = raw.get("company_key", raw.get("company_name", ""))
+
+        source_score_map = {"website": "official", "official_blog": "official",
+                            "github": "developer", "youtube": "media",
+                            "media_article": "trusted_media", "press_release": "official",
+                            "case_study": "official", "pricing_page": "official",
+                            "search": "search"}
+
+        for e in (evidence_pool or [])[:80]:
+            title = getattr(e, "title", "") or ""
+            url = getattr(e, "url", "")
+            content = getattr(e, "content", "") or ""
+            source = getattr(e, "source", "search")
+            intent = getattr(e, "intent", "")
+            final_score = getattr(e, "final_score", 0)
+
+            if not content.strip() or final_score < 0.3:
+                continue
+
+            trust_tier = source_score_map.get(source, "search")
+
+            doc_id = insert_document(
+                config.DB_PATH_RESEARCH, company_key=company_key,
+                source_type=source,
+                source_url=url,
+                title=title,
+                raw_text=content,
+                trust_tier=trust_tier,
+                intent=intent,
+                run_id=run_id,
+            )
+            if doc_id > 0:
+                doc_ids.append(doc_id)
+
+        if doc_ids:
+            print(f"[document_store] {raw.get('company_name', company_key)}: "
+                  f"{len(doc_ids)} source_documents stored")
+        return doc_ids
+    except Exception as e:
+        print(f"[document_store] persist failed: {e}")
+        return []
+
+
+def _build_document_chunks_for_run(company_key: str, doc_ids: list[int]) -> list[int]:
+    """文档清洗 + 切块 + 打分，写入 document_chunks 表。
+
+    返回 chunk_id 列表。
+    """
+    if not config.DOCUMENT_CHUNKING_ENABLED:
+        return []
+
+    try:
+        import sqlite3
+        from research.document_store import get_document_text
+
+        db_path = config.DB_PATH_RESEARCH
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+
+        # 检查表是否存在
+        exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='document_chunks'"
+        ).fetchone()
+        if not exists:
+            conn.close()
+            return []
+
+        chunk_ids = []
+        company_identity = {
+            "display_name": company_key,
+            "website_host": "",
+            "aliases": [],
+        }
+
+        # 从 source_documents 获取文档标题/来源信息
+        placeholders = ", ".join("?" for _ in doc_ids)
+        docs = conn.execute(
+            f"""SELECT id, source_type, source_url, title, raw_text, trust_tier
+                FROM source_documents WHERE id IN ({placeholders})""",
+            doc_ids,
+        ).fetchall()
+
+        for doc in docs:
+            doc_dict = dict(doc)
+            raw_text = doc_dict.get("raw_text", "")
+
+            # 1. 清洗
+            clean_result = clean_document_text(
+                raw_text,
+                source_type=doc_dict.get("source_type", ""),
+                source_url=doc_dict.get("source_url", ""),
+            )
+            if clean_result["is_low_quality"]:
+                continue
+
+            # 2. 切块
+            doc_dict["raw_text"] = clean_result["clean_text"]
+            chunks = chunk_document(doc_dict, company_key)
+
+            # 3. 打分
+            scored = score_chunks_batch(chunks, company_identity)
+
+            # 4. 写入 document_chunks
+            for c in scored:
+                cur = conn.execute(
+                    """INSERT INTO document_chunks
+                       (document_id, company_key, source_type, source_url,
+                        title, chunk_text, chunk_type, token_estimate,
+                        source_score, entity_score, field_relevance_score,
+                        freshness_score, info_density_score, noise_score,
+                        final_score, is_noise)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (c["document_id"], company_key, c.get("source_type", ""),
+                     c.get("source_url", ""), c.get("title", ""),
+                     c["chunk_text"], c.get("chunk_type", "unknown"),
+                     c.get("token_estimate", 0),
+                     c.get("source_score", 0), c.get("entity_score", 0),
+                     c.get("field_relevance_score", 0), c.get("freshness_score", 0),
+                     c.get("info_density_score", 0), c.get("noise_score", 0),
+                     c.get("final_score", 0), c.get("is_noise", 0)),
+                )
+                chunk_ids.append(cur.lastrowid)
+
+        conn.commit()
+        conn.close()
+
+        if chunk_ids:
+            noise_count = sum(1 for c in scored if c.get("is_noise"))
+            print(f"[document_chunks] {company_key}: {len(chunk_ids)} chunks "
+                  f"from {len(docs)} docs ({noise_count} noise)")
+        return chunk_ids
+    except Exception as e:
+        print(f"[document_chunks] build failed: {e}")
+        return []
+
+
+def _extract_evidence_spans_from_chunks(
+    company_key: str, chunk_ids: list[int], field_rows: list[dict] | None = None
+) -> list[int]:
+    """从高分 chunk 预抽取 evidence_spans（必须在 LLM 前完成）。
+
+    对每个 field_key，从相关 chunk 中提取引用片段并创建 evidence_span。
+    返回 evidence_span ID 列表。
+    """
+    if not config.DOCUMENT_CHUNKING_ENABLED or not chunk_ids:
+        return []
+
+    try:
+        import sqlite3
+        from research.evidence_extractor import extract_field_evidence
+
+        db_path = config.DB_PATH_RESEARCH
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+
+        exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='document_chunks'"
+        ).fetchone()
+        if not exists:
+            conn.close()
+            return []
+
+        # 只取非噪音 + 高分的 chunk
+        placeholders = ", ".join("?" for _ in chunk_ids)
+        rows = conn.execute(
+            f"""SELECT * FROM document_chunks
+                WHERE id IN ({placeholders})
+                AND is_noise=0 AND final_score >= 0.35
+                ORDER BY final_score DESC LIMIT 200""",
+            chunk_ids,
+        ).fetchall()
+
+        span_ids = []
+
+        if field_rows:
+            # 如果有 field_rows，每字段创建 evidence_spans
+            field_keys = [r.get("field_key", "") for r in field_rows]
+            field_key_set = set(field_keys)
+
+            for row in rows:
+                chunk = dict(row)
+                chunk_text = chunk.get("chunk_text", "")
+                if not chunk_text.strip():
+                    continue
+
+                # 为每个可能相关的 field_key 创建 evidence_span
+                for fk in list(field_key_set)[:5]:  # 限制每 chunk 的字段数
+                    # 简单关键词检查
+                    fk_tokens = set(fk.replace("_", " ").lower().split())
+                    if any(t in chunk_text.lower() for t in fk_tokens if len(t) >= 3):
+                        span_id = extract_field_evidence(
+                            db_path,
+                            document_id=chunk["document_id"],
+                            company_key=company_key,
+                            field_key=fk,
+                            quote_text=chunk_text[:500],
+                            normalized_fact=chunk_text[:200],
+                            confidence=0.6,  # 预抽取有中等置信度
+                            created_by_agent="chunk_pre_extractor",
+                        )
+                        if span_id > 0:
+                            span_ids.append(span_id)
+
+        conn.close()
+
+        if span_ids:
+            print(f"[evidence_spans] {company_key}: {len(span_ids)} pre-extracted "
+                  f"from {len(rows)} chunks")
+        return span_ids
+    except Exception as e:
+        print(f"[evidence_spans] pre-extract failed: {e}")
+        return []
+
+
+def _build_packed_context_for_l0(
+    raw: dict, company_key: str, run_id: str = ""
+) -> dict:
+    """为 L0 构建 packed_context。"""
+    if not config.CONTEXT_PACKER_ENABLED:
+        return {}
+    try:
+        packed = pack_context(
+            config.DB_PATH_RESEARCH,
+            company_key=company_key,
+            target_type="l0",
+            target_key="l0_full",
+            budget_tokens=config.L0_CONTEXT_BUDGET_TOKENS,
+            run_id=run_id,
+        )
+        if packed.get("chunks"):
+            print(f"[context_packer] L0: {packed['used_tokens']}/{packed['budget_tokens']} "
+                  f"tokens, {len(packed['chunks'])} chunks, "
+                  f"{packed['dropped_count']} dropped")
+        return packed
+    except Exception as e:
+        print(f"[context_packer] L0 pack failed: {e}")
+        return {}
+
+
 # ── 主入口 ─────────────────────────────────────
 
 def run_pipeline(company_name: str, company_url: str,
@@ -1696,6 +1960,33 @@ def run_pipeline(company_name: str, company_url: str,
         else:
             raw["_pre_gap_refetch"] = {"extra_queries": 0, "reason": "website_or_secondary_sources_sufficient"}
 
+    # ── 噪音与上下文治理: source_documents → clean → chunk → rank → evidence_spans → pack ──
+    company_key = raw.get("company_key", company_name.lower())
+    if config.DOCUMENT_CHUNKING_ENABLED:
+        _report(progress_callback, "文档治理", "清洗 + 切块 + 打分...", job_id=job_id)
+        doc_ids = _persist_source_documents_from_raw(raw, run_id=job_id or "")
+        chunk_ids = _build_document_chunks_for_run(company_key, doc_ids)
+        if chunk_ids:
+            # 预抽取 evidence_spans（必须在 LLM 前完成）
+            span_ids = _extract_evidence_spans_from_chunks(
+                company_key, chunk_ids)
+            # 构建 L0 packed_context
+            packed = _build_packed_context_for_l0(raw, company_key, run_id=job_id or "")
+            raw["_packed_context"] = packed
+            quality_noise = sum(1 for c in packed.get("chunks", [])
+                              if c.get("is_noise"))
+            _report(progress_callback, "文档治理", {
+                "message": (f"文档治理完成: {len(doc_ids)} docs → "
+                           f"{len(chunk_ids)} chunks → "
+                           f"{len(packed.get('chunks', []))} packed "
+                           f"({packed.get('used_tokens', 0)}/{packed.get('budget_tokens', 0)} tokens, "
+                           f"{packed.get('dropped_count', 0)} dropped)"),
+            }, job_id=job_id)
+        else:
+            _report(progress_callback, "文档治理",
+                    "跳过（无有效文档或表未迁移）", job_id=job_id)
+            raw["_packed_context"] = {}
+
     # Step 2: AI 分析
     _report(progress_callback, "分析", "开始 4 层 LLM 分析...", job_id=job_id)
     records = llm_analysis(
@@ -1744,6 +2035,12 @@ def run_pipeline(company_name: str, company_url: str,
                     _report(progress_callback, "补采", {
                         "message": f"补采完成：{len(gap_queries)} 组 query，证据池 {len(raw['_evidence_pool'])} 条，重新分析...",
                     }, job_id=job_id)
+                    # 补采后重建文档治理
+                    if config.DOCUMENT_CHUNKING_ENABLED:
+                        doc_ids = _persist_source_documents_from_raw(raw, run_id=job_id or "")
+                        _build_document_chunks_for_run(company_key, doc_ids)
+                        raw["_packed_context"] = _build_packed_context_for_l0(
+                            raw, company_key, run_id=job_id or "")
                     # 用补采后的数据重新跑 L0-L3
                     _report(progress_callback, "分析", "补采后重新 4 层 LLM 分析...", job_id=job_id)
                     records = llm_analysis(
@@ -1781,9 +2078,9 @@ def run_pipeline(company_name: str, company_url: str,
             # 字段分辨率状态标记
             _mark_and_log_fields(config.DB_PATH_RESEARCH, company_name,
                                  version, field_rows)
-            # P1: 绑定字段级证据片段（source_documents → evidence_spans）
+            # P0: 事后弱绑定（source_documents → evidence_spans, 不得 confirmed）
             if config.EVIDENCE_SPAN_BINDING_ENABLED:
-                _bind_evidence_spans(
+                _bind_posthoc_weak_evidence(
                     config.DB_PATH_RESEARCH,
                     raw.get("company_key", ""),
                     company_name,

@@ -238,12 +238,25 @@ _EMPTY_FINAL = object()
 
 def get_final_field_value(db_path: str, company_name: str,
                           field_key: str) -> Optional[str]:
-    """返回 final_value，若从未定稿返回 None，若用户显式清空返回 _EMPTY_FINAL sentinel。"""
+    """返回 final_value，若从未定稿返回 None，若用户显式清空返回 _EMPTY_FINAL sentinel。
+
+    P0: 优先 company_key，回退 company_name。
+    """
+    ckey = company_name.lower()
     with _get_db(db_path) as conn:
-        row = conn.execute(
-            """SELECT final_value FROM final_fields
-               WHERE company_name=? AND field_key=? AND status != 'hidden'""",
-            (company_name, field_key)).fetchone()
+        existing = _existing_columns(conn, "final_fields")
+        has_ckey = "company_key" in existing
+        if has_ckey:
+            row = conn.execute(
+                """SELECT final_value FROM final_fields
+                   WHERE (company_key=? OR (company_key='' AND company_name=?))
+                   AND field_key=? AND status != 'hidden'""",
+                (ckey, company_name, field_key)).fetchone()
+        else:
+            row = conn.execute(
+                """SELECT final_value FROM final_fields
+                   WHERE company_name=? AND field_key=? AND status != 'hidden'""",
+                (company_name, field_key)).fetchone()
         if row is None:
             return None
         val = row["final_value"]
@@ -251,23 +264,47 @@ def get_final_field_value(db_path: str, company_name: str,
 
 
 def set_field_status(db_path: str, company_name: str, field_key: str,
-                     status: str) -> bool:
+                     status: str, company_key: str = "") -> bool:
+    """P0: 优先 company_key，回退 company_name。"""
+    ckey = (company_key or "").strip() or company_name.lower()
     with _get_db(db_path) as conn:
-        cur = conn.execute(
-            """UPDATE final_fields SET status=?, updated_at=CURRENT_TIMESTAMP
-               WHERE company_name=? AND field_key=?""",
-            (status, company_name, field_key))
+        existing = _existing_columns(conn, "final_fields")
+        has_ckey = "company_key" in existing
+        if has_ckey:
+            cur = conn.execute(
+                """UPDATE final_fields SET status=?, updated_at=CURRENT_TIMESTAMP
+                   WHERE (company_key=? OR (company_key='' AND company_name=?))
+                   AND field_key=?""",
+                (status, ckey, company_name, field_key))
+        else:
+            cur = conn.execute(
+                """UPDATE final_fields SET status=?, updated_at=CURRENT_TIMESTAMP
+                   WHERE company_name=? AND field_key=?""",
+                (status, company_name, field_key))
         conn.commit()
         return cur.rowcount > 0
 
 
-def confirm_all_fields(db_path: str, company_name: str) -> int:
+def confirm_all_fields(db_path: str, company_name: str,
+                       company_key: str = "") -> int:
+    """P0: 优先 company_key，回退 company_name。"""
+    ckey = (company_key or "").strip() or company_name.lower()
     with _get_db(db_path) as conn:
-        cur = conn.execute(
-            """UPDATE final_fields SET status='confirmed',
-               updated_at=CURRENT_TIMESTAMP
-               WHERE company_name=? AND status='draft'""",
-            (company_name,))
+        existing = _existing_columns(conn, "final_fields")
+        has_ckey = "company_key" in existing
+        if has_ckey:
+            cur = conn.execute(
+                """UPDATE final_fields SET status='confirmed',
+                   updated_at=CURRENT_TIMESTAMP
+                   WHERE (company_key=? OR (company_key='' AND company_name=?))
+                   AND status='draft'""",
+                (ckey, company_name))
+        else:
+            cur = conn.execute(
+                """UPDATE final_fields SET status='confirmed',
+                   updated_at=CURRENT_TIMESTAMP
+                   WHERE company_name=? AND status='draft'""",
+                (company_name,))
         conn.commit()
         return cur.rowcount
 
@@ -276,30 +313,45 @@ def update_field_status_batch(db_path: str, company_name: str, version: str,
                               results: list[dict]) -> int:
     """批量更新 research_fields 的分辨率状态列 + 写 resolution_logs
 
+    P0: 优先 company_key，回退 company_name。
     results: [{"field_key": str, "resolution_status": str, "unavailable_reason": str|None,
-               "resolution_method": str, "field_value": str}, ...]
+               "resolution_method": str, "field_value": str, "company_key": str}, ...]
     返回更新条数
     """
     count = 0
     try:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(research_fields)").fetchall()}
+        has_ckey = "company_key" in existing
+
         for r in results:
             fk = r.get("field_key", "")
             status = r.get("resolution_status", "")
             reason = r.get("unavailable_reason", "")
             method = r.get("resolution_method", "")
+            ckey = r.get("company_key", "").strip() or company_name.lower()
             if not fk or not status:
                 continue
 
-            # 更新 research_fields
-            conn.execute(
-                """UPDATE research_fields
-                   SET resolution_status=?, unavailable_reason=?,
-                       resolution_method=?, updated_at=CURRENT_TIMESTAMP
-                   WHERE company_name=? AND version=? AND field_key=?""",
-                (status, reason, method, company_name, version, fk),
-            )
+            # 更新 research_fields — 优先 company_key
+            if has_ckey:
+                conn.execute(
+                    """UPDATE research_fields
+                       SET resolution_status=?, unavailable_reason=?,
+                           resolution_method=?, updated_at=CURRENT_TIMESTAMP
+                       WHERE (company_key=? OR (company_key='' AND company_name=?))
+                       AND version=? AND field_key=?""",
+                    (status, reason, method, ckey, company_name, version, fk),
+                )
+            else:
+                conn.execute(
+                    """UPDATE research_fields
+                       SET resolution_status=?, unavailable_reason=?,
+                           resolution_method=?, updated_at=CURRENT_TIMESTAMP
+                       WHERE company_name=? AND version=? AND field_key=?""",
+                    (status, reason, method, company_name, version, fk),
+                )
             # 写 resolution_log
             conn.execute(
                 """INSERT INTO field_resolution_logs

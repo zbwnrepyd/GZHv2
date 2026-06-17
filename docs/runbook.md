@@ -35,6 +35,9 @@ python3 db/migrate.py db/research_db.sqlite --only 027_competitors.sql
 python3 db/migrate.py db/research_db.sqlite --only 028_company_analysis.sql
 python3 db/migrate.py db/research_db.sqlite --only 029_research_runs.sql
 python3 db/migrate.py db/research_db.sqlite --only 030_entity_table_indexes.sql
+# 噪音与上下文治理（031-032）
+python3 db/migrate.py db/research_db.sqlite --only 031_document_chunks.sql
+python3 db/migrate.py db/research_db.sqlite --only 032_packed_context_logs.sql
 # 历史数据迁移（可选）:
 # PYTHONPATH=webapp python3 webapp/db/migrate_entities.py db/research_db.sqlite
 ```
@@ -81,7 +84,16 @@ EVIDENCE_SPAN_BINDING_ENABLED=1
 ORCHESTRATOR_ENABLED=0
 ```
 
-`EVIDENCE_SPAN_BINDING_ENABLED=1` (default) mirrors the evidence pool into `source_documents` and creates field-level `evidence_spans`. `ORCHESTRATOR_ENABLED=0` (default) gates the multi-agent orchestration stage; enable to collect additional field candidates from MediaAgent, GitHubAgent, CommunityAgent, and InsightAgent.
+`EVIDENCE_SPAN_BINDING_ENABLED=1` (default) controls posthoc weak evidence binding (confidence <= 0.45, cannot confirm fields). `ORCHESTRATOR_ENABLED=0` (default) gates the multi-agent orchestration stage.
+
+Noise/governance tuning:
+```bash
+L0_CONTEXT_BUDGET_TOKENS=18000       # L0 input token cap (standard mode; deep=28000)
+DOCUMENT_CHUNKING_ENABLED=1           # Enable clean→chunk→rank chain
+CONTEXT_PACKER_ENABLED=1              # Enable packed_context packing
+RAW_TEXT_IN_LLM_ENABLED=0             # Must stay 0 — blocks raw_text in LLM prompt
+POSTHOC_EVIDENCE_WEAK_ONLY=1          # Must stay 1 — blocks posthoc evidence from confirming fields
+```
 
 With adaptive mode enabled, the first Tavily pass runs only the initial query slice, evaluates source quality, and escalates missing high-priority intents instead of always spending the full deep budget.
 

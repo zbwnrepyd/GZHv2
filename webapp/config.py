@@ -111,5 +111,12 @@ class Config:
     COLLECTION_WEBSITE_SUFFICIENT_CHARS: int = int(os.environ.get("COLLECTION_WEBSITE_SUFFICIENT_CHARS", "1500"))
     COLLECTION_GAP_QUERY_LIMIT: int = int(os.environ.get("COLLECTION_GAP_QUERY_LIMIT", "5"))
 
+    # ── 噪音与上下文治理 ──
+    L0_CONTEXT_BUDGET_TOKENS: int = int(os.environ.get("L0_CONTEXT_BUDGET_TOKENS", "18000"))
+    DOCUMENT_CHUNKING_ENABLED: bool = os.environ.get("DOCUMENT_CHUNKING_ENABLED", "1") == "1"
+    CONTEXT_PACKER_ENABLED: bool = os.environ.get("CONTEXT_PACKER_ENABLED", "1") == "1"
+    RAW_TEXT_IN_LLM_ENABLED: bool = os.environ.get("RAW_TEXT_IN_LLM_ENABLED", "0") == "1"
+    POSTHOC_EVIDENCE_WEAK_ONLY: bool = os.environ.get("POSTHOC_EVIDENCE_WEAK_ONLY", "1") == "1"
+
 
 config = Config()

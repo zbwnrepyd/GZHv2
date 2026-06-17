@@ -97,6 +97,7 @@ def build_evidence_map(db_path: str, company_key: str,
     """批量构建 {field_key: [span_id, ...]} 映射。
 
     用于 FieldResolver 的证据绑定检查。
+    P0: 排除 posthoc_weak_matcher 创建的弱证据（不得进入 confirmed 判定）。
     """
     evidence_map: dict[str, list[int]] = {}
     if not company_key or not field_keys:
@@ -105,8 +106,10 @@ def build_evidence_map(db_path: str, company_key: str,
         conn = _get_db(db_path)
         placeholders = ", ".join("?" for _ in field_keys)
         rows = conn.execute(
-            f"""SELECT field_key, id FROM evidence_spans
+            f"""SELECT field_key, id, created_by_agent, confidence FROM evidence_spans
                 WHERE company_key=? AND field_key IN ({placeholders})
+                AND (created_by_agent != 'posthoc_weak_matcher' OR created_by_agent IS NULL)
+                AND confidence >= 0.35
                 ORDER BY confidence DESC""",
             [company_key] + field_keys,
         ).fetchall()

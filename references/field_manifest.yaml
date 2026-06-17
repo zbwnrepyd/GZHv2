@@ -34,10 +34,27 @@ fields:
     category: A
     resolution_type: official_fact
     if_missing: unavailable
+    context_budget_tokens: 1600
+    max_evidence_chunks: 4
+    keywords:
+      - founder
+      - CEO
+      - co-founder
+      - 创始人
   founder_edu:
     category: A
     resolution_type: official_fact
     if_missing: unavailable
+    context_budget_tokens: 800
+    max_evidence_chunks: 3
+    keywords:
+      - education
+      - university
+      - degree
+      - PhD
+      - 学士
+      - 硕士
+      - 博士
   founder_bg:
     category: A
     resolution_type: official_fact
@@ -58,6 +75,23 @@ fields:
     category: A
     resolution_type: official_fact
     if_missing: unavailable
+    context_budget_tokens: 1600
+    max_evidence_chunks: 5
+    preferred_sources:
+      - official_blog
+      - press_release
+      - trusted_media
+      - financial_database
+    keywords:
+      - funding
+      - raised
+      - Series A
+      - Series B
+      - Series C
+      - valuation
+      - investor
+      - 融资
+      - 估值
   website_url:
     category: A
     resolution_type: official_fact
@@ -125,6 +159,23 @@ fields:
     resolution_type: market_model
     allow_proxy: true
     if_missing: manual_needed
+    context_budget_tokens: 2200
+    max_evidence_chunks: 6
+    required_context:
+      - region
+      - segment
+      - year
+      - source
+    preferred_sources:
+      - market_report
+      - trusted_media
+      - financial_database
+    keywords:
+      - TAM
+      - total addressable market
+      - market size
+      - CAGR
+      - 市场规模
   sam:
     category: C
     resolution_type: market_model
@@ -157,6 +208,15 @@ fields:
     resolution_type: private_metric
     allow_proxy: false
     if_missing: unavailable
+    context_budget_tokens: 800
+    max_evidence_chunks: 3
+    refetchable: false
+    confirm_requires_sources:
+      - financial_database
+      - founder_interview
+      - company_financials
+    fallback:
+      - industry_avg
   ltv:
     category: D
     resolution_type: private_metric

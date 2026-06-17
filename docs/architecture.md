@@ -63,11 +63,41 @@ Job status is persisted in the `research_jobs` table. The `/api/research/status/
 
 ## Evidence & Field Resolution Pipeline
 
-After L3 field extraction, the pipeline runs three additional stages before image collection:
+After collection and **before** LLM analysis, raw evidence is processed through a noise-governance chain:
 
-1. **Evidence span binding** (`_bind_evidence_spans`, gated by `EVIDENCE_SPAN_BINDING_ENABLED=1`): mirrors evidence_pool items into `source_documents`, then matches field values against document content by keyword overlap, creating `evidence_spans` rows. Failed matches do not block the pipeline.
-2. **Forum moderation** (`_run_forum_moderation`): runs `ForumModerator.audit_batch()` against all resolved fields, checking for weak evidence (confirmed without evidence_spans), missing market context (region/segment/year), private metrics incorrectly marked confirmed, and multi-candidate conflicts. Produces `weak_evidence_fields`, `conflict_fields`, `refetch_tasks`. Printed to logs; errors do not block the pipeline.
-3. **Orchestrator agents** (`_run_orchestrator_agents`, gated by `ORCHESTRATOR_ENABLED=1`, default off): runs the multi-agent orchestrator to collect additional field_candidates from MediaAgent, GitHubAgent, CommunityAgent, and InsightAgent. Candidates are persisted to `field_candidates` and merged into the evidence pool.
+```
+source_documents
+  ↓ document_cleaner (清洗 cookie/footer/navigation/CTA/YouTube寒暄/广告)
+  ↓ document_chunker (700-1000字符切块, 16种 chunk_type)
+  ↓ evidence_ranker (五维打分: source+entity+field_relevance+freshness+info_density-noise)
+  ↓ _extract_evidence_spans_from_chunks (预抽取 evidence_spans, 必须在 LLM 前)
+  ↓ context_packer (按 TokenBudget 打包, L0 <= 18,000 tokens, 单URL最多3 chunk)
+  ↓ packed_context 进入 LLM
+```
+
+After L3 field extraction, the pipeline runs additional stages before image collection:
+
+1. **Field resolution** (`_mark_and_log_fields`): passes `evidence_map` (built from pre-extracted evidence_spans, excluding posthoc_weak_matcher entries with confidence < 0.35) to `FieldResolver.resolve_all()`. official_fact and private_metric fields can only be `confirmed` when they have evidence bound in the map.
+2. **Posthoc weak evidence binding** (`_bind_posthoc_weak_evidence`, gated by `EVIDENCE_SPAN_BINDING_ENABLED=1`): mirrors evidence_pool items into `source_documents`, then performs keyword-overlap matching against field values. Creates evidence_spans with `confidence <= 0.45` and `created_by_agent="posthoc_weak_matcher"`. These spans are **excluded from evidence_map** and **cannot make a field confirmed**. Failed matches do not block the pipeline.
+3. **Forum moderation** (`_run_forum_moderation`): runs `ForumModerator.audit_batch()` against all resolved fields, checking for weak evidence (confirmed without evidence_spans), missing market context (region/segment/year), private metrics incorrectly marked confirmed, and multi-candidate conflicts. Produces `weak_evidence_fields`, `conflict_fields`, `refetch_tasks`. Printed to logs; errors do not block the pipeline.
+4. **Orchestrator agents** (`_run_orchestrator_agents`, gated by `ORCHESTRATOR_ENABLED=1`, default off): runs the multi-agent orchestrator to collect additional field_candidates from MediaAgent, GitHubAgent, CommunityAgent, and InsightAgent. Candidates are persisted to `field_candidates` and merged into the evidence pool.
+
+### Context Governance Modules
+
+`webapp/research/context/` implements the noise/governance chain:
+
+| Module | Role |
+|--------|------|
+| `document_cleaner.py` | Washes HTML/text: cookie/privacy/terms/login pages (>=95% recall), footer/navigation/CTA/YouTube greetings/sponsor mentions/ads |
+| `document_chunker.py` | Splits cleaned docs into 700-1000 char chunks with overlap; infers 16 chunk_types (hero/about/pricing/customer/blog/press/…); boilerplate/navigation/footer/cookie/legal default to is_noise=1 |
+| `evidence_ranker.py` | Five-dimension scoring: `0.30*source + 0.20*entity + 0.25*field_relevance + 0.10*freshness + 0.15*info_density - 0.30*noise`. final_score < 0.35 or noise_score >= 0.7 → excluded |
+| `context_packer.py` | Packs chunks per field/target budget; enforces URL dedup (<=3 per URL), source-type caps, writes `packed_context_logs` |
+| `token_budget.py` | Budget presets: L0=18000, L1=8000, L2=10000, L3=12000; field-level: fact=800, funding/founder=1600, market=2200, competitive/ecosystem/GTM=3000 |
+
+### New Tables
+
+- `document_chunks`: chunked documents with five-dimension scores and noise flags (migration 031)
+- `packed_context_logs`: per-call context budget usage records (migration 032)
 
 Field status follows a unified enum: `confirmed` | `derived` | `proxy` | `industry_avg` | `llm_extracted` | `manual_needed` | `unavailable` | `not_applicable` | `conflict` | `draft` | `hidden`. LTV/CAC uses a four-level fallback: `confirmed` (direct disclosure) → `proxy` (peer inference) → `industry_avg` (benchmark, annotated "不代表公司披露") → `unavailable`.
 
